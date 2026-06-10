@@ -38,13 +38,18 @@ static const uint32 fullscreenMask = SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOW_
 
 SdlWindow::SdlWindow() :
 #if SDL_VERSION_ATLEAST(2, 0, 0)
-	_window(nullptr), _windowCaption("ScummVM"),
-	_lastFlags(0), _lastX(SDL_WINDOWPOS_UNDEFINED), _lastY(SDL_WINDOWPOS_UNDEFINED),
+						 _window(nullptr), _windowCaption(
+#ifdef KINDLE
+											   "L:A_N:application_ID:org.scummvm.scummvm_PC:N"
+#else
+											   "ScummVM"
 #endif
-	_inputGrabState(false), _inputLockState(false),
-	_resizable(true)
-	{
-		memset(&grabRect, 0, sizeof(grabRect));
+											   ),
+						 _lastFlags(0), _lastX(SDL_WINDOWPOS_UNDEFINED), _lastY(SDL_WINDOWPOS_UNDEFINED),
+#endif
+						 _inputGrabState(false), _inputLockState(false),
+						 _resizable(true) {
+	memset(&grabRect, 0, sizeof(grabRect));
 
 #if SDL_VERSION_ATLEAST(2, 0, 0)
 #elif SDL_VERSION_ATLEAST(1, 2, 10)
@@ -86,7 +91,7 @@ void SdlWindow::setupIcon() {
 		warning("Could not load the built-in icon (%d %d %d %d)", w, h, ncols, nbytes);
 		return;
 	}
-	icon = (unsigned int*)malloc(w*h*sizeof(unsigned int));
+	icon = (unsigned int *)malloc(w * h * sizeof(unsigned int));
 	if (!icon) {
 		warning("Could not allocate temp storage for the built-in icon");
 		return;
@@ -153,7 +158,10 @@ void SdlWindow::setupIcon() {
 }
 
 void SdlWindow::setWindowCaption(const Common::String &caption) {
-#if SDL_VERSION_ATLEAST(2, 0, 0)
+#ifdef KINDLE
+	// Kindle WM requires a fixed title in its own format; ignore game-supplied captions.
+	(void)caption;
+#elif SDL_VERSION_ATLEAST(2, 0, 0)
 	_windowCaption = caption;
 	if (_window) {
 		SDL_SetWindowTitle(_window, caption.c_str());
@@ -297,7 +305,7 @@ bool SdlWindow::getSDLWMInformation(SDL_SysWMinfo *info) const {
 
 Common::Rect SdlWindow::getDesktopResolution() {
 #if SDL_VERSION_ATLEAST(3, 0, 0)
-	const SDL_DisplayMode* pDisplayMode = SDL_GetDesktopDisplayMode(getDisplayIndex());
+	const SDL_DisplayMode *pDisplayMode = SDL_GetDesktopDisplayMode(getDisplayIndex());
 	if (pDisplayMode) {
 		_desktopRes = Common::Rect(pDisplayMode->w, pDisplayMode->h);
 	} else {
@@ -316,11 +324,11 @@ Common::Rect SdlWindow::getDesktopResolution() {
 void SdlWindow::getDisplayDpi(float *dpi, float *defaultDpi) const {
 	const float systemDpi =
 #ifdef __APPLE__
-	72.0f;
+		72.0f;
 #elif defined(_WIN32)
-	96.0f;
+		96.0f;
 #else
-	90.0f; // ScummVM default
+		90.0f; // ScummVM default
 #endif
 	if (defaultDpi)
 		*defaultDpi = systemDpi;
@@ -387,12 +395,12 @@ SDL_Surface *copySDLSurface(SDL_Surface *src) {
 
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 	SDL_Surface *res = SDL_CreateSurfaceFrom(src->w, src->h, src->format,
-						   src->pixels, src->pitch);
+											 src->pixels, src->pitch);
 #else
 	SDL_Surface *res = SDL_CreateRGBSurfaceFrom(src->pixels,
-	                       src->w, src->h, src->format->BitsPerPixel,
-	                       src->pitch, src->format->Rmask, src->format->Gmask,
-	                       src->format->Bmask, src->format->Amask);
+												src->w, src->h, src->format->BitsPerPixel,
+												src->pitch, src->format->Rmask, src->format->Gmask,
+												src->format->Bmask, src->format->Amask);
 #endif
 
 	if (locked) {
@@ -576,6 +584,10 @@ bool SdlWindow::createOrUpdateWindow(int width, int height, uint32 flags) {
 #endif
 
 	_lastFlags = flags;
+
+#ifdef KINDLE
+	SDL_SetWindowTitle(_window, "L:A_N:application_ID:org.scummvm.scummvm_PC:N");
+#endif
 
 	return true;
 }

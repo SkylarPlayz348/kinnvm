@@ -24,11 +24,11 @@
 #if defined(SDL_BACKEND)
 
 #include "backends/events/sdl/sdl-events.h"
-#include "backends/platform/sdl/sdl.h"
 #include "backends/graphics/graphics.h"
+#include "backends/platform/sdl/sdl.h"
 #include "common/config-manager.h"
-#include "common/textconsole.h"
 #include "common/fs.h"
+#include "common/textconsole.h"
 #include "engines/engine.h"
 #include "gui/gui-manager.h"
 
@@ -55,12 +55,12 @@ bool SdlEventSource::processMouseEvent(Common::Event &event, int x, int y, int r
 #if SDL_VERSION_ATLEAST(2, 0, 0)
 Common::Point SdlEventSource::getTouchscreenSize() {
 	int windowWidth, windowHeight;
-	SDL_GetWindowSize((dynamic_cast<SdlGraphicsManager*>(_graphicsManager))->getWindow()->getSDLWindow(), &windowWidth, &windowHeight);
+	SDL_GetWindowSize((dynamic_cast<SdlGraphicsManager *>(_graphicsManager))->getWindow()->getSDLWindow(), &windowWidth, &windowHeight);
 	return Common::Point(windowWidth, windowHeight);
 }
 
 bool SdlEventSource::isTouchPortTouchpadMode(SDL_TouchID port) {
-       return g_system->getFeatureState(OSystem::kFeatureTouchpadMode);
+	return g_system->getFeatureState(OSystem::kFeatureTouchpadMode);
 }
 
 bool SdlEventSource::isTouchPortActive(SDL_TouchID port) {
@@ -69,7 +69,7 @@ bool SdlEventSource::isTouchPortActive(SDL_TouchID port) {
 
 void SdlEventSource::convertTouchXYToGameXY(float touchX, float touchY, int *gameX, int *gameY) {
 	int windowWidth, windowHeight;
-	SDL_GetWindowSize((dynamic_cast<SdlGraphicsManager*>(_graphicsManager))->getWindow()->getSDLWindow(), &windowWidth, &windowHeight);
+	SDL_GetWindowSize((dynamic_cast<SdlGraphicsManager *>(_graphicsManager))->getWindow()->getSDLWindow(), &windowWidth, &windowHeight);
 
 	*gameX = windowWidth * touchX;
 	*gameY = windowHeight * touchY;
@@ -83,6 +83,19 @@ bool SdlEventSource::handleMouseMotion(SDL_Event &ev, Common::Event &event) {
 }
 
 bool SdlEventSource::handleMouseButtonDown(SDL_Event &ev, Common::Event &event) {
+#ifdef KINDLE
+	if (ev.button.button == SDL_BUTTON_LEFT) {
+		SDL_Rect db;
+		SDL_GetDisplayBounds(0, &db);
+		int tx = db.w / 7, ty = db.h / 7;
+		int mx = ev.button.x, my = ev.button.y;
+		_kindleSwipeStarted = (mx < tx || mx > db.w - tx) && (my < ty || my > db.h - ty);
+		if (_kindleSwipeStarted) {
+			_kindleSwipeStartX = mx;
+			_kindleSwipeStartY = my;
+		}
+	}
+#endif
 	if (ev.button.button == SDL_BUTTON_LEFT)
 		event.type = Common::EVENT_LBUTTONDOWN;
 	else if (ev.button.button == SDL_BUTTON_RIGHT)
@@ -112,6 +125,30 @@ bool SdlEventSource::handleMouseButtonDown(SDL_Event &ev, Common::Event &event) 
 }
 
 bool SdlEventSource::handleMouseButtonUp(SDL_Event &ev, Common::Event &event) {
+#ifdef KINDLE
+	if (ev.button.button == SDL_BUTTON_MIDDLE) {
+		event.type = Common::EVENT_VIRTUAL_KEYBOARD;
+		return true;
+	}
+	if (ev.button.button == SDL_BUTTON_LEFT && _kindleSwipeStarted) {
+		_kindleSwipeStarted = false;
+		SDL_Rect db;
+		SDL_GetDisplayBounds(0, &db);
+		int tx = db.w / 7, ty = db.h / 7;
+		int mx = ev.button.x, my = ev.button.y;
+		bool endCorner = (mx < tx || mx > db.w - tx) && (my < ty || my > db.h - ty);
+		if (endCorner) {
+			bool startLeft = _kindleSwipeStartX < tx;
+			bool startTop = _kindleSwipeStartY < ty;
+			bool endLeft = mx < tx;
+			bool endTop = my < ty;
+			if (startLeft != endLeft && startTop != endTop) {
+				event.type = Common::EVENT_MAINMENU;
+				return true;
+			}
+		}
+	}
+#endif
 	if (ev.button.button == SDL_BUTTON_LEFT)
 		event.type = Common::EVENT_LBUTTONUP;
 	else if (ev.button.button == SDL_BUTTON_RIGHT)
@@ -140,17 +177,16 @@ bool SdlEventSource::handleSysWMEvent(SDL_Event &ev, Common::Event &event) {
 
 int SdlEventSource::mapSDLJoystickButtonToOSystem(Uint8 sdlButton) {
 	const Common::JoystickButton osystemButtons[] = {
-	    Common::JOYSTICK_BUTTON_A,
-	    Common::JOYSTICK_BUTTON_B,
-	    Common::JOYSTICK_BUTTON_X,
-	    Common::JOYSTICK_BUTTON_Y,
-	    Common::JOYSTICK_BUTTON_LEFT_SHOULDER,
-	    Common::JOYSTICK_BUTTON_RIGHT_SHOULDER,
-	    Common::JOYSTICK_BUTTON_BACK,
-	    Common::JOYSTICK_BUTTON_START,
-	    Common::JOYSTICK_BUTTON_LEFT_STICK,
-	    Common::JOYSTICK_BUTTON_RIGHT_STICK
-	};
+		Common::JOYSTICK_BUTTON_A,
+		Common::JOYSTICK_BUTTON_B,
+		Common::JOYSTICK_BUTTON_X,
+		Common::JOYSTICK_BUTTON_Y,
+		Common::JOYSTICK_BUTTON_LEFT_SHOULDER,
+		Common::JOYSTICK_BUTTON_RIGHT_SHOULDER,
+		Common::JOYSTICK_BUTTON_BACK,
+		Common::JOYSTICK_BUTTON_START,
+		Common::JOYSTICK_BUTTON_LEFT_STICK,
+		Common::JOYSTICK_BUTTON_RIGHT_STICK};
 
 	if (sdlButton >= ARRAYSIZE(osystemButtons)) {
 		return -1;
@@ -191,15 +227,15 @@ bool SdlEventSource::handleJoyAxisMotion(SDL_Event &ev, Common::Event &event) {
 	return true;
 }
 
-#define HANDLE_HAT_UP(new, old, mask, joybutton) \
-	if ((old & mask) && !(new & mask)) { \
-		event.joystick.button = joybutton; \
+#define HANDLE_HAT_UP(new, old, mask, joybutton)       \
+	if ((old & mask) && !(new &mask)) {                \
+		event.joystick.button = joybutton;             \
 		g_system->getEventManager()->pushEvent(event); \
 	}
 
-#define HANDLE_HAT_DOWN(new, old, mask, joybutton) \
-	if ((new & mask) && !(old & mask)) { \
-		event.joystick.button = joybutton; \
+#define HANDLE_HAT_DOWN(new, old, mask, joybutton)     \
+	if ((new &mask) && !(old & mask)) {                \
+		event.joystick.button = joybutton;             \
 		g_system->getEventManager()->pushEvent(event); \
 	}
 

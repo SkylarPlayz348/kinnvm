@@ -1,80 +1,39 @@
-# [ScummVM README](https://www.scummvm.org/) · [![Translation status](https://translations.scummvm.org/widgets/scummvm/-/scummvm/svg-badge.svg)](https://translations.scummvm.org/engage/scummvm/?utm_source=widget) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md#pull-requests)
+# ScummVM Kindle Port
 
-## About ScummVM
+Original README [here](./README-original.md)
 
-ScummVM allows you to play classic graphic point-and-click adventure games, text adventure games, and RPGs, as long as you already have the game data files. ScummVM replaces the executable files shipped with the games, which means you can now play your favorite games on all your favorite devices.
+## Requirements:
+- Kindle with firmware version 5.16.3+
+- At least 2-4 GBs(room for ScummVM + dependencies and a game or two)
 
-So how did ScummVM get its name? Many of the famous LucasArts adventure games, such as Maniac Mansion and the Monkey Island series, were created using a utility called SCUMM (Script Creation Utility for Maniac Mansion). The ‘VM’ in ScummVM stands for Virtual Machine.
+## Issues
 
-While ScummVM was originally designed to run LucasArts’ SCUMM games, over time support has been added for many other games: see the full list [on our wiki](https://wiki.scummvm.org/index.php?title=Category:Supported_Games). Noteworthy titles include Broken Sword, Myst and Blade Runner, although there are countless other hidden gems to explore.
+Report all issues here on github
 
-For more information, compatibility lists, details on donating, the
-latest release, progress reports and more, please visit the ScummVM [home
-page](https://www.scummvm.org/).
+## Building
 
-## Quickstart
+Building documentation will be made later but all needed to libraries and headers are in `kindle-libs`.
 
-For the impatient among you, here is how to get ScummVM running in five simple steps.
+`FluidSynth` as its optional you will need to build and install on your own. It is confirmed to work and is in any release on from this repo.
 
-1. Download ScummVM from [our website](https://www.scummvm.org/downloads/) and install it.
+`SDL-EP` for this you will need my SDL2 port SDL-EP not much is out there but building and installing to your sysroot is what you need to do
 
-2. Create a directory on your hard drive and copy the game datafiles from the original media to this directory. Repeat this for every game you want to play.
+a lot of this is manual but that will change when I redo ScummVMs build system.
 
-3. Start ScummVM, choose 'Add game', select the directory containing the game datafiles (do not try to select the datafiles themselves!) and press Choose.
+**Coming Soon**
 
-4. The Game Options dialog opens to allow configuration of various settings for the game. These can be reconfigured at any time, but for now everything should be OK at the default settings.
+## Contributing
 
-5. Select the game you want to play in the list, and press Start. To play a game next time, skip to step 5, unless you want to add more games.
+All PRs are welcome and wanted.
 
->
-> Hint:
->
-> To add multiple games in one go, click the small arrow on the 'Add game' button and choose 'Mass Add'. You are again asked to select a directory, only this time ScummVM will search through all subdirectories for supported games.
+## Compatibility
 
+See [compatibility.md](./compatibility.md)
 
+## AI Disclosure
 
-## Reporting a bug
-
-To report a bug, go to the ScummVM [Issue Tracker](https://bugs.scummvm.org/) and log in with your GitHub account.
-
-Please make sure the bug is reproducible, and still occurs in the latest git/[Daily build](https://buildbot.scummvm.org/#/dailybuilds) version. Also check the [compatibility list](https://www.scummvm.org/compatibility/) for that game, to ensure the issue is not already known. Please do not report bugs for games that are not listed as completable on the [Supported Games](https://wiki.scummvm.org/index.php?title=Category:Supported_Games) wiki page, or on the compatibility list. We already know those games have bugs!
-
-Please include the following information in the bug report:
-
-- ScummVM version (test the latest git/[Daily build](https://buildbot.scummvm.org/#/dailybuilds))
-- Bug details, including instructions for how to reproduce the bug. If possible, include log files, screenshots, and any other relevant information.
-- Game language
-- Game version (for example, talkie or floppy)
-- Platform and Compiler (for example, Win32, Linux or FreeBSD)
-- An attached saved game, if possible.
-- If this bug only occurred recently, include the last version without the bug, and the first version with the bug. That way we can fix it quicker by looking at the changes made.
-
-Finally, please report each issue separately; do not file multiple issues on the same ticket. It is difficult to track the status of each individual bug when they aren't on their own tickets.
-
-## Documentation
-
-### User documentation
-
-For everything you need to know about how to use ScummVM, see our [user documentation](https://docs.scummvm.org/).
-
-### The ScummVM Wiki
-
-[The wiki](https://wiki.scummvm.org/) is the place to go for information about every game supported by ScummVM. If you're a developer, there's also some very handy information in the Developer section.
-
-### Changelog
-
-Our extensive change log is available [here](NEWS.md).
-
-## SAST Tools
-
-[PVS-Studio](https://pvs-studio.com/en/pvs-studio/?utm_source=github&utm_medium=organic&utm_campaign=open_source) - static analyzer for C, C++, C#, and Java code.
+I have no experience with Kindle's audio backend so with the help of AI and [kbarni's KinAMP](https://github.com/kbarni/KinAMP) I was able to take advantage of part of how it handles the audio backend. Also with that I was able to integrate FluidSynth into the project.
 
 ## Credits
 
-A massive thank you to the entire team for making the ScummVM project possible. See the credits [here](AUTHORS)!
-
------
-
-> Good Luck and Happy Adventuring\!
-> The ScummVM team.
-> <https://www.scummvm.org/>
+[KinAMP](https://github.com/kbarni/KinAMP) - Used for Audio

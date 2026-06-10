@@ -231,6 +231,17 @@ MODULE_OBJS += \
 	events/sdl/sdl2-events.o
 endif
 
+ifdef KINDLE
+MODULE_OBJS += \
+	mixer/kindle/kindle-mixer.o
+
+SYSROOT_USR = $(shell $(CXX) -print-sysroot)/usr
+$(MODULE)/mixer/kindle/kindle-mixer.o: CXXFLAGS += \
+	-I$(SYSROOT_USR)/include/glib-2.0 \
+	-I$(SYSROOT_USR)/lib/glib-2.0/include \
+	-I$(SYSROOT_USR)/include/libxml2
+endif
+
 ifdef USE_SDL3
 MODULE_OBJS += \
 	events/sdl/sdl3-events.o

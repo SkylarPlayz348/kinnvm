@@ -43,6 +43,9 @@
 #endif
 
 #include "backends/mixer/null/null-mixer.h"
+#ifdef KINDLE
+#include "backends/mixer/kindle/kindle-mixer.h"
+#endif
 #include "backends/events/default/default-events.h"
 #include "backends/keymapper/hardware-input.h"
 #include "backends/mutex/sdl/sdl-mutex.h"
@@ -199,6 +202,10 @@ void OSystem_SDL::init() {
 }
 
 bool OSystem_SDL::hasFeature(Feature f) {
+#if defined(KINDLE) && defined(ENABLE_VKEYBD)
+	if (f == kFeatureVirtualKeyboard)
+		return true;
+#endif
 #if SDL_VERSION_ATLEAST(1, 2, 7)
 	if (f == kFeatureCpuSSE2) return SDL_HasSSE2();
 	if (f == kFeatureCpuAltivec) return SDL_HasAltiVec();
@@ -248,6 +255,25 @@ void OSystem_SDL::setFeatureState(Feature f, bool enable) {
 	case kFeatureTouchpadMode:
 		ConfMan.setBool("touchpad_mouse_mode", enable);
 		break;
+#if defined(KINDLE) && defined(ENABLE_VKEYBD)
+	case kFeatureVirtualKeyboard: {
+		DefaultEventManager *dem = dynamic_cast<DefaultEventManager *>(_eventManager);
+		if (!dem) break;
+		if (enable) {
+			// Post the event rather than calling show() inline — startEditMode()
+			// calls setFeatureState() deep in the widget handler chain, and
+			// blocking there leaves the ListWidget's edit state half-initialised
+			// when kListItemEditModeStartedCmd fires after show() returns.
+			// Posting defers the open to the next top-level pollEvent() call.
+			Common::Event evt;
+			evt.type = Common::EVENT_VIRTUAL_KEYBOARD;
+			dem->pushEvent(evt);
+		} else {
+			dem->showVirtualKeyboard(false);
+		}
+		break;
+	}
+#endif
 	default:
 		ModularGraphicsBackend::setFeatureState(f, enable);
 		break;
@@ -357,7 +383,11 @@ void OSystem_SDL::initBackend() {
 		_savefileManager = new DefaultSaveFileManager();
 
 	if (_mixerManager == nullptr) {
+#ifdef KINDLE
+		_mixerManager = new KindleGstMixerManager();
+#else
 		_mixerManager = new SdlMixerManager();
+#endif
 		// Setup and start mixer
 		_mixerManager->init();
 

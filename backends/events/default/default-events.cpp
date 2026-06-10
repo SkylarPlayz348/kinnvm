@@ -79,6 +79,17 @@ void DefaultEventManager::init() {
 #endif
 }
 
+#ifdef ENABLE_VKEYBD
+void DefaultEventManager::showVirtualKeyboard(bool show) {
+	if (!_vk)
+		return;
+	if (show && !_vk->isDisplaying())
+		_vk->show();
+	else if (!show && _vk->isDisplaying())
+		_vk->close(true);
+}
+#endif
+
 bool DefaultEventManager::pollEvent(Common::Event &event) {
 	_dispatcher.dispatch();
 

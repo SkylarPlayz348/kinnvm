@@ -70,6 +70,12 @@ protected:
 	int _mouseX;
 	int _mouseY;
 
+#ifdef KINDLE
+	bool _kindleSwipeStarted;
+	int  _kindleSwipeStartX;
+	int  _kindleSwipeStartY;
+#endif
+
 	/** Joystick */
 	SDL_Joystick *_joystick;
 

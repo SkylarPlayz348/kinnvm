@@ -75,6 +75,9 @@ void SdlEventSource::loadGameControllerMappingFile() {
 SdlEventSource::SdlEventSource()
 	: EventSource(), _scrollLock(false), _joystick(nullptr), _lastScreenID(0), _graphicsManager(nullptr), _queuedFakeMouseMove(false),
 	  _lastHatPosition(SDL_HAT_CENTERED), _mouseX(0), _mouseY(0), _engineRunning(false)
+#ifdef KINDLE
+	  , _kindleSwipeStarted(false), _kindleSwipeStartX(0), _kindleSwipeStartY(0)
+#endif
 	  , _queuedFakeKeyUp(false), _fakeKeyUp(), _queuedFakeMouseScroll(0), _fakeMouseScroll(), _controller(nullptr)
 	  {
 	int joystick_num = ConfMan.getInt("joystick_num");
@@ -477,6 +480,28 @@ bool SdlEventSource::preprocessFingerUp(SDL_Event *event, Common::Event *ev) {
 						}
 					}
 				}
+#ifdef KINDLE
+				// Corner-to-corner swipe opens the ScummVM main menu.
+				// Uses raw normalized finger coords (0–1) so it works even for
+				// screen regions that don't produce SDL mouse button events.
+				if (numFingersDown == 1) {
+					float sx = _touchPanels[port]._finger[i].lastDownX;
+					float sy = _touchPanels[port]._finger[i].lastDownY;
+					float ex = event->tfinger.x;
+					float ey = event->tfinger.y;
+					const float kC = 1.0f / 7.0f;
+					bool startCorner = (sx < kC || sx > 1.0f - kC) && (sy < kC || sy > 1.0f - kC);
+					bool endCorner   = (ex < kC || ex > 1.0f - kC) && (ey < kC || ey > 1.0f - kC);
+					if (startCorner && endCorner) {
+						bool sL = (sx < 0.5f), sT = (sy < 0.5f);
+						bool eL = (ex < 0.5f), eT = (ey < 0.5f);
+						if (sL != eL || sT != eT) {
+							ev->type = Common::EVENT_MAINMENU;
+							return true;
+						}
+					}
+				}
+#endif
 			} else if (numFingersDown == 1) {
 				// when dragging, and the last finger is lifted, the drag is over
 				if (!isTouchPortTouchpadMode(port)) {

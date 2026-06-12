@@ -175,6 +175,7 @@ public:
 	Common::Error loadGameStream(Common::SeekableReadStream *stream) override;
 	Common::Error saveGameStream(Common::WriteStream *stream, bool isAutosave = false) override;
 	void drawSlot(int idx, int face, int x, int y);
+	void drawSaveCard(int idx);
 	void captureContext();
 
 	void setContextLabel(const Common::String &contextLabel) {
@@ -185,6 +186,7 @@ public:
 
 	bool wasRestarted() const { return _restarted; }
 	bool wasLoaded() const { return _loaded; }
+	uint currentAmerzoneLevel() const;
 
 	void saveVariables();
 	void loadVariables();
@@ -272,11 +274,11 @@ private:
 	Common::Array<byte> _capturedState;
 	Common::Array<byte> _loadedState;
 
-	Common::HashMap<int, Common::String> _textes;
+	Common::HashMap<int, Common::U32String> _textes;
 
-	Common::ScopedPtr<Graphics::Font> _font12;
-	Common::ScopedPtr<Graphics::Font> _font14;
-	Common::ScopedPtr<Graphics::Font> _font18;
+	static const int kFontSizeCount = 6;
+	Common::ScopedPtr<Graphics::Font> _regularFonts[kFontSizeCount];
+	Common::ScopedPtr<Graphics::Font> _boldFonts[kFontSizeCount];
 
 	Common::ScopedPtr<Graphics::ManagedSurface> _text;
 	Common::Rect _textRect;

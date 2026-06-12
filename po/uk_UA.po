@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ScummVM 1.9.0git\n"
 "Report-Msgid-Bugs-To: scummvm-devel@lists.scummvm.org\n"
-"POT-Creation-Date: 2026-06-09 13:22+0000\n"
+"POT-Creation-Date: 2026-06-11 22:10+0000\n"
 "PO-Revision-Date: 2026-05-06 08:54+0000\n"
 "Last-Translator: Eugene Sandulenko <sev@scummvm.org>\n"
 "Language-Team: Ukrainian <https://translations.scummvm.org/projects/scummvm/"
@@ -341,7 +341,7 @@ msgstr "Інше хмарне сховище вже є активним. Чи в
 #: engines/hypno/metaengine.cpp:192 engines/kyra/gui/saveload_eob.cpp:611
 #: engines/kyra/gui/saveload_eob.cpp:644 engines/lab/metaengine.cpp:197
 #: engines/mm/mm1/metaengine.cpp:54 engines/parallaction/metaengine.cpp:169
-#: engines/sci/graphics/controls32.cpp:937 engines/scumm/scumm.cpp:4470
+#: engines/sci/graphics/controls32.cpp:937 engines/scumm/scumm.cpp:4478
 #: engines/sherlock/metaengine.cpp:638 engines/sherlock/metaengine.cpp:1244
 #: engines/sludge/event.cpp:144 engines/toon/toon.cpp:1550
 #: engines/zvision/zvision.cpp:328
@@ -360,7 +360,7 @@ msgstr "Так"
 #: engines/hypno/metaengine.cpp:198 engines/kyra/gui/saveload_eob.cpp:611
 #: engines/kyra/gui/saveload_eob.cpp:644 engines/lab/metaengine.cpp:204
 #: engines/mm/mm1/metaengine.cpp:52 engines/parallaction/metaengine.cpp:175
-#: engines/sci/graphics/controls32.cpp:937 engines/scumm/scumm.cpp:4470
+#: engines/sci/graphics/controls32.cpp:937 engines/scumm/scumm.cpp:4478
 #: engines/sherlock/metaengine.cpp:643 engines/sherlock/metaengine.cpp:1250
 #: engines/sludge/event.cpp:144 engines/toon/toon.cpp:1550
 #: engines/zvision/zvision.cpp:329
@@ -388,7 +388,7 @@ msgstr "Невірний формат JSON-коду."
 #: engines/director/lingo/xlibs/j/jitdraw3.cpp:123
 #: engines/drascula/saveload.cpp:51 engines/grim/inputdialog.cpp:83
 #: engines/parallaction/saveload.cpp:270 engines/sci/engine/kgraphics.cpp:76
-#: engines/sci/graphics/controls32.cpp:934 engines/scumm/scumm.cpp:4482
+#: engines/sci/graphics/controls32.cpp:934 engines/scumm/scumm.cpp:4490
 #: engines/sword1/control.cpp:2816
 msgid "OK"
 msgstr "OK"
@@ -3398,7 +3398,7 @@ msgstr "Движок графічних квестів"
 #: engines/mohawk/riven_stacks/aspit.cpp:454
 #: engines/neverhood/metaengine.cpp:200 engines/saga/metaengine.cpp:449
 #: engines/scumm/help.cpp:84 engines/scumm/help.cpp:86
-#: engines/scumm/scumm.cpp:4482 engines/sludge/keymapper_tables.h:95
+#: engines/scumm/scumm.cpp:4490 engines/sludge/keymapper_tables.h:95
 #: engines/sludge/keymapper_tables.h:144 engines/sludge/keymapper_tables.h:223
 #: engines/sludge/keymapper_tables.h:343 engines/sludge/keymapper_tables.h:355
 #: engines/sludge/keymapper_tables.h:416 engines/sludge/keymapper_tables.h:429
@@ -6094,7 +6094,7 @@ msgstr "R2"
 #: backends/platform/sdl/miyoo/miyoo.cpp:114
 #: engines/alcachofa/metaengine.cpp:110 engines/grim/grim.cpp:545
 #: engines/grim/grim.cpp:645 engines/hdb/metaengine.cpp:264
-#: engines/made/metaengine.cpp:186 engines/phoenixvr/metaengine.cpp:101
+#: engines/made/metaengine.cpp:186 engines/phoenixvr/metaengine.cpp:110
 #: engines/scumm/metaengine.cpp:1232 engines/toltecs/metaengine.cpp:252
 msgid "Menu"
 msgstr "Меню"
@@ -6470,7 +6470,7 @@ msgstr "Взяти"
 #: engines/grim/grim.cpp:621 engines/hdb/metaengine.cpp:251
 #: engines/hpl1/metaengine.cpp:94 engines/icb/icb.cpp:101
 #: engines/icb/icb.cpp:179 engines/petka/metaengine.cpp:173
-#: engines/phoenixvr/metaengine.cpp:73 engines/scumm/help.cpp:228
+#: engines/phoenixvr/metaengine.cpp:82 engines/scumm/help.cpp:228
 #: engines/scumm/help.cpp:237 engines/scumm/help.cpp:244
 #: engines/scumm/help.cpp:252 engines/sherlock/metaengine.cpp:435
 #: engines/sludge/keymapper_tables.h:58 engines/sludge/keymapper_tables.h:119
@@ -6614,7 +6614,7 @@ msgstr ""
 #: engines/got/metaengine.cpp:35 engines/groovie/metaengine.cpp:53
 #: engines/m4/metaengine.cpp:37 engines/mads/metaengine.cpp:116
 #: engines/nancy/metaengine.cpp:104 engines/neverhood/dialogs.cpp:47
-#: engines/pelrock/metaengine.cpp:35 engines/phoenixvr/metaengine.cpp:38
+#: engines/pelrock/metaengine.cpp:35 engines/phoenixvr/metaengine.cpp:47
 #: engines/sci/detection_options.h:105 engines/sherlock/metaengine.cpp:47
 #: engines/toltecs/metaengine.cpp:44 engines/trecision/metaengine.cpp:41
 #: engines/ultima/metaengine.cpp:56 engines/waynesworld/metaengine.cpp:37
@@ -6629,7 +6629,7 @@ msgstr "Використовувати ориг. екрани збереженн
 #: engines/got/metaengine.cpp:36 engines/groovie/metaengine.cpp:54
 #: engines/m4/metaengine.cpp:38 engines/mads/metaengine.cpp:117
 #: engines/nancy/metaengine.cpp:105 engines/neverhood/dialogs.cpp:48
-#: engines/pelrock/metaengine.cpp:36 engines/phoenixvr/metaengine.cpp:39
+#: engines/pelrock/metaengine.cpp:36 engines/phoenixvr/metaengine.cpp:48
 #: engines/sci/detection_options.h:106 engines/sherlock/metaengine.cpp:48
 #: engines/toltecs/metaengine.cpp:45 engines/trecision/metaengine.cpp:42
 #: engines/ultima/metaengine.cpp:57 engines/waynesworld/metaengine.cpp:38
@@ -7038,7 +7038,7 @@ msgstr ""
 msgid "Quick load or save game isn't supported in this location"
 msgstr "Швидке завантаження або збереження не підтримується в цій локації"
 
-#: engines/agos/saveload.cpp:160 engines/scumm/scumm.cpp:3421
+#: engines/agos/saveload.cpp:160 engines/scumm/scumm.cpp:3429
 #, c-format
 msgid ""
 "Failed to load saved game from file:\n"
@@ -7049,7 +7049,7 @@ msgstr ""
 "\n"
 "%s"
 
-#: engines/agos/saveload.cpp:195 engines/scumm/scumm.cpp:3408
+#: engines/agos/saveload.cpp:195 engines/scumm/scumm.cpp:3416
 #, c-format
 msgid ""
 "Failed to save game to file:\n"
@@ -7060,7 +7060,7 @@ msgstr ""
 "\n"
 "%s"
 
-#: engines/agos/saveload.cpp:203 engines/scumm/scumm.cpp:3441
+#: engines/agos/saveload.cpp:203 engines/scumm/scumm.cpp:3449
 #, c-format
 msgid ""
 "Successfully saved game in file:\n"
@@ -7226,7 +7226,7 @@ msgid "Show version"
 msgstr "Показувати версію"
 
 #: engines/asylum/metaengine.cpp:120 engines/crab/input/input.cpp:271
-#: engines/phoenixvr/metaengine.cpp:96 engines/queen/metaengine.cpp:253
+#: engines/phoenixvr/metaengine.cpp:105 engines/queen/metaengine.cpp:253
 #: engines/sludge/keymapper_tables.h:308 engines/sludge/keymapper_tables.h:404
 #: engines/sludge/keymapper_tables.h:471 engines/sludge/keymapper_tables.h:502
 #: engines/ultima/nuvie/metaengine.cpp:92
@@ -7235,7 +7235,7 @@ msgid "Quick load"
 msgstr "Швидке завантаження"
 
 #: engines/asylum/metaengine.cpp:125 engines/crab/input/input.cpp:266
-#: engines/phoenixvr/metaengine.cpp:91 engines/queen/metaengine.cpp:247
+#: engines/phoenixvr/metaengine.cpp:100 engines/queen/metaengine.cpp:247
 #: engines/sludge/keymapper_tables.h:64 engines/sludge/keymapper_tables.h:303
 #: engines/sludge/keymapper_tables.h:410 engines/sludge/keymapper_tables.h:465
 #: engines/sludge/keymapper_tables.h:496 engines/ultima/nuvie/metaengine.cpp:91
@@ -7545,7 +7545,7 @@ msgstr "Перемкнути режим бою"
 #. I18N: This keymap allows skipping video cutscenes
 #: engines/bladerunner/metaengine.cpp:229 engines/buried/metaengine.cpp:160
 #: engines/darkseed/metaengine.cpp:65 engines/hypno/metaengine.cpp:152
-#: engines/phoenixvr/metaengine.cpp:85 engines/scumm/help.cpp:79
+#: engines/phoenixvr/metaengine.cpp:94 engines/scumm/help.cpp:79
 #: engines/scumm/metaengine.cpp:1150 engines/supernova/metaengine.cpp:309
 #: engines/toltecs/metaengine.cpp:246 engines/twp/metaengine.cpp:162
 #: engines/zvision/metaengine.cpp:304
@@ -7725,7 +7725,7 @@ msgstr "База даних доказів"
 #: engines/freescape/games/dark/dark.cpp:236
 #: engines/freescape/games/driller/driller.cpp:129
 #: engines/freescape/games/eclipse/eclipse.cpp:340
-#: engines/mads/metaengine.cpp:403 engines/phoenixvr/metaengine.cpp:80
+#: engines/mads/metaengine.cpp:403 engines/phoenixvr/metaengine.cpp:89
 #: engines/saga/metaengine.cpp:437 engines/sherlock/metaengine.cpp:359
 #: engines/sherlock/metaengine.cpp:618 engines/sherlock/metaengine.cpp:852
 #: engines/stark/metaengine.cpp:280 engines/sword1/metaengine.cpp:295
@@ -8365,7 +8365,7 @@ msgstr "Тільки SFX версії для дискет"
 
 #. I18N: Perform action on object where cursor points
 #: engines/darkseed/metaengine.cpp:42 engines/dragons/metaengine.cpp:135
-#: engines/phoenixvr/metaengine.cpp:66 engines/tinsel/metaengine.cpp:294
+#: engines/phoenixvr/metaengine.cpp:75 engines/tinsel/metaengine.cpp:294
 #: engines/twp/metaengine.cpp:150
 msgid "Action"
 msgstr "Дія"
@@ -11867,7 +11867,7 @@ msgstr "Показати / Сховати екран налаштувань"
 msgid "Close current interface"
 msgstr "Закрити поточний інтерфейс"
 
-#: engines/phoenixvr/metaengine.cpp:107
+#: engines/phoenixvr/metaengine.cpp:116
 #: engines/wintermute/keymapper_tables.h:239
 #: engines/wintermute/keymapper_tables.h:262
 #: engines/wintermute/keymapper_tables.h:313
@@ -12535,7 +12535,7 @@ msgid "Your Name:"
 msgstr "Ваше ім'я:"
 
 #. I18N: Button, start hosting online multiplayer game
-#: engines/scumm/dialog-createsession.cpp:49 engines/scumm/scumm.cpp:4488
+#: engines/scumm/dialog-createsession.cpp:49 engines/scumm/scumm.cpp:4496
 msgid "Host"
 msgstr "Розпочати"
 
@@ -12545,7 +12545,7 @@ msgid "Querying games..."
 msgstr "Вичитую список ігор..."
 
 #. I18N: Join online multiplayer game
-#: engines/scumm/dialog-sessionselector.cpp:64 engines/scumm/scumm.cpp:4488
+#: engines/scumm/dialog-sessionselector.cpp:64 engines/scumm/scumm.cpp:4496
 msgid "Join"
 msgstr "Приєднатись"
 
@@ -13775,7 +13775,7 @@ msgstr ""
 "Ця версія Monkey Island 1 бракує деякі ресурси, необхідні\n"
 "для роботи MT-32. Перемикаюсь на AdLib."
 
-#: engines/scumm/scumm.cpp:4364
+#: engines/scumm/scumm.cpp:4372
 msgid ""
 "Usually, Maniac Mansion would start now. But for that to work, the game "
 "files for Maniac Mansion have to be in the 'Maniac' directory inside the "
@@ -13785,7 +13785,7 @@ msgstr ""
 "вам потрібно переписати файли гри Maniac Manssion у папку Maniac всередині "
 "папки з грою Tentacle, а також додати саму гру у ScummVM."
 
-#: engines/scumm/scumm.cpp:4488
+#: engines/scumm/scumm.cpp:4496
 msgid "Would you like to host or join a network play session?"
 msgstr "Чи ви хочете розпочати або приєднатися до мережевої гри?"
 

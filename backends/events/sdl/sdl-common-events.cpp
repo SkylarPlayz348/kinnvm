@@ -83,7 +83,6 @@ bool SdlEventSource::handleMouseMotion(SDL_Event &ev, Common::Event &event) {
 }
 
 bool SdlEventSource::handleMouseButtonDown(SDL_Event &ev, Common::Event &event) {
-#ifdef KINDLE
 	if (ev.button.button == SDL_BUTTON_LEFT) {
 		SDL_Rect db;
 		SDL_GetDisplayBounds(0, &db);
@@ -95,7 +94,6 @@ bool SdlEventSource::handleMouseButtonDown(SDL_Event &ev, Common::Event &event) 
 			_kindleSwipeStartY = my;
 		}
 	}
-#endif
 	if (ev.button.button == SDL_BUTTON_LEFT)
 		event.type = Common::EVENT_LBUTTONDOWN;
 	else if (ev.button.button == SDL_BUTTON_RIGHT)
@@ -125,7 +123,6 @@ bool SdlEventSource::handleMouseButtonDown(SDL_Event &ev, Common::Event &event) 
 }
 
 bool SdlEventSource::handleMouseButtonUp(SDL_Event &ev, Common::Event &event) {
-#ifdef KINDLE
 	if (ev.button.button == SDL_BUTTON_MIDDLE) {
 		event.type = Common::EVENT_VIRTUAL_KEYBOARD;
 		return true;
@@ -148,7 +145,6 @@ bool SdlEventSource::handleMouseButtonUp(SDL_Event &ev, Common::Event &event) {
 			}
 		}
 	}
-#endif
 	if (ev.button.button == SDL_BUTTON_LEFT)
 		event.type = Common::EVENT_LBUTTONUP;
 	else if (ev.button.button == SDL_BUTTON_RIGHT)

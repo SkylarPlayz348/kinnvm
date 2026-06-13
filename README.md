@@ -1,4 +1,4 @@
-# ScummVM Kindle Port
+# KinnVM a ScummVM Kindle Port
 
 Original README [here](./README-original.md)
 
@@ -12,15 +12,28 @@ Report all issues here on github
 
 ## Building
 
-Building documentation will be made later but all needed to libraries and headers are in `kindle-libs`.
+Building ScummVM requires a few steps.
 
-`FluidSynth` as its optional you will need to build and install on your own. It is confirmed to work and is in any release on from this repo.
+### Building SDL2:
 
-`SDL-EP` for this you will need my SDL2 port SDL-EP not much is out there but building and installing to your sysroot is what you need to do
+KinnVM runs on the SDL backend and as such runs on my SDL2 kindle port. In my SDL2 port there are two `.cmake` files and each serves a specific purpose. `*-software.cmake` which is the config this
 
-a lot of this is manual but that will change when I redo ScummVMs build system.
+### Build FluidSynth:
+FluidSynth Support for KinnVM is easy
 
-**Coming Soon**
+### Configuring KinnVM:
+below is how to use all
+
+```
+configure \
+  --host=arm-kindlehf-linux-gnueabihf \
+  --prefix=/mnt/us/scummvm \
+  --with-sdl-prefix=/home/$USER/x-tools/arm-kindlehf-linux-gnueabihf/arm-kindlehf-linux-gnueabihf/sysroot/usr/local/bin/ \
+  --with-fluidsynth-prefix=/home/$USER/x-tools/arm-kindlehf-linux-gnueabihf/arm-kindlehf-linux-gnueabihf/sysroot/usr/TODO
+  --disable-debug \
+  --disable-alsa
+```
+
 
 ## Contributing
 

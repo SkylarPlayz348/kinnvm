@@ -38,13 +38,7 @@ static const uint32 fullscreenMask = SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOW_
 
 SdlWindow::SdlWindow() :
 #if SDL_VERSION_ATLEAST(2, 0, 0)
-						 _window(nullptr), _windowCaption(
-#ifdef KINDLE
-											   "L:A_N:application_ID:org.scummvm.scummvm_PC:N"
-#else
-											   "ScummVM"
-#endif
-											   ),
+						 _window(nullptr), _windowCaption("L:A_N:application_ID:org.scummvm.scummvm_PC:N"),
 						 _lastFlags(0), _lastX(SDL_WINDOWPOS_UNDEFINED), _lastY(SDL_WINDOWPOS_UNDEFINED),
 #endif
 						 _inputGrabState(false), _inputLockState(false),
@@ -158,17 +152,7 @@ void SdlWindow::setupIcon() {
 }
 
 void SdlWindow::setWindowCaption(const Common::String &caption) {
-#ifdef KINDLE
-	// Kindle WM requires a fixed title in its own format; ignore game-supplied captions.
 	(void)caption;
-#elif SDL_VERSION_ATLEAST(2, 0, 0)
-	_windowCaption = caption;
-	if (_window) {
-		SDL_SetWindowTitle(_window, caption.c_str());
-	}
-#else
-	SDL_WM_SetCaption(caption.c_str(), caption.c_str());
-#endif
 }
 
 void SdlWindow::setResizable(bool resizable) {
@@ -585,9 +569,7 @@ bool SdlWindow::createOrUpdateWindow(int width, int height, uint32 flags) {
 
 	_lastFlags = flags;
 
-#ifdef KINDLE
 	SDL_SetWindowTitle(_window, "L:A_N:application_ID:org.scummvm.scummvm_PC:N");
-#endif
 
 	return true;
 }

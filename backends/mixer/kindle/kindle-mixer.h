@@ -22,8 +22,6 @@
 #ifndef BACKENDS_MIXER_KINDLE_H
 #define BACKENDS_MIXER_KINDLE_H
 
-#ifdef KINDLE
-
 #include "backends/mixer/mixer.h"
 #include <pthread.h>
 
@@ -51,5 +49,4 @@ private:
 	void         *_pipeline;       // GstElement*, kept opaque to avoid gst.h in header
 };
 
-#endif // KINDLE
 #endif // BACKENDS_MIXER_KINDLE_H

@@ -19,8 +19,6 @@
  *
  */
 
-#ifdef KINDLE
-
 // GStreamer 0.10 headers are plain C
 #include <gst/gst.h>
 
@@ -198,5 +196,3 @@ void KindleGstMixerManager::audioLoop() {
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, nullptr);
 	}
 }
-
-#endif // KINDLE

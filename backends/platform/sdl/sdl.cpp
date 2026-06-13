@@ -24,10 +24,10 @@
 
 #include "backends/platform/sdl/sdl.h"
 #include "common/config-manager.h"
-#include "gui/EventRecorder.h"
 #include "common/taskbar.h"
 #include "common/textconsole.h"
 #include "common/translation.h"
+#include "gui/EventRecorder.h"
 
 #ifdef USE_DISCORD
 #include "backends/presence/discord/discord.h"
@@ -42,15 +42,13 @@
 #include "backends/audiocd/sdl/sdl-audiocd.h"
 #endif
 
-#include "backends/mixer/null/null-mixer.h"
-#ifdef KINDLE
-#include "backends/mixer/kindle/kindle-mixer.h"
-#endif
 #include "backends/events/default/default-events.h"
+#include "backends/graphics/surfacesdl/surfacesdl-graphics.h"
 #include "backends/keymapper/hardware-input.h"
+#include "backends/mixer/kindle/kindle-mixer.h"
+#include "backends/mixer/null/null-mixer.h"
 #include "backends/mutex/sdl/sdl-mutex.h"
 #include "backends/timer/sdl/sdl-timer.h"
-#include "backends/graphics/surfacesdl/surfacesdl-graphics.h"
 #ifdef USE_OPENGL
 #include "backends/graphics/openglsdl/openglsdl-graphics.h"
 #endif
@@ -63,7 +61,7 @@
 #include "graphics/cursorman.h"
 #include "graphics/renderer.h"
 
-#include <time.h>	// for getTimeAndDate()
+#include <time.h> // for getTimeAndDate()
 
 #ifdef USE_DETECTLANG
 #ifndef WIN32
@@ -96,18 +94,18 @@ static bool sdlGetAttribute(SDL_GLattr attr, int *value) {
 OSystem_SDL::OSystem_SDL()
 	:
 #ifdef USE_MULTIPLE_RENDERERS
-	_graphicsModes(),
-	_graphicsMode(0),
+	  _graphicsModes(),
+	  _graphicsMode(0),
 #endif
-	_inited(false),
-	_initedSDL(false),
+	  _inited(false),
+	  _initedSDL(false),
 #ifdef USE_SDL_NET
-	_initedSDLnet(false),
+	  _initedSDLnet(false),
 #endif
-	_logger(nullptr),
-	_eventSource(nullptr),
-	_eventSourceWrapper(nullptr),
-	_window(nullptr) {
+	  _logger(nullptr),
+	  _eventSource(nullptr),
+	  _eventSourceWrapper(nullptr),
+	  _window(nullptr) {
 #if defined(USE_SCUMMVMDLC)
 	_dlcStore = new DLC::ScummVMCloud::ScummVMCloud();
 #endif
@@ -167,7 +165,8 @@ OSystem_SDL::~OSystem_SDL() {
 #endif
 
 #ifdef USE_SDL_NET
-	if (_initedSDLnet) SDLNet_Quit();
+	if (_initedSDLnet)
+		SDLNet_Quit();
 #endif
 
 	SDL_Quit();
@@ -198,30 +197,34 @@ void OSystem_SDL::init() {
 	if (_taskbarManager == nullptr)
 		_taskbarManager = new Common::TaskbarManager();
 #endif
-
 }
 
 bool OSystem_SDL::hasFeature(Feature f) {
-#if defined(KINDLE) && defined(ENABLE_VKEYBD)
 	if (f == kFeatureVirtualKeyboard)
 		return true;
-#endif
 #if SDL_VERSION_ATLEAST(1, 2, 7)
-	if (f == kFeatureCpuSSE2) return SDL_HasSSE2();
-	if (f == kFeatureCpuAltivec) return SDL_HasAltiVec();
+	if (f == kFeatureCpuSSE2)
+		return SDL_HasSSE2();
+	if (f == kFeatureCpuAltivec)
+		return SDL_HasAltiVec();
 #endif
 #if SDL_VERSION_ATLEAST(2, 0, 0)
-	if (f == kFeatureClipboardSupport) return true;
-	if (f == kFeatureCpuSSE41) return SDL_HasSSE41();
+	if (f == kFeatureClipboardSupport)
+		return true;
+	if (f == kFeatureCpuSSE41)
+		return SDL_HasSSE41();
 #endif
 #if SDL_VERSION_ATLEAST(2, 0, 4)
-	if (f == kFeatureCpuAVX2) return SDL_HasAVX2();
+	if (f == kFeatureCpuAVX2)
+		return SDL_HasAVX2();
 #endif
 #if SDL_VERSION_ATLEAST(2, 0, 6)
-	if (f == kFeatureCpuNEON) return SDL_HasNEON();
+	if (f == kFeatureCpuNEON)
+		return SDL_HasNEON();
 #endif
 #if SDL_VERSION_ATLEAST(2, 0, 14)
-	if (f == kFeatureOpenUrl) return true;
+	if (f == kFeatureOpenUrl)
+		return true;
 #endif
 	if (f == kFeatureJoystickDeadzone || f == kFeatureKbdMouseSpeed) {
 		return _eventSource->isJoystickConnected();
@@ -229,11 +232,14 @@ bool OSystem_SDL::hasFeature(Feature f) {
 #if defined(USE_OPENGL_GAME) || defined(USE_OPENGL_SHADERS)
 	/* Even if we are using the SDL graphics manager,
 	 * we are at one initGraphics3d call of supporting OpenGL */
-	if (f == kFeatureOpenGLForGame) return _oglType != OpenGL::kContextNone && OpenGLContext.type != OpenGL::kContextGLES;
-	if (f == kFeatureShadersForGame) return _supportsShaders;
+	if (f == kFeatureOpenGLForGame)
+		return _oglType != OpenGL::kContextNone && OpenGLContext.type != OpenGL::kContextGLES;
+	if (f == kFeatureShadersForGame)
+		return _supportsShaders;
 #endif
 #if defined(USE_SCUMMVMDLC)
-	if (f == kFeatureDLC) return true;
+	if (f == kFeatureDLC)
+		return true;
 #endif
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 	if (f == kFeatureTouchpadMode) {
@@ -249,16 +255,15 @@ bool OSystem_SDL::hasFeature(Feature f) {
 	return ModularGraphicsBackend::hasFeature(f);
 }
 
-
 void OSystem_SDL::setFeatureState(Feature f, bool enable) {
 	switch (f) {
 	case kFeatureTouchpadMode:
 		ConfMan.setBool("touchpad_mouse_mode", enable);
 		break;
-#if defined(KINDLE) && defined(ENABLE_VKEYBD)
 	case kFeatureVirtualKeyboard: {
 		DefaultEventManager *dem = dynamic_cast<DefaultEventManager *>(_eventManager);
-		if (!dem) break;
+		if (!dem)
+			break;
 		if (enable) {
 			// Post the event rather than calling show() inline — startEditMode()
 			// calls setFeatureState() deep in the widget handler chain, and
@@ -273,7 +278,6 @@ void OSystem_SDL::setFeatureState(Feature f, bool enable) {
 		}
 		break;
 	}
-#endif
 	default:
 		ModularGraphicsBackend::setFeatureState(f, enable);
 		break;
@@ -383,11 +387,7 @@ void OSystem_SDL::initBackend() {
 		_savefileManager = new DefaultSaveFileManager();
 
 	if (_mixerManager == nullptr) {
-#ifdef KINDLE
 		_mixerManager = new KindleGstMixerManager();
-#else
-		_mixerManager = new SdlMixerManager();
-#endif
 		// Setup and start mixer
 		_mixerManager->init();
 
@@ -536,9 +536,7 @@ void OSystem_SDL::detectAntiAliasingSupport() {
 				if (actualSamples == requestedSamples) {
 					_antiAliasLevels.push_back(requestedSamples);
 					debug(2, "Yes");
-				}
-				else
-				{
+				} else {
 					debug(2, "No");
 				}
 
@@ -547,16 +545,12 @@ void OSystem_SDL::detectAntiAliasingSupport() {
 #else
 				SDL_GL_DeleteContext(glContext);
 #endif
-			}
-			else
-			{
+			} else {
 				debug(2, "No GL Context");
 			}
 
 			SDL_DestroyWindow(window);
-		}
-		else
-		{
+		} else {
 			debug(2, "No Window");
 		}
 #else
@@ -570,9 +564,7 @@ void OSystem_SDL::detectAntiAliasingSupport() {
 		if (actualSamples == requestedSamples) {
 			_antiAliasLevels.push_back(requestedSamples);
 			debug(2, "Yes from SDL1");
-		}
-		else
-		{
+		} else {
 			debug(2, "No from SDL1");
 		}
 #endif
@@ -823,7 +815,7 @@ Common::String OSystem_SDL::getSystemLanguage() const {
 
 		return Common::String(locale.c_str(), length);
 	}
-#else // USE_DETECTLANG
+#else  // USE_DETECTLANG
 	return BaseBackend::getSystemLanguage();
 #endif // USE_DETECTLANG
 }
@@ -839,7 +831,8 @@ bool OSystem_SDL::hasTextInClipboard() {
 }
 
 Common::U32String OSystem_SDL::getTextFromClipboard() {
-	if (!hasTextInClipboard()) return Common::U32String();
+	if (!hasTextInClipboard())
+		return Common::U32String();
 
 	char *text = SDL_GetClipboardText();
 
@@ -971,7 +964,7 @@ uint32 OSystem_SDL::getDoubleClickTime() const {
 	return getOSDoubleClickTime();
 }
 
-//Not specified in base class
+// Not specified in base class
 Common::Path OSystem_SDL::getDefaultIconsPath() {
 	return ConfMan.getPath("iconspath");
 }
@@ -982,7 +975,7 @@ Common::Path OSystem_SDL::getDefaultDLCsPath() {
 	return path;
 }
 
-//Not specified in base class
+// Not specified in base class
 Common::Path OSystem_SDL::getScreenshotsPath() {
 	return ConfMan.getPath("screenshotpath");
 }
@@ -1055,7 +1048,7 @@ bool OSystem_SDL::setGraphicsMode(int mode, uint flags) {
 	// If the new mode and the current mode are not from the same graphics
 	// manager, delete and create the new mode graphics manager
 	if (render3d) {
-		uint best3DSupport = (uint) -1;
+		uint best3DSupport = (uint)-1;
 		uint i;
 		// Make sure the requested mode supports 3D
 		for (i = 0; i < GraphicsManagerCount; ++i) {
@@ -1192,46 +1185,45 @@ void OSystem_SDL::clearGraphicsModes() {
 }
 #endif
 
-static const char * const helpTabs[] = {
-_s("Keyboard"),
-"",
-_s(
-"## Keyboard shortcuts\n"
-"\n"
-"ScummVM supports various in-game keyboard and mouse shortcuts, and since version 2.2.0 these can be manually configured in the **Keymaps tab**, or in the **configuration file**.\n"
-"\n"
-"For game-specific controls, see the [wiki entry](https://wiki.scummvm.org/index.php?title=Category:Supported_Games) for the game you are playing.\n"
-"\n"
-"Default shortcuts are shown in the table.\n"
-"\n"
-"| Shortcut      | Description      \n"
-"| --------------|------------------\n"
-"| `Ctrl+F5` | Displays the Global Main Menu\n")
+static const char *const helpTabs[] = {
+	_s("Keyboard"),
+	"",
+	_s(
+		"## Keyboard shortcuts\n"
+		"\n"
+		"ScummVM supports various in-game keyboard and mouse shortcuts, and since version 2.2.0 these can be manually configured in the **Keymaps tab**, or in the **configuration file**.\n"
+		"\n"
+		"For game-specific controls, see the [wiki entry](https://wiki.scummvm.org/index.php?title=Category:Supported_Games) for the game you are playing.\n"
+		"\n"
+		"Default shortcuts are shown in the table.\n"
+		"\n"
+		"| Shortcut      | Description      \n"
+		"| --------------|------------------\n"
+		"| `Ctrl+F5` | Displays the Global Main Menu\n")
 #if defined(MACOSX)
-_s("| `Cmd+q`    | Quit (macOS)\n")
+		_s("| `Cmd+q`    | Quit (macOS)\n")
 #elif defined(WIN32)
-_s("| `Alt+F4`  | Quit (Windows)\n")
+		_s("| `Alt+F4`  | Quit (Windows)\n")
 #else
-_s("| `Ctrl+q`  | Quit (Linux/Unix)\n")
-_s("| `Ctrl+z`  | Quit (other platforms)\n")
+		_s("| `Ctrl+q`  | Quit (Linux/Unix)\n")
+			_s("| `Ctrl+z`  | Quit (other platforms)\n")
 #endif
-_s(
-"| `Ctrl+u`  | Mutes all sounds\n"
-"| `Ctrl+m`  | Toggles mouse capture\n"
-"| `Ctrl+Alt` and `9` or `0` | Cycles forwards/backwards between graphics filters\n"
-"| `Ctrl+Alt` and `+` or `-` | Increases/decreases the scale factor\n"
-"| `Ctrl+Alt+a` | Toggles aspect ratio correction on/off\n"
-"| `Ctrl+Alt+f` | Toggles between nearest neighbor and bilinear interpolation (graphics filtering on/off)\n"
-"| `Ctrl+Alt+s` | Cycles through stretch modes\n"
-"| `Alt+Enter`   | Toggles full screen/windowed mode\n"
-"| `Alt+s`          | Takes a screenshot\n"
-"| `Ctrl+F7`       | Opens virtual keyboard (if enabled). This can also be opened with a long press of the middle mouse button or wheel.\n"
-"| `Ctrl+Alt+d` | Opens the ScummVM debugger\n"
-),
+			_s(
+				"| `Ctrl+u`  | Mutes all sounds\n"
+				"| `Ctrl+m`  | Toggles mouse capture\n"
+				"| `Ctrl+Alt` and `9` or `0` | Cycles forwards/backwards between graphics filters\n"
+				"| `Ctrl+Alt` and `+` or `-` | Increases/decreases the scale factor\n"
+				"| `Ctrl+Alt+a` | Toggles aspect ratio correction on/off\n"
+				"| `Ctrl+Alt+f` | Toggles between nearest neighbor and bilinear interpolation (graphics filtering on/off)\n"
+				"| `Ctrl+Alt+s` | Cycles through stretch modes\n"
+				"| `Alt+Enter`   | Toggles full screen/windowed mode\n"
+				"| `Alt+s`          | Takes a screenshot\n"
+				"| `Ctrl+F7`       | Opens virtual keyboard (if enabled). This can also be opened with a long press of the middle mouse button or wheel.\n"
+				"| `Ctrl+Alt+d` | Opens the ScummVM debugger\n"),
 
-0,
-	};
+	0,
+};
 
-const char * const *OSystem_SDL::buildHelpDialogData() {
+const char *const *OSystem_SDL::buildHelpDialogData() {
 	return helpTabs;
 }

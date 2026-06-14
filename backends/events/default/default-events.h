@@ -79,9 +79,7 @@ public:
 	Common::Keymapper *getKeymapper() override { return _keymapper; }
 	Common::Keymap *getGlobalKeymap() override;
 
-#ifdef ENABLE_VKEYBD
 	void showVirtualKeyboard(bool show);
-#endif
 };
 
 #endif

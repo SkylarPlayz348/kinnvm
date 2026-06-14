@@ -4314,6 +4314,11 @@ static const WMEGameDescription gameDescriptions[] = {
 		WME_ENTRY2s("data.dcp", "5ac416cee605d3a30f4d59687b1cdab2", 364260278,
 					"string3.tab", "a20120c9a45f189321924adb54f3515f", 527627), Common::ES_ESP, ADGF_NO_FLAGS, WME_1_8_6),
 
+	// 1 1/2 Ritter: Auf der Suche nach der hinreissenden Herzelinde (English fanmade)
+	WME_WINENTRY("ritter", "Fanmade",
+		WME_ENTRY2s("data.dcp", "5ac416cee605d3a30f4d59687b1cdab2", 364260278,
+					"string3.tab", "413ee9f47f52567d0ac22e34485cacfa", 513012), Common::EN_ANY, ADGF_NO_FLAGS, WME_1_8_6),
+
 	// 1 1/2 Ritter: Auf der Suche nach der hinreissenden Herzelinde (Czech fanmade)
 	WME_WINENTRY("ritter", "",
 		WME_ENTRY1s("data.dcp", "1138bca234b7e81e11128c4da2c283b0", 364067513), Common::CS_CZE, ADGF_NO_FLAGS, WME_1_8_6),
@@ -5621,7 +5626,7 @@ static const WMEGameDescription gameDescriptions[] = {
 
 	// Murder In Tehran's Alleys 2016 (Steam, June 2017) (English)
 	WME_WINENTRY("tehran2016", "",
-		WME_ENTRY1s("data.dcp", "952346c4d7a08986688b3cc583215d33", 1163612836), Common::EN_ANY, ADGF_UNSTABLE | GF_3D, WME_1_9_3),
+		WME_ENTRY1s("data.dcp", "952346c4d7a08986688b3cc583215d33", 1163612836), Common::EN_ANY, GF_3D, WME_1_9_3),
 
 	// The Ancient Mark - Episode 1
 	WME_WINENTRY("theancientmark1", "",

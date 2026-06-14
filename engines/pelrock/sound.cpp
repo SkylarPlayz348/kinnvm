@@ -25,17 +25,13 @@
 #include "audio/mixer.h"
 
 #include "common/config-manager.h"
-#include "common/debug.h"
-#include "common/endian.h"
 #include "common/file.h"
 #include "common/memstream.h"
-#include "common/scummsys.h"
 
 #include "backends/audiocd/audiocd.h"
 
 #include "pelrock/pelrock.h"
 #include "pelrock/sound.h"
-#include "sound.h"
 
 namespace Pelrock {
 
@@ -204,9 +200,8 @@ int SoundManager::playSound(SonidoFile sound, int channel, int loopCount) {
 
 		uint32 pcmSize = sound.size - headerSize;
 		byte *pcmData = (byte *)malloc(pcmSize);
-		if (!pcmData || !data) {
+		if (!pcmData) {
 			free(data);
-			free(pcmData);
 			return -1;
 		}
 		memcpy(pcmData, data + headerSize, pcmSize);

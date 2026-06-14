@@ -19,22 +19,43 @@
  *
  */
 
-#ifndef TWP_TIME_H
-#define TWP_TIME_H
+#ifndef MOHAWK_LIVINGBOOKS_PAGE_H
+#define MOHAWK_LIVINGBOOKS_PAGE_H
 
-#include "common/str.h"
+#include "common/array.h"
 
-namespace Twp {
+namespace Mohawk {
 
-struct DateTime {
-	int year, month, day;
-	int hour, min;
+class MohawkEngine_LivingBooks;
+class LBItem;
+class LBCode;
+class Archive;
+
+class LBPage {
+public:
+	LBPage(MohawkEngine_LivingBooks *vm);
+	~LBPage();
+
+	void open(Archive *mhk, uint16 baseId);
+	uint16 getResourceVersion();
+
+	void addClonedItem(LBItem *item);
+	void itemDestroyed(LBItem *item);
+
+	LBCode *_code;
+
+protected:
+	MohawkEngine_LivingBooks *_vm;
+
+	Archive *_mhk;
+	Common::Array<LBItem *> _items;
+
+	uint16 _baseId;
+	bool _cascade;
+
+	void loadBITL(uint16 resourceId);
 };
 
-Common::String formatTime(int64 time, const char *format);
-DateTime toDateTime(int64 time);
-int64 getTime();
-
-} // namespace Twp
+} // End of namespace Mohawk
 
 #endif

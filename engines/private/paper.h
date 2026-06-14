@@ -19,34 +19,24 @@
  *
  */
 
-#define FORBIDDEN_SYMBOL_ALLOW_ALL
-#include <time.h>
-#include "twp/time.h"
+#ifndef PRIVATE_PAPER_H
+#define PRIVATE_PAPER_H
 
-namespace Twp {
+#include "common/scummsys.h"
 
-Common::String formatTime(int64 t, const char *format) {
-	time_t time = (time_t)t;
-	struct tm *tm = localtime(&time);
-	char buf[64];
-	strftime(buf, 64, format, tm);
-	return Common::String(buf);
+namespace Common {
+class Path;
 }
 
-DateTime toDateTime(int64 t) {
-	time_t time = (time_t)t;
-	struct tm *tm = localtime(&time);
-	DateTime dateTime;
-	dateTime.year = 1900 + tm->tm_year;
-	dateTime.month = 1 + tm->tm_mon;
-	dateTime.day = tm->tm_mday;
-	dateTime.hour = tm->tm_hour;
-	dateTime.min = tm->tm_min;
-	return dateTime;
+namespace Graphics {
+struct Surface;
 }
 
-int64 getTime() {
-	return (int64)time(NULL);
-}
+namespace Private {
 
-} // namespace Twp
+bool isPaperScanImage(const Common::Path &path);
+bool enhancePaperScanImage(Graphics::Surface *image, const byte *palette, byte transparentColor);
+
+} // End of namespace Private
+
+#endif // PRIVATE_PAPER_H

@@ -204,6 +204,8 @@ private:
 	int _lastX, _lastY;
 
 	Common::String _windowCaption;
+
+	int _savedFlIntensity;
 #endif
 };
 

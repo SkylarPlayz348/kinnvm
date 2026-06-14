@@ -24,10 +24,11 @@
 #include "backends/platform/sdl/sdl-window.h"
 #include "backends/platform/sdl/sdl.h"
 
+#include "common/config-manager.h"
 #include "common/textconsole.h"
 #include "common/util.h"
-#include "common/config-manager.h"
 
+#include "backends/platform/kindle/openlipc.h"
 #include "icons/scummvm.xpm"
 
 #if SDL_VERSION_ATLEAST(3, 0, 0)
@@ -42,7 +43,7 @@ SdlWindow::SdlWindow() :
 						 _lastFlags(0), _lastX(SDL_WINDOWPOS_UNDEFINED), _lastY(SDL_WINDOWPOS_UNDEFINED),
 #endif
 						 _inputGrabState(false), _inputLockState(false),
-						 _resizable(true) {
+						 _resizable(true), _savedFlIntensity(-1) {
 	memset(&grabRect, 0, sizeof(grabRect));
 
 #if SDL_VERSION_ATLEAST(2, 0, 0)
@@ -571,6 +572,20 @@ bool SdlWindow::createOrUpdateWindow(int width, int height, uint32 flags) {
 
 	SDL_SetWindowTitle(_window, "L:A_N:application_ID:org.scummvm.scummvm_PC:N");
 
+	// Read and boost frontlight intensity via LIPC (first window creation only)
+	if (_savedFlIntensity == -1) {
+		LIPC *lipc = LipcOpenNoName();
+		if (lipc) {
+			int cur = 0;
+			if (LipcGetIntProperty(lipc, "com.lab126.powerd", "flIntensity", &cur) == LIPC_OK) {
+				_savedFlIntensity = cur;
+				LipcSetIntProperty(lipc, "com.lab126.powerd", "flIntensity", 24); // Values are between 0 - 24 and anything above 24 defaults to 24
+			}
+			LipcSetIntProperty(lipc, "com.lab126.powerd", "preventScreenSaver", 1);
+			LipcClose(lipc);
+		}
+	}
+
 	return true;
 }
 
@@ -587,6 +602,15 @@ void SdlWindow::destroyWindow() {
 			SdlGraphicsManager *sdlGraphics = dynamic_cast<SdlGraphicsManager *>(graphics);
 			assert(sdlGraphics);
 			sdlGraphics->destroyingWindow();
+		}
+		if (_savedFlIntensity != -1) {
+			LIPC *lipc = LipcOpenNoName();
+			if (lipc) {
+				LipcSetIntProperty(lipc, "com.lab126.powerd", "flIntensity", _savedFlIntensity);
+				LipcSetIntProperty(lipc, "com.lab126.powerd", "preventScreenSaver", 0);
+				LipcClose(lipc);
+			}
+			_savedFlIntensity = -1;
 		}
 		SDL_DestroyWindow(_window);
 		_window = nullptr;

@@ -582,6 +582,8 @@ bool SdlWindow::createOrUpdateWindow(int width, int height, uint32 flags) {
 				LipcSetIntProperty(lipc, "com.lab126.powerd", "flIntensity", 24); // Values are between 0 - 24 and anything above 24 defaults to 24
 			}
 			LipcSetIntProperty(lipc, "com.lab126.powerd", "preventScreenSaver", 1);
+			LipcSetIntProperty(lipc, "com.lab126.btfd", "ensureBTconnection", 1);
+			LipcSetStringProperty(lipc, "com.lab126.btfd", "BTenable", "1:1");
 			LipcClose(lipc);
 		}
 	}

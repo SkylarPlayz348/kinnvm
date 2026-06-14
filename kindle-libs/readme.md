@@ -2,8 +2,6 @@
 
 This is just to have a unified build system.
 
-See `../build-kindle/TODO-kindle-libs.md` for detailed build instructions.
-
 ### Need to Cross-compile (not on Kindle device):
 
 **libmpeg2 0.5.1** — [archive.org mirror](https://web.archive.org/web/20240518094128/https://libmpeg2.sourceforge.io/files/libmpeg2-0.5.1.tar.gz)

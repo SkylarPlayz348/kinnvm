@@ -57,6 +57,7 @@ public:
 		kHotspotArrow			= 21,
 		kHotspotTalk			= 22,	// Speech-bubble hover cursor (Nancy 10+)
 		kDragHand				= 23,	// Hand cursor used when dragging an item (Nancy 10+)
+		kDropHand				= 24,	// Drop-hand cursor used while a piece is held over a target (Nancy 10+)
 
 		// Cursors in Nancy10 and newer games. The CURS chunk holds 37 system
 		// cursor types in pairs; type T's idle slot is (T*2) and its hotspot
@@ -74,14 +75,14 @@ public:
 		kNewNormalArrow			= 8,	// Type 4  — Taskbar arrow
 		kNewHotspotArrow		= 9,	// Type 4  hotspot
 		kNewExit 				= 10,	// Type 5  — Exit / back movement
-		kNewRotateCW 			= 12,	// Type 6  — Puzzle rotation
-		kNewRotateCCW 			= 14,	// Type 7  — Puzzle rotation
-		kNewMoveLeft 			= 16,	// Type 8  — Movement / 360 turn
-		kNewMoveRight 			= 18,	// Type 9  — Movement / 360 turn
-		kNewMoveForward			= 20,	// Type 10 — Movement
-		kNewMoveBackward		= 22,	// Type 11 — Movement / exit puzzles
-		kNewMoveUp				= 24,	// Type 12 — Movement
-		kNewMoveDown			= 26,	// Type 13 — Movement
+		kNewMoveLeft 			= 12,	// Type 6  — Movement / 360 turn
+		kNewMoveRight 			= 14,	// Type 7  — Movement / 360 turn
+		kNewMoveForward			= 16,	// Type 8  — Movement
+		kNewMoveBackward		= 18,	// Type 9  — Movement / exit puzzles
+		kNewMoveUp				= 20,	// Type 10 — Movement
+		kNewMoveDown			= 22,	// Type 11 — Movement
+		kNewRotateCW 			= 24,	// Type 12 — Puzzle rotation
+		kNewRotateCCW 			= 26,	// Type 13 — Puzzle rotation
 		kNewRotateRight			= 28,	// Type 14 — 360 scenes
 		kNewRotateLeft			= 30,	// Type 15 — 360 scenes
 		kNewInvertedRotateRight = 32,	// Type 16 — Inverted 360 rotation
@@ -95,8 +96,8 @@ public:
 	void init(Common::SeekableReadStream *chunkStream);
 
 	// Change the current cursor ID. Does not change the graphic
-	void setCursor(CursorType type, int16 itemID);
-	void setCursorType(CursorType type);
+	void setCursor(CursorType type, int16 itemID, bool setFromScript);
+	void setCursorType(CursorType type, bool setFromScript = false);
 	void setCursorItemID(int16 itemID);
 	void showCursor(bool shouldShow);
 
@@ -115,7 +116,7 @@ private:
 	void adjustCursorHotspot();
 
 	// Resolve a CursorType + held-item pair to a Nancy 10+ cursor ID.
-	uint resolveNancy10CursorID(CursorType type, int16 itemID);
+	uint resolveNancy10CursorID(CursorType type, int16 itemID, bool setFromScript);
 
 	struct Cursor {
 		Common::Rect bounds;

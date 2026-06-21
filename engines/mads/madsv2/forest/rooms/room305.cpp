@@ -19,18 +19,18 @@
  *
  */
 
-#include "mads/madsv2/core/digi.h"
+#include "mads/madsv2/forest/mads/inventory.h"
+#include "mads/madsv2/forest/mads/sounds.h"
+#include "mads/madsv2/forest/mads/words.h"
+#include "mads/madsv2/forest/digi.h"
+#include "mads/madsv2/forest/global.h"
+#include "mads/madsv2/forest/journal.h"
+#include "mads/madsv2/core/config.h"
 #include "mads/madsv2/core/game.h"
 #include "mads/madsv2/core/imath.h"
 #include "mads/madsv2/core/inter.h"
 #include "mads/madsv2/core/kernel.h"
 #include "mads/madsv2/core/player.h"
-#include "mads/madsv2/forest/mads/inventory.h"
-#include "mads/madsv2/forest/mads/sounds.h"
-#include "mads/madsv2/forest/mads/words.h"
-#include "mads/madsv2/forest/global.h"
-#include "mads/madsv2/forest/journal.h"
-#include "mads/madsv2/forest/rooms/room305.h"
 
 namespace MADS {
 namespace MADSV2 {
@@ -88,7 +88,7 @@ static void room_305_init1() {
 	if (previous_room == 301) {
 		aa[1] = kernel_run_animation(kernel_name('t', 1), 104);
 		aainfo[1]._active = -1;
-		global_digi_play(14);
+		global_midi_play(14);
 		return;
 	}
 
@@ -242,7 +242,7 @@ static void room_305_init() {
 
 	global[g009] = -1;
 	if (global[g066] == 1)
-		global_digi_play(8);
+		global_midi_play(8);
 }
 
 static void room_305_anim1() {
@@ -483,7 +483,7 @@ static void room_305_anim6() {
 		kernel_timing_trigger(45, 105);
 		scratch._a4++;
 		global[g009] = -1;
-		global_digi_play(6);
+		global_midi_play(6);
 		break;
 	case 15:
 		if (global[g065] != 0) {
@@ -747,7 +747,7 @@ static void room_305_anim10() {
 			kernel_abort_animation(aa[9]);
 			aainfo[9]._active = 0;
 			player.commands_allowed = -1;
-			if (digi_val1 != 0)
+			if (config_file.forest1 != 0)
 				kernel_timing_trigger(1, 109);
 			global[g131] = -1;
 			kernel_reset_animation(scratch._9a, 1);
@@ -780,7 +780,7 @@ static void room_305_daemon() {
 			global[walker_converse_state] = 0;
 			close_journal(3);
 			player.commands_allowed = -1;
-			if (digi_val1 != 0)
+			if (config_file.forest1 != 0)
 				kernel_timing_trigger(1, 109);
 		} else {
 			if (scratch._a4 == 300) {
@@ -876,7 +876,7 @@ static void room_305_daemon() {
 		kernel_synch(KERNEL_ANIM, scratch._9a, KERNEL_NOW, 0);
 		global[g133] = 0;
 		player.commands_allowed = -1;
-		if (digi_val1 != 0)
+		if (config_file.forest1 != 0)
 			kernel_timing_trigger(1, 109);
 		break;
 
@@ -899,7 +899,7 @@ static void room_305_daemon() {
 			global[g143] = 0;
 			kernel_synch(KERNEL_PLAYER, 0, KERNEL_NOW, 0);
 			player.commands_allowed = -1;
-			if (digi_val1 != 0)
+			if (config_file.forest1 != 0)
 				kernel_timing_trigger(1, 109);
 		}
 		break;
@@ -912,7 +912,7 @@ static void room_305_daemon() {
 		kernel_synch(KERNEL_ANIM, scratch._9c, KERNEL_NOW, 0);
 		global[g143] = 0;
 		player.commands_allowed = -1;
-		if (digi_val1 != 0)
+		if (config_file.forest1 != 0)
 			kernel_timing_trigger(1, 109);
 		break;
 	}
@@ -938,7 +938,7 @@ static void room_305_daemon() {
 			global[g069] = -1;
 			global[player_score] = -1;
 			player.commands_allowed = -1;
-			if (digi_val1 != 0)
+			if (config_file.forest1 != 0)
 				kernel_timing_trigger(1, 109);
 		}
 		break;
@@ -988,7 +988,7 @@ static void room_305_daemon() {
 		global[g143] = 0;
 		kernel_synch(KERNEL_PLAYER, 0, KERNEL_NOW, 0);
 		player.commands_allowed = -1;
-		if (digi_val1 != 0)
+		if (config_file.forest1 != 0)
 			kernel_timing_trigger(1, 109);
 		break;
 
@@ -1000,7 +1000,7 @@ static void room_305_daemon() {
 		global[g133] = 0;
 		global[player_score] = -1;
 		player.commands_allowed = -1;
-		if (digi_val1 != 0)
+		if (config_file.forest1 != 0)
 			kernel_timing_trigger(1, 109);
 		break;
 

@@ -80,8 +80,7 @@ static Common::String getAmerzoneLevelLabel(const Common::String &script) {
 		{"03VR_PUEBLO", "Le Pueblo"},
 		{"04VR_FLEUVE", "Le Fleuve"},
 		{"05VR_VILLAGEMARAIS", "Le Village"},
-		{"07VRTEMPLE_VOLCAN", "Le Temple"}
-	};
+		{"07VRTEMPLE_VOLCAN", "Le Temple"}};
 
 	for (const auto &level : levels) {
 		if (script.hasPrefixIgnoreCase(level.prefix))
@@ -93,12 +92,10 @@ static Common::String getAmerzoneLevelLabel(const Common::String &script) {
 
 static const char *mfull[] = {
 	"January", "February", "March", "April", "May", "June",
-	"July", "August", "September", "October", "November", "December"
-};
+	"July", "August", "September", "October", "November", "December"};
 
 static const char *wday[] = {
-	"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
-};
+	"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
 
 static Common::String makeSaveText(const Common::String &firstLine, const Common::String &secondLine) {
 	Common::String result = firstLine;
@@ -154,8 +151,8 @@ static void fillSaveSlotRect(Graphics::Surface &dst, const Common::Rect &rect, u
 }
 
 static int drawSaveTextBlock(Graphics::Surface &dst, const Graphics::Font *font, const Common::String &text,
-		int x, int y, int width, uint32 color, Graphics::TextAlign align, int lineHeight, bool splitV, int tileY,
-		bool reserveEmptyFinalLine = false) {
+							 int x, int y, int width, uint32 color, Graphics::TextAlign align, int lineHeight, bool splitV, int tileY,
+							 bool reserveEmptyFinalLine = false) {
 	bool hasText = false;
 	for (uint i = 0; i < text.size(); ++i) {
 		if (text[i] != '\n' && text[i] != '\0') {
@@ -249,8 +246,7 @@ static void projectSaveCard(Graphics::ManagedSurface &faceSurface, const Graphic
 		makeVertex(0.0f, 0.0f, srcW, srcH),
 		makeVertex(static_cast<float>(card.w), 0.0f, 0.0f, srcH),
 		makeVertex(static_cast<float>(card.w), static_cast<float>(card.h), 0.0f, 0.0f),
-		makeVertex(0.0f, static_cast<float>(card.h), srcW, 0.0f)
-	};
+		makeVertex(0.0f, static_cast<float>(card.h), srcW, 0.0f)};
 
 	auto rasterizeTriangle = [&](const Vertex &a, const Vertex &b, const Vertex &c) {
 		const float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
@@ -319,6 +315,9 @@ void PhoenixVREngine::resetState() {
 	_angleX.set(0);
 	_angleY.resetRange();
 	_angleY.set(-kPi2);
+	_imageOverlay.reset();
+	_cibleActive = false;
+	_cibleBounds.clear();
 }
 
 PhoenixVREngine::~PhoenixVREngine() {
@@ -369,6 +368,8 @@ Common::SeekableReadStream *PhoenixVREngine::tryOpen(const Common::Path &name, C
 	if (s->open(name)) {
 		auto nameStr = name.toString();
 		debug("opened %s", nameStr.c_str());
+		if (nameStr.hasSuffixIgnoreCase(".pak"))
+			return unpack(*s, origName);
 		return s.release();
 	}
 	auto pakName = name.toString();
@@ -441,6 +442,10 @@ void PhoenixVREngine::loadNextScript() {
 		declareVariable(var);
 	if (gameIdMatches("amerzone"))
 		declareVariable("oeuf_pose"); // crash in chapter 7
+	if (gameIdMatches("dracula1")) {
+		declareVariable("P_Alliance"); // Referenced by 0M1Script.lst, declared by 0M2Script.lst
+		declareVariable("reloaddone"); // Referenced by InsertCD.lst, declared by chapter scripts
+	}
 
 	int numWarps = _script->numWarps();
 	_cursors.clear();
@@ -575,6 +580,62 @@ void PhoenixVREngine::fade(int start, int stop, int speed) {
 	}
 }
 
+static uint32 transFadePixel(const Graphics::PixelFormat &format, uint32 left, int leftAmount, uint32 right, int rightAmount) {
+	uint8 lr, lg, lb, rr, rg, rb;
+	format.colorToRGB(left, lr, lg, lb);
+	format.colorToRGB(right, rr, rg, rb);
+	return format.RGBToColor(
+		CLIP(CLIP(static_cast<int>(lr) + leftAmount, 0, 255) + CLIP(static_cast<int>(rr) + rightAmount, 0, 255), 0, 255),
+		CLIP(CLIP(static_cast<int>(lg) + leftAmount, 0, 255) + CLIP(static_cast<int>(rg) + rightAmount, 0, 255), 0, 255),
+		CLIP(CLIP(static_cast<int>(lb) + leftAmount, 0, 255) + CLIP(static_cast<int>(rb) + rightAmount, 0, 255), 0, 255));
+}
+
+void PhoenixVREngine::transFade(int speed) {
+	debug("transfade speed: %d", speed);
+
+	Graphics::ManagedSurface oldFrame(_screen->w, _screen->h, _screen->format);
+	Graphics::ManagedSurface newFrame(_screen->w, _screen->h, _screen->format);
+	Graphics::ManagedSurface workFrame(_screen->w, _screen->h, _screen->format);
+
+	oldFrame.simpleBlitFrom(*_screen);
+	renderVR(0);
+	newFrame.simpleBlitFrom(*_screen);
+
+	bool waiting = true;
+	float dt = 0;
+
+	auto renderTransition = [&](int oldAmount, int newAmount) {
+		for (int y = 0; y < _screen->h; ++y) {
+			for (int x = 0; x < _screen->w; ++x) {
+				workFrame.setPixel(x, y, transFadePixel(_screen->format, oldFrame.getPixel(x, y), oldAmount, newFrame.getPixel(x, y), newAmount));
+			}
+		}
+		_screen->simpleBlitFrom(workFrame);
+	};
+
+	auto runTransition = [&](int pos, int direction) {
+		while (!shouldQuit() && waiting && (direction > 0 ? pos < 0 : pos > -256)) {
+			Common::Event event;
+			while (g_system->getEventManager()->pollEvent(event)) {
+				if (event.type == Common::EVENT_KEYDOWN && event.kbd.ascii == ' ')
+					waiting = false;
+			}
+
+			renderTransition(direction > 0 ? 0 : pos, direction > 0 ? pos : 0);
+			_frameLimiter.delayBeforeSwap();
+			_screen->update();
+			dt = _frameLimiter.startFrame() / 1000.0f;
+
+			pos += direction * static_cast<int>(dt * speed * 1000.0f / 16);
+			if (direction > 0 ? pos < 0 : pos > -256)
+				pos += direction;
+		}
+	};
+
+	runTransition(-255, 1);
+	runTransition(0, -1);
+}
+
 void PhoenixVREngine::until(const Common::String &var, int value) {
 	debug("until %s %d", var.c_str(), value);
 	unsigned frameDuration = 0;
@@ -590,8 +651,8 @@ void PhoenixVREngine::until(const Common::String &var, int value) {
 
 		// Delay for a bit. All events loops should have a delay
 		// to prevent the system being unduly loaded
-		_frameLimiter.delayBeforeSwap();
 		drawAudioSubtitles();
+		_frameLimiter.delayBeforeSwap();
 		_screen->update();
 		frameDuration = _frameLimiter.startFrame();
 	}
@@ -608,13 +669,6 @@ void PhoenixVREngine::wait(float seconds) {
 		renderVR(frameDuration / 1000.0f);
 		while (g_system->getEventManager()->pollEvent(event)) {
 			switch (event.type) {
-			case Common::EVENT_KEYDOWN: {
-				if (event.kbd.ascii == ' ') {
-					waiting = false;
-				}
-				break;
-			}
-
 			default:
 				break;
 			}
@@ -622,8 +676,8 @@ void PhoenixVREngine::wait(float seconds) {
 
 		// Delay for a bit. All events loops should have a delay
 		// to prevent the system being unduly loaded
-		_frameLimiter.delayBeforeSwap();
 		drawAudioSubtitles();
+		_frameLimiter.delayBeforeSwap();
 		_screen->update();
 		frameDuration = _frameLimiter.startFrame();
 	}
@@ -720,15 +774,23 @@ void PhoenixVREngine::declareVariable(const Common::String &name) {
 		_variables.setVal(name, 0);
 }
 
+bool PhoenixVREngine::hasVariable(const Common::String &name) const {
+	return _variables.contains(name);
+}
+
 void PhoenixVREngine::setVariable(const Common::String &name, int value) {
+	if (!hasVariable(name)) {
+		debug("set %s %d - ignored, variable was not declared", name.c_str(), value);
+		return;
+	}
 	debug("set %s %d", name.c_str(), value);
 	_variables.setVal(name, value);
 }
 
 int PhoenixVREngine::getVariable(const Common::String &name) const {
-	if (gameIdMatches("lochness") && name == "tumuAccpet")
-		return _variables.getVal("tumuAccept");
-	return _variables.getVal(name);
+	if (!hasVariable(name))
+		warning("get %s - variable was not declared", name.c_str());
+	return _variables.getValOrDefault(name, 0);
 }
 
 void PhoenixVREngine::playSound(const Common::String &sound, Audio::Mixer::SoundType type, uint8 volume, int loops, bool spatial, float angle) {
@@ -923,6 +985,71 @@ void PhoenixVREngine::resetLockKey() {
 	_prevWarp = -1; // original game does only this o_O
 }
 
+void PhoenixVREngine::showImageOverlay(const Common::String &image, int x, int y) {
+	debug("AfficheImage %s %d %d", image.c_str(), x, y);
+	_imageOverlay.reset();
+
+	const Graphics::Surface *surface = _arn ? _arn->get(image) : nullptr;
+	if (!surface && !image.contains('.'))
+		surface = _arn ? _arn->get(image + ".bmp") : nullptr;
+	if (!surface) {
+		warning("can't find image overlay %s", image.c_str());
+		return;
+	}
+
+	uint8 r, g, b;
+	surface->format.colorToRGB(surface->getPixel(surface->w - 1, surface->h - 1), r, g, b);
+	_imageOverlay.reset(surface->convertTo(Graphics::BlendBlit::getSupportedPixelFormat()));
+	if (_imageOverlay)
+		_imageOverlay->applyColorKey(r, g, b);
+	_imageOverlayPos = Common::Point(x, y);
+}
+
+void PhoenixVREngine::stopImageOverlay() {
+	debug("StopAffiche");
+	_imageOverlay.reset();
+	updateStage();
+}
+
+void PhoenixVREngine::updateStage() {
+	renderVR(0);
+	_screen->update();
+}
+
+void PhoenixVREngine::startCible(const Common::String &name, int periodSeconds, const Common::Array<int> &bounds) {
+	debug("StartCible %s %d", name.c_str(), periodSeconds);
+	_cibleActive = true;
+	_cibleStartMillis = g_system->getMillis();
+	_ciblePeriodSeconds = periodSeconds;
+	_cibleBounds = bounds;
+}
+
+void PhoenixVREngine::stopCible() {
+	debug("StopCible");
+	_cibleActive = false;
+}
+
+void PhoenixVREngine::testCible(const Common::String &insideVar, const Common::String &outsideVar) {
+	debug("TestCible %s %s", insideVar.c_str(), outsideVar.c_str());
+	if (!_cibleActive)
+		return;
+
+	bool inside = false;
+	int periodMillis = _ciblePeriodSeconds * 1000;
+	if (periodMillis > 0) {
+		int elapsed = (g_system->getMillis() - _cibleStartMillis) % periodMillis;
+		for (uint i = 0; i + 1 < _cibleBounds.size() && _cibleBounds[i] != 0; i += 2) {
+			if (_cibleBounds[i] * 1000 < elapsed && elapsed < _cibleBounds[i + 1] * 1000) {
+				inside = true;
+				break;
+			}
+		}
+	}
+
+	setVariable(insideVar, inside ? 1 : 0);
+	setVariable(outsideVar, inside ? 0 : 1);
+}
+
 void PhoenixVREngine::lockKey(int idx, const Common::String &warp) {
 	_lockKey[idx] = warp;
 }
@@ -963,8 +1090,10 @@ Graphics::Surface *PhoenixVREngine::loadCursor(const Common::String &path) {
 	if (it != _cursorCache.end())
 		return it->_value;
 	auto s = loadSurface(path);
-	if (!s)
-		error("can't load cursor from %s", path.c_str());
+	if (!s) {
+		warning("can't load cursor from %s", path.c_str());
+		return nullptr;
+	}
 	_cursorCache[path] = s;
 	return s;
 }
@@ -984,10 +1113,11 @@ void PhoenixVREngine::executeTest(int idx) {
 		warning("invalid test id %d", idx);
 }
 
-void PhoenixVREngine::startTimer(float seconds) {
+void PhoenixVREngine::startTimer(float seconds, bool showTimer) {
 	_timer = seconds;
 	_initialTimer = seconds;
 	_timerFlags = 5;
+	_showTimer = showTimer;
 }
 
 void PhoenixVREngine::pauseTimer(bool pause, bool deactivate) {
@@ -1005,6 +1135,7 @@ void PhoenixVREngine::pauseTimer(bool pause, bool deactivate) {
 
 void PhoenixVREngine::killTimer() {
 	_timerFlags = 0;
+	_showTimer = false;
 }
 
 void PhoenixVREngine::tickTimer(float dt) {
@@ -1028,21 +1159,25 @@ void PhoenixVREngine::tickTimer(float dt) {
 }
 
 void PhoenixVREngine::renderTimer() {
-	if (_timerFlags == 0 || !_arn)
+	if (_timerFlags == 0 || !_showTimer || !_arn)
 		return;
 	auto timerBg = _arn->get("cadre.bmp");
 	auto timerFg = _arn->get("cadreB.bmp");
 	if (!timerBg || !timerFg)
 		return;
 
-	// Loch-Ness rectangle for now.
 	// Necronomicon has timer in scripts, but does not contain bitmaps for timers.
 	Common::Rect bgRect{320, 16, 632, 44};
 	Common::Rect fgRect{333, 23, 619, 38};
+	if (gameIdMatches("dracula2")) {
+		bgRect = Common::Rect(165, 15, 474, 48);
+		fgRect = Common::Rect(177, 15, 461, 48);
+	}
 	assert(_initialTimer > 0);
 	auto timeLeft = _timer / _initialTimer;
 	fgRect.right = fgRect.left + fgRect.width() * timeLeft;
-	Common::Rect fgSrcRect{static_cast<short>(timerFg->w * timeLeft), timerFg->h};
+	Common::Rect fgSrcRect(0, 0, timerFg->w, timerFg->h);
+	fgSrcRect.right = fgSrcRect.left + fgSrcRect.width() * timeLeft;
 	if (!fgRect.isValidRect() || !fgSrcRect.isValidRect())
 		return;
 	_screen->blitFrom(*timerBg, bgRect.origin());
@@ -1056,7 +1191,13 @@ void PhoenixVREngine::renderVR(float dt) {
 		int16 y = _textRect.top + (_textRect.height() - _text->h) / 2;
 		_screen->blitFrom(*_text, {x, y});
 	}
+	renderImageOverlay();
 	renderTimer();
+}
+
+void PhoenixVREngine::renderImageOverlay() {
+	if (_imageOverlay)
+		paint(*_imageOverlay, _imageOverlayPos);
 }
 
 void PhoenixVREngine::saveVariables() {
@@ -1494,7 +1635,11 @@ Common::Error PhoenixVREngine::run() {
 
 					if (_vr.isVR() ? region->contains3D(vrPos) : region->contains2D(event.mouse.x, event.mouse.y)) {
 						debug("click region %u", i);
-						executeTest(i);
+						if (auto clickTest = _warp->getLastTest(i)) {
+							Script::ExecutionContext ctx;
+							clickTest->scope.exec(ctx);
+						} else
+							warning("invalid test id %u", i);
 						break;
 					}
 				}
@@ -1516,8 +1661,8 @@ Common::Error PhoenixVREngine::run() {
 
 		// Delay for a bit. All events loops should have a delay
 		// to prevent the system being unduly loaded
-		_frameLimiter.delayBeforeSwap();
 		drawAudioSubtitles();
+		_frameLimiter.delayBeforeSwap();
 		_screen->update();
 		frameDuration = _frameLimiter.startFrame();
 	}
@@ -1709,6 +1854,9 @@ bool PhoenixVREngine::enterScript() {
 
 Common::Error PhoenixVREngine::loadGameStream(Common::SeekableReadStream *slot) {
 	auto state = GameState::load(*slot);
+	while (!state.script.empty() &&
+		   (state.script.lastChar() == '\n' || state.script.lastChar() == '\r'))
+		state.script = state.script.substr(0, state.script.size() - 1);
 
 	_loaded = true;
 	killTimer();
@@ -1900,8 +2048,8 @@ void PhoenixVREngine::drawSlot(int idx, int face, int x, int y) {
 			textY = drawSaveTextBlock(dst, font, state.game, textX, textY, textW, color, textAlign, lineHeight, splitV, tileY);
 			drawSaveTextBlock(dst, font, state.info, textX, textY, textW, color, textAlign, lineHeight, splitV, tileY);
 		} else {
-			textY = drawSaveTextBlock(dst, font, state.game, textX, textY, textW, color, textAlign, lineHeight, splitV, tileY, true);
-			drawSaveTextBlock(dst, font, state.info, textX, textY, textW, color, textAlign, lineHeight, splitV, tileY);
+			drawSaveTextBlock(dst, font, state.game, textX, textY, textW, color, textAlign, lineHeight, splitV, tileY, true);
+			drawSaveTextBlock(dst, font, state.info, textX, textY + lineHeight, textW, color, textAlign, lineHeight, splitV, tileY);
 		}
 	}
 

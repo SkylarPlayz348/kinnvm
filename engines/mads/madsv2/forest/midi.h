@@ -19,21 +19,31 @@
  *
  */
 
-#ifndef MADS_FOREST_ROOMS_305_H
-#define MADS_FOREST_ROOMS_305_H
+#ifndef MADS_FOREST_MIDI_H
+#define MADS_FOREST_MIDI_H
 
-#include "common/serializer.h"
-#include "mads/madsv2/core/general.h"
+#include "audio/midiplayer.h"
 
 namespace MADS {
 namespace MADSV2 {
 namespace Forest {
-namespace Rooms {
 
-extern void room_305_preload();
-extern void room_305_synchronize(Common::Serializer &s);
+class MidiPlayer : public Audio::MidiPlayer {
+private:
+	// MidiDriver_BASE interface implementation
+	void send(uint32 b) override;
 
-} // namespace Rooms
+public:
+	MidiPlayer() : Audio::MidiPlayer() {}
+	~MidiPlayer() override {}
+
+	void play(const char *name);
+};
+
+extern void midi_play(const char *name);
+extern void midi_stop();
+inline void midi_loop() {}
+
 } // namespace Forest
 } // namespace MADSV2
 } // namespace MADS

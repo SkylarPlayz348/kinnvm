@@ -29,42 +29,29 @@
 
 namespace Scumm {
 
-// ---------------------------------------------------------------------------
-// Level 1 Handler - FUN_00417E53
-// Single gameplay phase (01P01.SAN)
-// ---------------------------------------------------------------------------
-
 int InsaneRebel2::runLevel1() {
-	// Play level beginning cinematic (01BEG.SAN)
 	playLevelBegin(1);
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// Main gameplay retry loop
 	while (!_vm->shouldQuit()) {
-		// Reset shield for this attempt
 		_playerShield = 255;
 		_playerDamage = 0;
 		_deathFrame = 0;
 		resetExplosions();
 
-		// Reset bit table before gameplay starts - FUN_00423880 calls FUN_00423a00(0)
-		// This ensures all enemies are visible (not skipped by SKIP chunks)
 		clearBit(0);
 
-		// Play gameplay (01P01.SAN with 0x28 flags)
 		if (!playLevelSegment("LEV01/01P01.SAN", 0x28))
 			return kLevelQuit;
 
 		if (_playerShield > 0) {
-			// Level completed!
 			debugC(DEBUG_INSANE, "Level 1 completed!");
 			playLevelEnd(1);
-			_levelUnlocked[1] = true;  // Unlock level 2
+			_levelUnlocked[1] = true;
 			return kLevelNextLevel;
 		}
 
-		// Player died - play death video with random A/B variant
 		debugC(DEBUG_INSANE, "Level 1 death at frame %d, lives=%d", _deathFrame, _playerLives - 1);
 		playLevelDeathVariant(1, 1, _deathFrame);
 
@@ -77,7 +64,6 @@ int InsaneRebel2::runLevel1() {
 			return kLevelGameOver;
 		}
 
-		// Play retry prompt and loop
 		playLevelRetry(1);
 		if (_vm->shouldQuit())
 			return kLevelQuit;
@@ -86,19 +72,7 @@ int InsaneRebel2::runLevel1() {
 	return kLevelQuit;
 }
 
-// ---------------------------------------------------------------------------
-// Wave State Management - FUN_00417b61
-// Waits for video completion, accumulates kill state, redistributes kill credits.
-// Used by randomized multi-wave level handlers as the core wave loop primitive.
-// ---------------------------------------------------------------------------
-
 InsaneRebel2::WaveEndResult InsaneRebel2::processWaveEnd(int16 mask, int16 *budget, int16 threshold, uint16 flags) {
-	// FUN_00417b61: Core wave management function
-	// Called after each wave video plays. Handles:
-	// 1. Waiting for video to finish (with early exit on enemy completion)
-	// 2. Copying wave state to accumulated phase state
-	// 3. Redistributing kill credits from the budget
-
 	WaveEndResult result;
 
 	if (_rebelMovieMode) {
@@ -122,25 +96,15 @@ InsaneRebel2::WaveEndResult InsaneRebel2::processWaveEnd(int16 mask, int16 *budg
 		return result;
 	}
 
-	// Step 1: Wait for video to finish (lines 21-32)
-	// Original loop: while (damage < 0xff && frame < maxFrame-1 && !escPressed)
-	// The SmushPlayer::play() call already blocks until video ends, so this step
-	// is handled implicitly. The early-exit logic (threshold > 0: if frame > 50
-	// AND all required enemy type bits are set, count up and break when > threshold)
-	// requires per-frame callbacks to work precisely. The current implementation
-	// covers the primary effect by playing the full video and accumulating state.
+	// Threshold-based early exit needs per-frame callbacks; current playback
+	// waits for the full wave and accumulates the resulting kill state.
 	// TODO: Implement per-frame early exit callback for threshold-based wave termination.
 
-	// Step 2: Copy wave state to phase state (line 33)
-	// DAT_0047ab9c = DAT_0047ab98
 	_rebelPhaseState = _rebelWaveState;
 	debugC(DEBUG_INSANE, "processWaveEnd: waveState=0x%x -> phaseState=0x%x mask=0x%x budget=%d threshold=%d flags=%d",
 		_rebelWaveState, _rebelPhaseState, mask, budget ? *budget : -1, threshold, flags);
 
-	// Step 3: Kill redistribution - add random unkilled types (lines 34-47)
-	// Only when (flags & 2) != 0. Level 2 always passes flags=0, so inactive for Level 2.
 	if ((flags & 2) != 0) {
-		// Collect unkilled enemy type bits that are within the mask
 		byte unkilled[8];
 		int16 numUnkilled = 0;
 		for (byte b = 0; (2 << (b & 0x1f)) < (int)(mask & 0x0e); b++) {
@@ -150,7 +114,6 @@ InsaneRebel2::WaveEndResult InsaneRebel2::processWaveEnd(int16 mask, int16 *budg
 			}
 		}
 		if (numUnkilled > 0) {
-			// Randomly add one unkilled type to phase state
 			int idx = _vm->_rnd.getRandomNumber(numUnkilled - 1);
 			_rebelPhaseState |= unkilled[idx];
 			if (budget)
@@ -158,8 +121,6 @@ InsaneRebel2::WaveEndResult InsaneRebel2::processWaveEnd(int16 mask, int16 *budg
 		}
 	}
 
-	// Step 4: Kill credit transfer (lines 48-73)
-	// Collect all SET enemy type bits from phase state
 	byte killed[8];
 	int16 numKilled = 0;
 	for (byte b = 0; (2 << (b & 0x1f)) < (int)(mask & 0x0e); b++) {
@@ -169,18 +130,15 @@ InsaneRebel2::WaveEndResult InsaneRebel2::processWaveEnd(int16 mask, int16 *budg
 		}
 	}
 
-	// Max credits: 8 normally, 2 if flag bit 0 set
 	int16 maxCredits = ((flags & 1) == 0) ? 8 : 2;
 
-	// Transfer kills from phase state to result, limited by budget
 	int16 creditCount = 0;
 	while (creditCount < maxCredits && numKilled > 0 && budget && *budget > 0) {
 		int idx = _vm->_rnd.getRandomNumber(numKilled - 1);
-		_rebelPhaseState -= killed[idx];   // Remove from accumulated state
-		result.creditedBits |= killed[idx]; // Credit to return value
+		_rebelPhaseState -= killed[idx];
+		result.creditedBits |= killed[idx];
 		(*budget)--;
 
-		// Remove from array (shift remaining elements)
 		for (int i = idx; i + 1 < numKilled; i++) {
 			killed[i] = killed[i + 1];
 		}
@@ -191,7 +149,6 @@ InsaneRebel2::WaveEndResult InsaneRebel2::processWaveEnd(int16 mask, int16 *budg
 	debugC(DEBUG_INSANE, "processWaveEnd: result=0x%x phaseState=0x%x (after redistribution) budget=%d",
 		result.creditedBits, _rebelPhaseState, budget ? *budget : -1);
 
-	// Step 5: Stop conditions (lines 74-78)
 	result.died = (_playerDamage >= 255);
 	result.completed = ((int16)_rebelPhaseState >= mask);
 	result.quit = _vm->shouldQuit();
@@ -312,6 +269,11 @@ void InsaneRebel2::resetLevelPhaseState(bool clearEnemies) {
 
 	if (clearEnemies)
 		_enemies.clear();
+
+	if (_selectedChapter == 1 || _selectedChapter == 10) {
+		_rebelAutopilot = 1;
+		_rebelDamageLevel = 5;
+	}
 }
 
 void InsaneRebel2::clearEmbeddedHudFrames() {
@@ -330,6 +292,21 @@ void InsaneRebel2::clearEmbeddedHudFrames() {
 void InsaneRebel2::resetLevelWaveState() {
 	_rebelPhaseState = 0;
 	_rebelWaveState = 0;
+}
+
+void InsaneRebel2::resetShieldGauge() {
+	for (int i = 0; i < 10; ++i) {
+		_rebelValueCounters[i] = 0;
+		_rebelMaskCounters[i] = 0;
+	}
+	for (int i = 0; i < 512; ++i)
+		_rebelGaugeSlot[i] = -1;
+	_rebelLastCounter = -1;        // non-zero sentinel: gauge not yet depleted
+	_rebelShieldDestroyed = false;
+	_rebelGaugeArmed = false;
+	_rebelLastArmedSlot = -1;
+	for (int i = 0; i < 10; ++i)
+		_rebelGaugeCleared[i] = false;
 }
 
 void InsaneRebel2::resetExplosions() {
@@ -385,61 +362,45 @@ void InsaneRebel2::resetHandler7FlightState() {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Level 2 Handler - FUN_00418063
 // Multiple parts with P1/P2/P3 subdirectories
 // Random animation variants for each part
-// ---------------------------------------------------------------------------
 
 int InsaneRebel2::runLevel2() {
-	// FUN_00418063: Level 2 "Corellia Star" - Third-person on-foot shooting
 	// Three phases, each with looping enemy waves until all enemy types killed.
 	// Phase completion: (_rebelPhaseState & mask) == mask
 	// Phase 1 mask: 0x06 (enemy types 1,2)
 	// Phase 2 mask: 0x0e (enemy types 1,2,3)
 	// Phase 3 mask: 0x0e (enemy types 1,2,3)
-	//
-	// Kill credit budget (from level data table DAT_0047e0e8):
 	// Each phase gets a budget = tableBase + random(3). processWaveEnd() uses
 	// this budget to randomly redistribute kill credits, creating non-deterministic
 	// wave progression. Using calibrated defaults until exact table values extracted.
 	const int16 kLevel2BudgetBase[3] = { 3, 3, 3 };  // Phase 1, 2, 3
 
-	int bonusCount = 0;     // local_1c: tracks bonus events (DAT_0047ab9c & 0x10)
-	int totalKills = 0;     // local_c: accumulated kill count across phases
-	int totalMisses = 0;    // Accumulated misses (sVar1 + sVar2 from hit counters)
-	int prevWaveState = 0;  // variantIdx: previous wave's state for Phase 3 randomization
+	int bonusCount = 0;
+	int totalKills = 0;
+	int totalMisses = 0;
+	int prevWaveState = 0;
 
-	// Play cutscene (02CUT.SAN)
 	playCinematic("LEV02/02CUT.SAN");
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// Play level beginning cinematic (02BEG.SAN)
-	// Original: FUN_004171c5("LEV02/02BEG.SAN", 0x20, 0xab, 0xa0, 10, 2, 0x46)
 	playLevelBegin(2);
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// FUN_00401000 + FUN_00407d10 + FUN_0040c040: Reset game state (before retry loop)
 	clearBit(0);
 
-	// Main gameplay retry loop (restarts from beginning on death)
 	while (!_vm->shouldQuit()) {
 		resetLevelAttemptState(1);
 		bonusCount = 0;
 		totalKills = 0;
 		totalMisses = 0;
 
-		// ----- PHASE 1: P1/02P01_X.SAN -----
-		// FUN_0041c7d0: Reset per-phase counters
 		resetLevelPhaseState(false);
 
-		// Initialize kill budget from level data table + random(3)
-		// Original: sVar4 = levelData[phase1Offset]; local_14[0] = sVar4 + random(3)
 		int16 budget = kLevel2BudgetBase[0] + _vm->_rnd.getRandomNumber(2);
 
-		// Play A.SAN (background loader) — flags 0x28 (preserve buffer, gameplay mode)
 		debugC(DEBUG_INSANE, "Level 2 Phase 1 - playing 02P01_A.SAN (background) budget=%d", budget);
 		if (!playLevelSegment("LEV02/P1/02P01_A.SAN", 0x28))
 			return kLevelQuit;
@@ -448,12 +409,10 @@ int InsaneRebel2::runLevel2() {
 		processWaveEnd(0x36, &budget, 0, 0);
 
 		// Phase 1 wave loop: random B/C/D until all type 1,2 enemies killed
-		// Original: while (uVar3 >= 0 && (DAT_0047ab9c & 6) != 6)
 		while (_playerDamage < 255 && (_rebelPhaseState & 0x06) != 0x06) {
 			if (_vm->shouldQuit())
 				return kLevelQuit;
 
-			// Random variant B, C, or D
 			int variant = _vm->_rnd.getRandomNumber(2);  // 0-2
 			const char *variants[] = {
 				"LEV02/P1/02P01_B.SAN",
@@ -461,7 +420,6 @@ int InsaneRebel2::runLevel2() {
 				"LEV02/P1/02P01_D.SAN"
 			};
 			debugC(DEBUG_INSANE, "Phase 1 wave - playing %s (state=0x%x budget=%d)", variants[variant], _rebelPhaseState, budget);
-			// Wave videos use flags 0x428 (original: FUN_0041f4d0 param_2=0x428)
 			if (!playLevelSegment(variants[variant], 0x428))
 				return kLevelQuit;
 
@@ -470,7 +428,6 @@ int InsaneRebel2::runLevel2() {
 			debugC(DEBUG_INSANE, "Phase 1 wave done - state=0x%x (need 0x06) budget=%d", _rebelPhaseState, budget);
 		}
 
-		// Check for bonus (bit 4 = 0x10)
 		if ((_rebelPhaseState & 0x10) != 0)
 			bonusCount++;
 
@@ -483,9 +440,6 @@ int InsaneRebel2::runLevel2() {
 		if (_vm->shouldQuit())
 			return kLevelQuit;
 
-		// Post segment 1 (02PST1.SAN)
-		// Original: FUN_00417168("02PST1.SAN", 0x20) → flags = 0x20 | 0x08 = 0x28
-		// FUN_00417168 adds | 8 to preserve the screen buffer between gameplay and transition
 		// Reset handler to 0 so procPostRendering skips HUD/sprite drawing during cinematic
 		_rebelHandler = 0;
 		_rebelStatusBarSprite = 0;
@@ -495,23 +449,18 @@ int InsaneRebel2::runLevel2() {
 		totalKills += _rebelKillCounter;
 		totalMisses += _rebelHitCounter;
 
-		// ----- PHASE 2: P2/02P02_X.SAN -----
 		_currentPhase = 2;
 		resetLevelPhaseState(true);
 
-		// Initialize Phase 2 budget
 		budget = kLevel2BudgetBase[1] + _vm->_rnd.getRandomNumber(2);
 
 		// Restore handler for gameplay — will be confirmed by IACT opcode 6
 		_rebelHandler = 8;
 
-		// Play A.SAN (background loader)
 		debugC(DEBUG_INSANE, "Level 2 Phase 2 - playing 02P02_A.SAN (background) budget=%d", budget);
 		if (!playLevelSegment("LEV02/P2/02P02_A.SAN", 0x28))
 			return kLevelQuit;
 
-		// Phase 2 wave loop: processWaveEnd at TOP of loop (matches assembly structure)
-		// Original: local_10 = FUN_00417b61(0x3e, local_14, 0, 0); then switch(local_10)
 		while (true) {
 			WaveEndResult waveEnd = processWaveEnd(0x3e, &budget, 0, 0);
 			uint16 waveSelect = waveEnd.creditedBits;
@@ -520,13 +469,11 @@ int InsaneRebel2::runLevel2() {
 			if (_vm->shouldQuit())
 				return kLevelQuit;
 
-			// If no specific pattern: randomize high bits (original lines 71-74)
-			// When (local_10 & 0xc) == 0: add random 0x10/0x11/0x12
+
 			if ((waveSelect & 0x0c) == 0) {
 				waveSelect = _vm->_rnd.getRandomNumber(2) + 0x10;
 			}
 
-			// Variant selection matching original switch (FUN_418063 lines 75-96)
 			const char *filename;
 			switch (waveSelect) {
 			case 4: case 6:
@@ -560,8 +507,6 @@ int InsaneRebel2::runLevel2() {
 		if (_vm->shouldQuit())
 			return kLevelQuit;
 
-		// Post segment 2 (02PST2.SAN)
-		// Original: FUN_00417168("02PST2.SAN", 0x20) → flags = 0x20 | 0x08 = 0x28
 		// Reset handler to 0 so procPostRendering skips HUD/sprite drawing during cinematic
 		_rebelHandler = 0;
 		_rebelStatusBarSprite = 0;
@@ -571,24 +516,20 @@ int InsaneRebel2::runLevel2() {
 		totalKills += _rebelKillCounter;
 		totalMisses += _rebelHitCounter;
 
-		// ----- PHASE 3: P3/02P03_X.SAN -----
 		_currentPhase = 3;
 		resetLevelPhaseState(true);
 		prevWaveState = 0;
 
-		// Initialize Phase 3 budget
 		budget = kLevel2BudgetBase[2] + _vm->_rnd.getRandomNumber(2);
 
 		// Restore handler for gameplay — will be confirmed by IACT opcode 6
 		_rebelHandler = 8;
 
-		// Play A.SAN (background loader)
 		debugC(DEBUG_INSANE, "Level 2 Phase 3 - playing 02P03_A.SAN (background) budget=%d", budget);
 		if (!playLevelSegment("LEV02/P3/02P03_A.SAN", 0x28))
 			return kLevelQuit;
 
 		// Phase 3: processWaveEnd at BOTTOM (like Phase 1), waveSelect carried across iterations
-		// Original: local_10 = FUN_00417b61(0x3e, local_14, 0, 0); while (loop) { ...; local_10 = FUN_00417b61(0x3e, local_14, 0x14, 0); }
 		{
 			WaveEndResult waveEnd = processWaveEnd(0x3e, &budget, 0, 0);
 
@@ -598,14 +539,12 @@ int InsaneRebel2::runLevel2() {
 
 				uint16 waveSelect = waveEnd.creditedBits;
 
-				// Phase 3 randomization (original lines 113-115):
 				// If previous wave state bit 0 was clear AND random(8)==0, set bit 0
 				if (((prevWaveState & 1) == 0) && (_vm->_rnd.getRandomNumber(7) == 0)) {
 					waveSelect |= 1;
 				}
 				prevWaveState = waveSelect;
 
-				// Variant selection matching original switch (FUN_418063 lines 117-144)
 				const char *filename;
 				switch (waveSelect) {
 				case 0:
@@ -651,8 +590,6 @@ int InsaneRebel2::runLevel2() {
 		if (_vm->shouldQuit())
 			return kLevelQuit;
 
-		// Level completed! Calculate accuracy score.
-		// Original: FUN_00417327 with score thresholds and medal ranks
 		// Score presentation remains to be implemented.
 		{
 			totalMisses += _rebelHitCounter;
@@ -669,21 +606,16 @@ int InsaneRebel2::runLevel2() {
 	return kLevelQuit;
 }
 
-// ---------------------------------------------------------------------------
-// Level 3 Handler - FUN_0041885F
 // Two phases with per-phase retry handling
 // Phase 1: 03PLAY1.SAN, Phase 2: 03PLAY2.SAN
-// ---------------------------------------------------------------------------
 
 int InsaneRebel2::runLevel3() {
 	int phase1Score = 0;  // Score preserved across phase 2 retries
 
-	// Play level beginning cinematic (03BEG.SAN)
 	playLevelBegin(3);
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// ----- PHASE 1 retry loop -----
 	while (!_vm->shouldQuit()) {
 		_playerShield = 255;
 		_playerDamage = 0;
@@ -692,22 +624,18 @@ int InsaneRebel2::runLevel3() {
 
 		clearEmbeddedHudFrames();
 
-		// Reset bit table before gameplay starts - FUN_00423880 calls FUN_00423a00(0)
 		clearBit(0);
 		resetHandler7FlightState();
 
-		// Play phase 1 gameplay (03PLAY1.SAN)
 		debugC(DEBUG_INSANE, "Level 3 Phase 1");
 		if (!playLevelSegment("LEV03/03PLAY1.SAN", 0x28))
 			return kLevelQuit;
 
 		if (_playerShield > 0) {
-			// Phase 1 completed - save score and proceed to phase 2
 			phase1Score = _playerScore;
 			break;
 		}
 
-		// Died in phase 1 - frame-based death video
 		debugC(DEBUG_INSANE, "Level 3 Phase 1 death at frame %d", _deathFrame);
 		playLevelDeathVariant(3, 1, _deathFrame);
 		if (_vm->shouldQuit())
@@ -719,7 +647,6 @@ int InsaneRebel2::runLevel3() {
 			return kLevelGameOver;
 		}
 
-		// Phase 1 retry (03RETRY.SAN)
 		playLevelRetryVariant(3, 1);
 		if (_vm->shouldQuit())
 			return kLevelQuit;
@@ -728,15 +655,12 @@ int InsaneRebel2::runLevel3() {
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// Post segment 1 (03POST1.SAN)
-	// Original: FUN_00417168 adds | 8, so flags = 0x20 | 0x08 = 0x28
 	// Reset handler to 0 so procPostRendering skips HUD/sprite drawing during cinematic
 	_rebelHandler = 0;
 	_rebelStatusBarSprite = 0;
 	if (!playLevelSegment("LEV03/03POST1.SAN", 0x28, false))
 		return kLevelQuit;
 
-	// ----- PHASE 2 retry loop (preserves phase 1 score) -----
 	_currentPhase = 2;
 
 	while (!_vm->shouldQuit()) {
@@ -747,24 +671,20 @@ int InsaneRebel2::runLevel3() {
 
 		clearEmbeddedHudFrames();
 
-		// Reset bit table before gameplay starts
 		clearBit(0);
 		resetHandler7FlightState();
 
-		// Play phase 2 gameplay (03PLAY2.SAN)
 		debugC(DEBUG_INSANE, "Level 3 Phase 2");
 		if (!playLevelSegment("LEV03/03PLAY2.SAN", 0x28))
 			return kLevelQuit;
 
 		if (_playerShield > 0) {
-			// Level completed!
 			debugC(DEBUG_INSANE, "Level 3 completed!");
 			playLevelEnd(3);
 			_levelUnlocked[3] = true;  // Unlock level 4
 			return kLevelNextLevel;
 		}
 
-		// Died in phase 2 - frame-based death video
 		debugC(DEBUG_INSANE, "Level 3 Phase 2 death at frame %d", _deathFrame);
 		playLevelDeathVariant(3, 2, _deathFrame);
 		if (_vm->shouldQuit())
@@ -777,7 +697,6 @@ int InsaneRebel2::runLevel3() {
 			return kLevelGameOver;
 		}
 
-		// Phase 2 retry (03RETRYB.SAN)
 		playLevelRetryVariant(3, 2);
 		if (_vm->shouldQuit())
 			return kLevelQuit;
@@ -786,46 +705,36 @@ int InsaneRebel2::runLevel3() {
 	return kLevelQuit;
 }
 
-// ---------------------------------------------------------------------------
 // Level 4 Handler
 // Cutscene + single gameplay phase
-// ---------------------------------------------------------------------------
 
 int InsaneRebel2::runLevel4() {
-	// Play cutscene (04CUT.SAN)
-	// Original: FUN_00417168 adds | 8, so flags = 0x20 | 0x08 = 0x28
 	if (!playLevelSegment("LEV04/04CUT.SAN", 0x28, false))
 		return kLevelQuit;
 
-	// Play level beginning cinematic (04BEG.SAN)
 	playLevelBegin(4);
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// Main gameplay retry loop
 	while (!_vm->shouldQuit()) {
 		_playerShield = 255;
 		_playerDamage = 0;
 		_currentPhase = 1;
 		resetExplosions();
 
-		// Reset bit table before gameplay starts
 		clearBit(0);
 
-		// Play gameplay (04PLAY.SAN)
 		debugC(DEBUG_INSANE, "Level 4 gameplay");
 		if (!playLevelSegment("LEV04/04PLAY.SAN", 0x28))
 			return kLevelQuit;
 
 		if (_playerShield > 0) {
-			// Level completed!
 			debugC(DEBUG_INSANE, "Level 4 completed!");
 			playLevelEnd(4);
 			_levelUnlocked[4] = true;  // Unlock level 5
 			return kLevelNextLevel;
 		}
 
-		// Died - play death video (04DIE.SAN, no variants)
 		debugC(DEBUG_INSANE, "Level 4 death");
 		playLevelDeathVariant(4, 1, _deathFrame);
 		if (_vm->shouldQuit())
@@ -845,43 +754,33 @@ int InsaneRebel2::runLevel4() {
 	return kLevelQuit;
 }
 
-// ---------------------------------------------------------------------------
-// Level 5 Handler - FUN_00418EC6
 // Single gameplay phase (05PLAY.SAN)
 // Random A/B death video like Level 1
-// ---------------------------------------------------------------------------
 
 int InsaneRebel2::runLevel5() {
-	// Play level beginning cinematic (05BEG.SAN)
 	playLevelBegin(5);
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// Main gameplay retry loop
 	while (!_vm->shouldQuit()) {
 		_playerShield = 255;
 		_playerDamage = 0;
 		_currentPhase = 1;
 		resetExplosions();
 
-		// Reset bit table before gameplay starts
 		clearBit(0);
 
-		// Play gameplay (05PLAY.SAN)
-		// Original: FUN_0041f4d0("05PLAY.SAN", 8, -1, -1, 0)
 		debugC(DEBUG_INSANE, "Level 5 gameplay");
 		if (!playLevelSegment("LEV05/05PLAY.SAN", 0x08))
 			return kLevelQuit;
 
 		if (_playerShield > 0) {
-			// Level completed!
 			debugC(DEBUG_INSANE, "Level 5 completed!");
 			playLevelEnd(5);
 			_levelUnlocked[5] = true;  // Unlock level 6
 			return kLevelNextLevel;
 		}
 
-		// Died - play death video with random A/B variant
 		debugC(DEBUG_INSANE, "Level 5 death at frame %d", _deathFrame);
 		playLevelDeathVariant(5, 1, _deathFrame);
 		if (_vm->shouldQuit())
@@ -901,50 +800,51 @@ int InsaneRebel2::runLevel5() {
 	return kLevelQuit;
 }
 
-// ---------------------------------------------------------------------------
-// Level 6 Handler - FUN_00419317
 // Two phases with per-phase retry (like Level 3)
 // Phase 1: 06PLAY1.SAN, Phase 2: 06PLAY2.SAN
-// ---------------------------------------------------------------------------
 
 int InsaneRebel2::runLevel6() {
-	// FUN_004190d6 — Mos Eisley: two-phase on-foot (Handler 8)
 	// Phase 1 (levelId=5): 06PLAY1.SAN, mid-switch to 06PLAY1B.SAN at frame 0x2a8
 	// Phase 2 (levelId=6): 06PLAY2.SAN, play until near-end
-	// Original structure: outer do-while for phase 1 retries, inner while(true) for
 	// phase 2 retries + death handling. Phase 1 death breaks inner → RETRY at outer bottom.
 	// Phase 2 death → RETRYB → re-enters phase 2 within inner loop.
 	int phase1Score = 0;
 
-	// Play level beginning cinematic (06BEG.SAN)
-	// Original: FUN_004171c5(s_LEV06_06BEG_SAN, 0x20, 0xaf, 0xa0, 10, 5, 0x4b)
 	playLevelBegin(6);
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// FUN_00401000 + FUN_0041c7d0 + FUN_0040c040 — handler init done by IACT opcode 6
 
 	// Outer retry loop — restarts phase 1 on phase 1 death
 	while (!_vm->shouldQuit()) {
-		// FUN_00407d10 — reset shot/hit counters
 		clearBit(0);
 		resetExplosions();
 
-		// DAT_0047ab9c = 0xffffffff — init phase state
 		_rebelPhaseState = 0xffffffff;
 
-		// ----- PHASE 1 -----
-		_rebelLevelType = 5;  // DAT_0047a7f8 = 5
+		// destroys the shield (its hit gauge reaches 0) or dies.
+		_rebelLevelType = 5;
 		_currentPhase = 1;
 
-		debugC(DEBUG_INSANE, "Level 6 Phase 1");
-		if (!playLevelSegment("LEV06/06PLAY1.SAN", 0x28))
+		debugC(DEBUG_INSANE, "Level 6 Phase 1 (shield attack run)");
+		resetShieldGauge();
+		_rebelShieldGateActive = true;
+
+		if (!playLevelSegment("LEV06/06PLAY1.SAN", 0x28)) {
+			_rebelShieldGateActive = false;
 			return kLevelQuit;
-		// TODO: Mid-level switch at frame 0x2a8 to 06PLAY1B.SAN (flags 0x468)
-		// + score checkpoint (FUN_00407f55) — needs per-frame callback
+		}
+
+		while (_playerShield > 0 && !_rebelShieldDestroyed && !_vm->shouldQuit()) {
+			resetShieldGauge();
+			if (!playLevelSegment("LEV06/06PLAY1B.SAN", 0x468)) {
+				_rebelShieldGateActive = false;
+				return kLevelQuit;
+			}
+		}
+		_rebelShieldGateActive = false;
 
 		if (_playerShield <= 0) {
-			// Died in phase 1
 			debugC(DEBUG_INSANE, "Level 6 Phase 1 death at frame %d", _deathFrame);
 			playLevelDeathVariant(6, 1, _deathFrame);
 			if (_vm->shouldQuit())
@@ -956,27 +856,24 @@ int InsaneRebel2::runLevel6() {
 				return kLevelGameOver;
 			}
 
-			// Phase 1 retry (06RETRY.SAN) → restart outer loop
 			playLevelRetryVariant(6, 1);
 			if (_vm->shouldQuit())
 				return kLevelQuit;
 			continue;
 		}
 
-		// Phase 1 survived — preserve this score across phase 2 retries.
-		phase1Score = _playerScore;  // variantIdx = DAT_0047ab84
+		phase1Score = _playerScore;
 
 		_rebelHandler = 0;
 		_rebelStatusBarSprite = 0;
 		if (!playLevelSegment("LEV06/06POST1.SAN", 0x28, false))
 			return kLevelQuit;
 
-		// ----- PHASE 2 retry loop (inner while(true) in original) -----
 		while (!_vm->shouldQuit()) {
-			_rebelLevelType = 6;  // DAT_0047a7f8 = 6
+			_rebelLevelType = 6;
 			_currentPhase = 2;
 			_playerScore = phase1Score;
-			clearBit(0);  // FUN_00407d10
+			clearBit(0);
 			resetExplosions();
 
 			debugC(DEBUG_INSANE, "Level 6 Phase 2");
@@ -984,14 +881,12 @@ int InsaneRebel2::runLevel6() {
 				return kLevelQuit;
 
 			if (_playerShield > 0) {
-				// Level completed!
 				debugC(DEBUG_INSANE, "Level 6 completed!");
 				playLevelEnd(6);
 				_levelUnlocked[6] = true;
 				return kLevelNextLevel;
 			}
 
-			// Died in phase 2
 			debugC(DEBUG_INSANE, "Level 6 Phase 2 death at frame %d", _deathFrame);
 			playLevelDeathVariant(6, 2, _deathFrame);
 			if (_vm->shouldQuit())
@@ -1003,7 +898,6 @@ int InsaneRebel2::runLevel6() {
 				return kLevelGameOver;
 			}
 
-			// Phase 2 retry (06RETRYB.SAN) → re-enter phase 2
 			playLevelRetryVariant(6, 2);
 			if (_vm->shouldQuit())
 				return kLevelQuit;
@@ -1015,27 +909,20 @@ int InsaneRebel2::runLevel6() {
 	return kLevelQuit;
 }
 
-// ---------------------------------------------------------------------------
-// Level 7 Handler - FUN_0041974C
 // "TIE Training" - Canyon flight with fork at frame 1592
 // Single gameplay phase (07PLAY.SAN), optional second segment (07PLAYB.SAN)
-// Death: DAT_0047ab8c-based (fork reached → DIE_B, not reached → DIE_A)
-// ---------------------------------------------------------------------------
 
 int InsaneRebel2::runLevel7() {
-	bool reachedFork = false;  // DAT_0047ab8c equivalent — tracks if 07PLAYB was played
+	bool reachedFork = false;
 
-	// Play cutscene (07CUT.SAN)
 	playCinematic("LEV07/07CUT.SAN");
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// Play level beginning cinematic (07BEG.SAN)
 	playLevelBegin(7);
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// FUN_00401000 + FUN_0041c7d0 + FUN_00407d10
 	clearBit(0);
 
 	while (!_vm->shouldQuit()) {
@@ -1047,9 +934,6 @@ int InsaneRebel2::runLevel7() {
 
 		clearBit(0);
 
-		// Play gameplay (07PLAY.SAN)
-		// Original: FUN_0041f4d0("07PLAY.SAN", 0x28, -1, -1, 0)
-		// At frame 0x638 (1592), if DAT_0047ab8c != 0: play 07PLAYB.SAN (0x468)
 		// TODO: Mid-level fork at frame 1592 requires per-frame callback.
 		// The fork video (07PLAYB) should be triggered by IACT callbacks setting
 		// a state flag during gameplay.
@@ -1063,8 +947,6 @@ int InsaneRebel2::runLevel7() {
 			return kLevelNextLevel;
 		}
 
-		// Death video: DIE_B if fork reached, DIE_A if not
-		// Original: s_LEV07_07DIE_B + ((DAT_0047ab8c != 0) - 1 & 0x14)
 		debugC(DEBUG_INSANE, "Level 7 death at frame %d, fork=%d", _deathFrame, reachedFork);
 		if (reachedFork) {
 			playCinematic("LEV07/07DIE_B.SAN");
@@ -1088,21 +970,13 @@ int InsaneRebel2::runLevel7() {
 	return kLevelQuit;
 }
 
-// ---------------------------------------------------------------------------
-// Level 8 Handler - FUN_00419976
 // "Flight to Imdaar" - Y-Wing space battle (single phase)
-// No cutscene (starts with BEG). flags=0x08 for gameplay.
-// Death: random A or B
-// ---------------------------------------------------------------------------
 
 int InsaneRebel2::runLevel8() {
-	// No cutscene — starts directly with BEG
-	// Original: FUN_004171c5("08BEG.SAN", 0x20, 0xb1, 0xa0, 10, 5, 0x4b)
 	playLevelBegin(8);
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// FUN_00401000 + FUN_0041c7d0 + FUN_0040c040
 	clearBit(0);
 
 	while (!_vm->shouldQuit()) {
@@ -1113,8 +987,6 @@ int InsaneRebel2::runLevel8() {
 
 		clearBit(0);
 
-		// Play gameplay (08PLAY.SAN)
-		// Original: FUN_0041f4d0("08PLAY.SAN", 8, -1, -1, 0) — note flags=0x08
 		if (!playLevelSegment("LEV08/08PLAY.SAN", 0x08))
 			return kLevelQuit;
 
@@ -1126,8 +998,6 @@ int InsaneRebel2::runLevel8() {
 			return kLevelNextLevel;
 		}
 
-		// Death: random A or B
-		// Original: random(2) → A or B via string pointer arithmetic
 		debugC(DEBUG_INSANE, "Level 8 death at frame %d", _deathFrame);
 		playLevelDeathVariant(8, 1, _deathFrame);
 		if (_vm->shouldQuit())
@@ -1147,22 +1017,13 @@ int InsaneRebel2::runLevel8() {
 	return kLevelQuit;
 }
 
-// ---------------------------------------------------------------------------
-// Level 9 Handler - FUN_00419B86
 // "The Mine Field" - Navigate through force fields (single phase)
-// No cutscene. Initial phaseState = 0xfffffffe (all bits set except bit 0).
-// Mid-events at frames 0x19f (415) and 0x352 (850): FUN_00407f55 (score checkpoint)
-// Death: DAT_0047ab94-based (0→A, 1→C, else→B)
-// ---------------------------------------------------------------------------
 
 int InsaneRebel2::runLevel9() {
-	// No cutscene — starts directly with BEG
-	// Original: FUN_004171c5("09BEG.SAN", 0x20, 0xb2, 0xa0, 10, 200, 0x10e)
 	playLevelBegin(9);
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// FUN_00401000 + FUN_0041c7d0 + FUN_0040c040
 	clearBit(0);
 
 	while (!_vm->shouldQuit()) {
@@ -1173,12 +1034,8 @@ int InsaneRebel2::runLevel9() {
 
 		clearBit(0);
 
-		// Original: DAT_0047ab9c = 0xfffffffe (initial phase state — all bits except 0)
 		_rebelPhaseState = 0xfffffffe;
 
-		// Play gameplay (09PLAY.SAN)
-		// Original: FUN_0041f4d0("09PLAY.SAN", 0x28, -1, -1, 0)
-		// Mid-events at frames 415 and 850: FUN_00407f55 (score save)
 		// These are handled implicitly — the IACT callbacks manage scoring.
 		if (!playLevelSegment("LEV09/09PLAY.SAN", 0x28))
 			return kLevelQuit;
@@ -1191,8 +1048,6 @@ int InsaneRebel2::runLevel9() {
 			return kLevelNextLevel;
 		}
 
-		// Death: based on DAT_0047ab94 (death cause tracking)
-		// Original: 0→DIE_A, 1→DIE_C, else→DIE_B
 		debugC(DEBUG_INSANE, "Level 9 death at frame %d", _deathFrame);
 		playLevelDeathVariant(9, 1, _deathFrame);
 		if (_vm->shouldQuit())
@@ -1212,26 +1067,18 @@ int InsaneRebel2::runLevel9() {
 	return kLevelQuit;
 }
 
-// ---------------------------------------------------------------------------
-// Level 10 Handler - FUN_00419E0A
 // "Speeder Bikes" - Forest speeder chase (single phase)
 // Has cutscene. Single death video (10DIE.SAN, no variants).
-// Original plays DIE then RETRY in sequence (no separate check).
-// ---------------------------------------------------------------------------
 
 int InsaneRebel2::runLevel10() {
-	// Play cutscene (10CUT.SAN)
 	playCinematic("LEV10/10CUT.SAN");
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// Play level beginning cinematic (10BEG.SAN)
-	// Original: FUN_004171c5("10BEG.SAN", 0x20, 0xb3, 0xa0, 10, 2, 0x46)
 	playLevelBegin(10);
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// FUN_00401000 + FUN_0041c7d0 + FUN_00407d10
 	clearBit(0);
 
 	while (!_vm->shouldQuit()) {
@@ -1242,8 +1089,6 @@ int InsaneRebel2::runLevel10() {
 
 		clearBit(0);
 
-		// Play gameplay (10PLAY.SAN)
-		// Original: FUN_0041f4d0("10PLAY.SAN", 0x28, -1, -1, 0)
 		if (!playLevelSegment("LEV10/10PLAY.SAN", 0x28))
 			return kLevelQuit;
 
@@ -1255,8 +1100,6 @@ int InsaneRebel2::runLevel10() {
 			return kLevelNextLevel;
 		}
 
-		// Death + Retry: original plays both in sequence
-		// Original: lives--, if 0 break to game over, else DIE+RETRY
 		debugC(DEBUG_INSANE, "Level 10 death at frame %d", _deathFrame);
 		_playerLives--;
 		if (_playerLives <= 0) {
@@ -1275,52 +1118,41 @@ int InsaneRebel2::runLevel10() {
 	return kLevelQuit;
 }
 
-// ---------------------------------------------------------------------------
-// Level 11 Handler - FUN_0041A00C
 // "Inside the Terror" - Three phases + bridge puzzle (Handler 8, on-foot)
-//
 // Phase 1: P1/11P01_X (A,B,C,D) - behind barrels, mask 0x0e
 // Phase 2: P2/11P02_X (A,B,C,D) - walls on right, mask 0x0e, flags=3
 // Phase 3 first half: P3/11P03_X (A-F) - bridge puzzle, mask 0x7e
 //   Exit when (phaseState & 0x70) == 0x70
 // POST3/POST3B/POST3C bridge cinematics
 // Phase 3 second half: P3/11P03_X (G-L) - after bridge, mask 0x0e
-// ---------------------------------------------------------------------------
 
 int InsaneRebel2::runLevel11() {
 	int totalKills = 0;
 	int totalMisses = 0;
 	int prevPhaseState = 0;
 
-	// Kill credit budget bases per phase (from level data table DAT_0047e0e8)
 	const int16 kLevel11BudgetBase[4] = { 3, 3, 3, 3 };
 
-	// Play cutscene (11CUT.SAN)
 	playCinematic("LEV11/11CUT.SAN");
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// Play level beginning cinematic (11BEG.SAN)
 	playLevelBegin(11);
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// FUN_00401000 + FUN_00407d10 + FUN_0040c040: Reset game state
 	clearBit(0);
 
-	// Main gameplay retry loop (restarts from Phase 1 on death)
 	while (!_vm->shouldQuit()) {
 		resetLevelAttemptState(1);
 		totalKills = 0;
 		totalMisses = 0;
 		prevPhaseState = 0;
 
-		// ----- PHASE 1: P1/11P01_X.SAN -----
 		resetLevelPhaseState(false);
 
 		int16 budget = kLevel11BudgetBase[0] + _vm->_rnd.getRandomNumber(2);
 
-		// Play A.SAN (background loader)
 		debugC(DEBUG_INSANE, "Level 11 Phase 1 - playing 11P01_A.SAN budget=%d", budget);
 		if (!playLevelSegment("LEV11/P1/11P01_A.SAN", 0x28))
 			return kLevelQuit;
@@ -1338,7 +1170,6 @@ int InsaneRebel2::runLevel11() {
 
 				// Bonus sound check
 				if ((_rebelPhaseState & 0x10) != 0 && (prevPhaseState & 0x10) == 0) {
-					// FUN_00411931 bonus sound — not yet implemented
 				}
 				prevPhaseState = _rebelPhaseState;
 
@@ -1368,7 +1199,6 @@ int InsaneRebel2::runLevel11() {
 		if (_vm->shouldQuit())
 			return kLevelQuit;
 
-		// Post segment 1 (11POST1.SAN)
 		_rebelHandler = 0;
 		_rebelStatusBarSprite = 0;
 		if (!playLevelSegment("LEV11/11POST1.SAN", 0x28, false))
@@ -1377,14 +1207,12 @@ int InsaneRebel2::runLevel11() {
 		totalKills += _rebelKillCounter;
 		totalMisses += _rebelHitCounter;
 
-		// ----- PHASE 2: P2/11P02_X.SAN -----
 		_currentPhase = 2;
 		resetLevelPhaseState(true);
 
 		budget = kLevel11BudgetBase[1] + _vm->_rnd.getRandomNumber(2);
 		_rebelHandler = 8;
 
-		// Play A.SAN (background loader)
 		debugC(DEBUG_INSANE, "Level 11 Phase 2 - playing 11P02_A.SAN budget=%d", budget);
 		if (!playLevelSegment("LEV11/P2/11P02_A.SAN", 0x28))
 			return kLevelQuit;
@@ -1424,7 +1252,6 @@ int InsaneRebel2::runLevel11() {
 		if (_vm->shouldQuit())
 			return kLevelQuit;
 
-		// Post segment 2 (11POST2.SAN)
 		_rebelHandler = 0;
 		_rebelStatusBarSprite = 0;
 		if (!playLevelSegment("LEV11/11POST2.SAN", 0x28, false))
@@ -1433,7 +1260,6 @@ int InsaneRebel2::runLevel11() {
 		totalKills += _rebelKillCounter;
 		totalMisses += _rebelHitCounter;
 
-		// ----- PHASE 3 FIRST HALF: P3/11P03_X (A-F) -----
 		// Bridge puzzle — exit when (phaseState & 0x70) == 0x70
 		_currentPhase = 3;
 		resetLevelPhaseState(true);
@@ -1457,7 +1283,6 @@ int InsaneRebel2::runLevel11() {
 
 				// Bonus sound: (phaseState & 0xe) == 0xe and previous wasn't
 				if ((_rebelPhaseState & 0x0e) == 0x0e && (prevPhaseState & 0x0e) != 0x0e) {
-					// FUN_00411931 bonus sound — not yet implemented
 				}
 				prevPhaseState = _rebelPhaseState;
 
@@ -1484,7 +1309,6 @@ int InsaneRebel2::runLevel11() {
 				if (!playLevelSegment(filename, 0x428))
 					return kLevelQuit;
 
-				// Threshold only for higher variants (original: (2 < variantIdx) - 1 & 0x14)
 				int16 threshold = (variantIdx > 2) ? 0x14 : 0;
 				waveEnd = processWaveEnd(0x7e, &budget, threshold, 0);
 			}
@@ -1499,14 +1323,11 @@ int InsaneRebel2::runLevel11() {
 		if (_vm->shouldQuit())
 			return kLevelQuit;
 
-		// ----- PHASE 3 BRIDGE CINEMATICS -----
 		{
 			bool allBasicKilled = (_rebelPhaseState & 0x0e) >= 0x0e;
 			if (!allBasicKilled) {
 				// Normal bridge drop cinematic
 				playCinematic("LEV11/11POST3.SAN");
-				// Bonus checks (FUN_0042aa70) are not implemented; play the standard path.
-				// Original checks 0x77 and 0x62 for special POST3C cinematic
 			} else {
 				// All enemy types killed — bridge dropped successfully
 				playCinematic("LEV11/11POST3B.SAN");
@@ -1516,12 +1337,9 @@ int InsaneRebel2::runLevel11() {
 		if (_vm->shouldQuit())
 			return kLevelQuit;
 
-		// ----- PHASE 3 SECOND HALF: P3/11P03_X (G-L) -----
-		// Reset shots/explosions (FUN_0041ca6a equivalent)
 		resetExplosions();
 		_enemies.clear();
 
-		// Preserve only bits 1-3 of phase state (original: DAT_0047ab9c &= 0xe)
 		_rebelPhaseState &= 0x0e;
 		_rebelWaveState &= 0x0e;
 
@@ -1529,7 +1347,6 @@ int InsaneRebel2::runLevel11() {
 
 		budget = kLevel11BudgetBase[3] + _vm->_rnd.getRandomNumber(2);
 
-		// Play G.SAN (background loader for second half)
 		debugC(DEBUG_INSANE, "Level 11 Phase 3 second half - playing 11P03_G.SAN budget=%d", budget);
 		if (!playLevelSegment("LEV11/P3/11P03_G.SAN", 0x28))
 			return kLevelQuit;
@@ -1583,7 +1400,6 @@ int InsaneRebel2::runLevel11() {
 		if (_vm->shouldQuit())
 			return kLevelQuit;
 
-		// ----- LEVEL COMPLETED -----
 		{
 			totalMisses += _rebelHitCounter;
 			int accuracy = calculateAccuracy(totalKills, totalMisses);
@@ -1599,52 +1415,40 @@ int InsaneRebel2::runLevel11() {
 	return kLevelQuit;
 }
 
-// ---------------------------------------------------------------------------
-// Level 12 Handler - FUN_0041AA14
 // "Sewers" - Four phases FPS corridor shooting (Handler 25)
-//
 // Each phase: init video (P05/P06/P07/P08) → first wave → wave loop
 // Phase 1: P1/12P01_X (A,B,C,D) mask=6
 // Phase 2: P2/12P02_X (A,B,C,D,E,F) mask=6
 // Phase 3: P3/12P03_X (A,B,C,D,F) mask=6
 // Phase 4: P4/12P04_X (A,B,C,D,E,F) mask=0xe
 // Closing: 12P09.SAN
-// ---------------------------------------------------------------------------
 
 int InsaneRebel2::runLevel12() {
 	// Kill credit budget bases per phase
 	const int16 kLevel12BudgetBase[4] = { 3, 4, 4, 4 };
 
-	// Play cutscene (12CUT.SAN)
 	playCinematic("LEV12/12CUT.SAN");
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// Play level beginning cinematic (12BEG.SAN)
 	playLevelBegin(12);
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// FUN_0041c7d0 + FUN_00407d10 + FUN_0040c040: Reset game state
 	clearBit(0);
 
-	// Main gameplay retry loop (restarts from Phase 1 on death)
 	while (!_vm->shouldQuit()) {
 		resetLevelAttemptState(1);
 
-		// ----- PHASE 1: 12P05 → P1/12P01_X -----
-		// FUN_00401000: Reset at top of each retry
 		resetLevelPhaseState(false);
 
 		int16 budget = kLevel12BudgetBase[0] + _vm->_rnd.getRandomNumber(2);
 
-		// Initialization video (12P05.SAN)
 		debugC(DEBUG_INSANE, "Level 12 Phase 1 - init 12P05.SAN budget=%d", budget);
 		if (!playLevelSegment("LEV12/12P05.SAN", 0x28, false))
 			return kLevelQuit;
 		processWaveEnd(1, &budget, 0, 0);
 
-		// First wave (P1/12P01_A.SAN)
 		if (!playLevelSegment("LEV12/P1/12P01_A.SAN", 0x428))
 			return kLevelQuit;
 
@@ -1683,19 +1487,16 @@ int InsaneRebel2::runLevel12() {
 		if (_vm->shouldQuit())
 			return kLevelQuit;
 
-		// ----- PHASE 2: 12P06 → P2/12P02_X -----
 		_currentPhase = 2;
 		resetLevelWaveState();
 
 		budget = kLevel12BudgetBase[1] + _vm->_rnd.getRandomNumber(3);
 
-		// Initialization video (12P06.SAN)
 		debugC(DEBUG_INSANE, "Level 12 Phase 2 - init 12P06.SAN budget=%d", budget);
 		if (!playLevelSegment("LEV12/12P06.SAN", 0x428, false))
 			return kLevelQuit;
 		processWaveEnd(1, &budget, 0, 0);
 
-		// First wave (P2/12P02_A.SAN)
 		if (!playLevelSegment("LEV12/P2/12P02_A.SAN", 0x428))
 			return kLevelQuit;
 
@@ -1745,19 +1546,16 @@ int InsaneRebel2::runLevel12() {
 		if (_vm->shouldQuit())
 			return kLevelQuit;
 
-		// ----- PHASE 3: 12P07 → P3/12P03_X -----
 		_currentPhase = 3;
 		resetLevelWaveState();
 
 		budget = kLevel12BudgetBase[2] + _vm->_rnd.getRandomNumber(3);
 
-		// Initialization video (12P07.SAN)
 		debugC(DEBUG_INSANE, "Level 12 Phase 3 - init 12P07.SAN budget=%d", budget);
 		if (!playLevelSegment("LEV12/12P07.SAN", 0x428, false))
 			return kLevelQuit;
 		processWaveEnd(1, &budget, 0, 0);
 
-		// First wave (P3/12P03_A.SAN)
 		if (!playLevelSegment("LEV12/P3/12P03_A.SAN", 0x428))
 			return kLevelQuit;
 
@@ -1803,19 +1601,16 @@ int InsaneRebel2::runLevel12() {
 		if (_vm->shouldQuit())
 			return kLevelQuit;
 
-		// ----- PHASE 4: 12P08 → P4/12P04_X -----
 		_currentPhase = 4;
 		resetLevelWaveState();
 
 		budget = kLevel12BudgetBase[3] + _vm->_rnd.getRandomNumber(3);
 
-		// Initialization video (12P08.SAN)
 		debugC(DEBUG_INSANE, "Level 12 Phase 4 - init 12P08.SAN budget=%d", budget);
 		if (!playLevelSegment("LEV12/12P08.SAN", 0x428, false))
 			return kLevelQuit;
 		processWaveEnd(1, &budget, 0, 0);
 
-		// First wave (P4/12P04_A.SAN)
 		if (!playLevelSegment("LEV12/P4/12P04_A.SAN", 0x428))
 			return kLevelQuit;
 
@@ -1860,19 +1655,16 @@ int InsaneRebel2::runLevel12() {
 		if (_vm->shouldQuit())
 			return kLevelQuit;
 
-		// ----- CLOSING: 12P09.SAN -----
 		if (!playLevelSegment("LEV12/12P09.SAN", 0x428, false))
 			return kLevelQuit;
 		processWaveEnd(1, &budget, 0, 0);
 
-		// ----- LEVEL COMPLETED -----
 		{
 			int accuracy = calculateAccuracy(_rebelKillCounter, _rebelHitCounter);
 			debugC(DEBUG_INSANE, "Level 12 completed! kills=%d misses=%d accuracy=%d%%",
 				_rebelKillCounter, _rebelHitCounter, accuracy);
 		}
 
-		// Bonus checks: FUN_0042aa70(0x61), FUN_0042aa70(99), FUN_0042aa70(0x74)
 		// If all three bonuses found, play special ending (12END_Z.SAN)
 		// Deferred until bonus tracking is implemented
 
@@ -1884,23 +1676,15 @@ int InsaneRebel2::runLevel12() {
 	return kLevelQuit;
 }
 
-// ---------------------------------------------------------------------------
-// Level 13 Handler - FUN_0041B3E1
 // "Escaping the Star Destroyer" - Two-phase flight/escape
 // Phase A: 13PLAY_A.SAN (main flight), transitions to Phase B at maxFrame-10
 // Phase B: 13PLAY_B.SAN (reactor loop, flags 0x468) — plays until
-//   (DAT_0047ab90 == 0 && DAT_0047ab7c == 0) meaning all targets destroyed.
-// Death: frame-based (A/B/C/B/D pattern)
-// ---------------------------------------------------------------------------
 
 int InsaneRebel2::runLevel13() {
-	// No cutscene — starts directly with BEG
-	// Original: FUN_004171c5("13BEG.SAN", 0x20, 0xb6, 0xa0, 10, 2, 0x46)
 	playLevelBegin(13);
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// FUN_00401000 + FUN_0041c7d0 + FUN_0040c040
 	clearBit(0);
 
 	while (!_vm->shouldQuit()) {
@@ -1911,25 +1695,31 @@ int InsaneRebel2::runLevel13() {
 
 		clearBit(0);
 
-		// Phase A: Main escape flight (13PLAY_A.SAN)
-		// Original: FUN_0041f4d0("13PLAY_A.SAN", 0x28, -1, -1, 0)
-		// First inner loop runs until frame reaches maxFrame-10
-		// Then Phase B (13PLAY_B.SAN, flags 0x468) plays at that exact frame
-		// The 0x468 flags indicate seamless mid-video transition.
-		if (!playLevelSegment("LEV13/13PLAY_A.SAN", 0x28))
+		// Phase A: full approach flight; the reactor gauge is tracked but A plays to the end.
+		resetShieldGauge();
+		_rebelShieldGateActive = true;
+		_rebelReactorMode = true;
+		if (!playLevelSegment("LEV13/13PLAY_A.SAN", 0x28)) {
+			_rebelShieldGateActive = false;
+			_rebelReactorMode = false;
 			return kLevelQuit;
-
-		// If alive after Phase A, play Phase B (reactor destruction loop)
-		// Original: at frame == maxFrame-10, play 13PLAY_B.SAN (0x468)
-		// Then loop while (DAT_0047ab90 != 0 || DAT_0047ab7c != 0)
-		// Play B as a sequential video. The IACT callbacks manage the reactor
-		// target state through opcode interactions.
-		if (_playerShield > 0) {
-			if (!playLevelSegment("LEV13/13PLAY_B.SAN", 0x468))
-				return kLevelQuit;
 		}
 
-		if (_playerShield > 0) {
+		// Reactor finale: loop 13PLAY_B until the reactor is destroyed or the player dies.
+		// The gauge persists from A (no reset) so hits carry over; finaleGuard caps the loop.
+		int finaleGuard = 0;
+		while (_playerShield > 0 && !_rebelShieldDestroyed && !_vm->shouldQuit() && finaleGuard < 60) {
+			++finaleGuard;
+			if (!playLevelSegment("LEV13/13PLAY_B.SAN", 0x468)) {
+				_rebelShieldGateActive = false;
+				_rebelReactorMode = false;
+				return kLevelQuit;
+			}
+		}
+		_rebelShieldGateActive = false;
+		_rebelReactorMode = false;
+
+		if (_playerShield > 0 && _rebelShieldDestroyed) {
 			int accuracy = calculateAccuracy(_rebelKillCounter, _rebelHitCounter);
 			debugC(DEBUG_INSANE, "Level 13 completed! accuracy=%d%%", accuracy);
 			playLevelEnd(13);
@@ -1937,7 +1727,6 @@ int InsaneRebel2::runLevel13() {
 			return kLevelNextLevel;
 		}
 
-		// Death: frame-based variant selection (FUN_0041B3E1 lines 47-61)
 		debugC(DEBUG_INSANE, "Level 13 death at frame %d", _deathFrame);
 		playLevelDeathVariant(13, 1, _deathFrame);
 		if (_vm->shouldQuit())
@@ -1957,20 +1746,13 @@ int InsaneRebel2::runLevel13() {
 	return kLevelQuit;
 }
 
-// ---------------------------------------------------------------------------
-// Level 14 Handler - FUN_0041B6E8
 // "TIE Attack" - Final space battle (single phase)
-// No cutscene. Single death video (14DIE.SAN, no variants).
-// ---------------------------------------------------------------------------
 
 int InsaneRebel2::runLevel14() {
-	// No cutscene — starts directly with BEG
-	// Original: FUN_004171c5("14BEG.SAN", 0x20, 0xb7, 0xa0, 10, 2, 0x46)
 	playLevelBegin(14);
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// FUN_00401000 + FUN_0041c7d0 + FUN_0040c040
 	clearBit(0);
 
 	while (!_vm->shouldQuit()) {
@@ -1981,8 +1763,6 @@ int InsaneRebel2::runLevel14() {
 
 		clearBit(0);
 
-		// Play gameplay (14PLAY.SAN)
-		// Original: FUN_0041f4d0("14PLAY.SAN", 0x28, -1, -1, 0)
 		if (!playLevelSegment("LEV14/14PLAY.SAN", 0x28))
 			return kLevelQuit;
 
@@ -1994,7 +1774,6 @@ int InsaneRebel2::runLevel14() {
 			return kLevelNextLevel;
 		}
 
-		// Death: single video (14DIE.SAN)
 		debugC(DEBUG_INSANE, "Level 14 death at frame %d", _deathFrame);
 		playCinematic("LEV14/14DIE.SAN");
 		if (_vm->shouldQuit())
@@ -2014,31 +1793,20 @@ int InsaneRebel2::runLevel14() {
 	return kLevelQuit;
 }
 
-// ---------------------------------------------------------------------------
-// Level 15 Handler - FUN_0041B8D7
 // "Imdaar Alpha" - Final mission (single long phase with level ID switch)
-// Has cutscene. Mid-level: DAT_0047a7f8 changes from 0xf to 0x10 at frame 0x21e.
 // This represents a transition from the tunnel section to the core section.
-// Death: frame-based (A/B/C/B/C/B/D pattern with 7 thresholds)
-// On completion → FUN_0041BBE8 (credits/end game, not a playable level)
-// ---------------------------------------------------------------------------
 
 int InsaneRebel2::runLevel15() {
-	// Play cutscene (15CUT.SAN)
 	playCinematic("LEV15/15CUT.SAN");
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// Play level beginning cinematic (15BEG.SAN)
-	// Original: FUN_004171c5("15BEG.SAN", 0x20, 0xb8, 0xa0, 10, 2, 0x46)
 	playLevelBegin(15);
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	// FUN_00401000 + FUN_0041c7d0 + FUN_0040c040
 	clearBit(0);
 
-	// Original sets DAT_0047a7f8 = 0xf before the gameplay loop
 	_rebelLevelType = 0xf;
 
 	while (!_vm->shouldQuit()) {
@@ -2049,13 +1817,10 @@ int InsaneRebel2::runLevel15() {
 
 		clearBit(0);
 
-		// Original: DAT_0047a7f8 = 0xf again at start of each retry
 		// At frame 0x21e (542): switches to 0x10 (affects difficulty lookup mid-level)
 		// The frame-based switch is handled by IACT opcode 6 in the video data.
 		_rebelLevelType = 0xf;
 
-		// Play gameplay (15PLAY.SAN)
-		// Original: FUN_0041f4d0("15PLAY.SAN", 0x28, -1, -1, 0)
 		if (!playLevelSegment("LEV15/15PLAY.SAN", 0x28))
 			return kLevelQuit;
 
@@ -2064,11 +1829,9 @@ int InsaneRebel2::runLevel15() {
 			debugC(DEBUG_INSANE, "Level 15 completed! accuracy=%d%%", accuracy);
 			playLevelEnd(15);
 			_levelUnlocked[15] = true;
-			// Level 15 completion leads to credits (FUN_0041BBE8)
 			return kLevelNextLevel;
 		}
 
-		// Death: frame-based variant selection (FUN_0041B8D7 lines 46-65)
 		debugC(DEBUG_INSANE, "Level 15 death at frame %d", _deathFrame);
 		playLevelDeathVariant(15, 1, _deathFrame);
 		if (_vm->shouldQuit())

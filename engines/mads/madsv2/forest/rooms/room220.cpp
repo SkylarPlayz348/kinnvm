@@ -19,15 +19,14 @@
  *
  */
 
-#include "mads/madsv2/core/digi.h"
+#include "mads/madsv2/forest/rooms/section1.h"
+#include "mads/madsv2/forest/digi.h"
+#include "mads/madsv2/forest/global.h"
+#include "mads/madsv2/forest/midi.h"
 #include "mads/madsv2/core/game.h"
 #include "mads/madsv2/core/kernel.h"
 #include "mads/madsv2/core/matte.h"
-#include "mads/madsv2/core/midi.h"
 #include "mads/madsv2/core/player.h"
-#include "mads/madsv2/forest/global.h"
-#include "mads/madsv2/forest/rooms/section1.h"
-#include "mads/madsv2/forest/rooms/room220.h"
 
 namespace MADS {
 namespace MADSV2 {
@@ -63,7 +62,7 @@ static Scratch scratch;
 static void room_220_init() {
 	global[player_score] = -1;
 	global[g009] = -1;
-	global_digi_play(10);
+	global_midi_play(10);
 	viewing_at_y = 22;
 	player.walker_visible = 0;
 	player.commands_allowed = 0;
@@ -90,7 +89,7 @@ static void room_220_anim1() {
 		kernel_abort_animation(aa[0]);
 		aainfo[0]._active = 0;
 		global[g009] = -1;
-		global_digi_play(15);
+		global_midi_play(15);
 		aa[1] = kernel_run_animation("*RM220Y12", 0);
 		aainfo[1]._active = -1;
 		scratch._92 = 55;

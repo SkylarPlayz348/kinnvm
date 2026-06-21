@@ -19,21 +19,42 @@
  *
  */
 
-#ifndef MADS_FOREST_ROOMS_107_H
-#define MADS_FOREST_ROOMS_107_H
+#ifndef MADS_FOREST_DIGI_H
+#define MADS_FOREST_DIGI_H
 
-#include "common/serializer.h"
-#include "mads/madsv2/core/general.h"
+#include "audio/audiostream.h"
+#include "audio/mixer.h"
 
 namespace MADS {
 namespace MADSV2 {
 namespace Forest {
-namespace Rooms {
 
-extern void room_107_preload();
-extern void room_107_synchronize(Common::Serializer &s);
+class DigiPlayer {
+private:
+	Audio::Mixer *_mixer;
+	Audio::SoundHandle _slots[8];
+public:
+	DigiPlayer(Audio::Mixer *mixer) : _mixer(mixer) {
+	}
 
-} // namespace Rooms
+	void play(const char *name, int slot);
+	void stop(int slot);
+};
+
+extern int digi_val2;
+extern int digi_timing_index;
+extern bool digi_flag1, digi_flag2;
+
+extern void digi_install();
+extern void digi_play(const char *name, int slot);
+extern void digi_play_build(int room, char thing, int num, int slot);
+extern void digi_play_build_ii(char thing, int num, int slot);
+extern void digi_stop(int which_one);
+extern void digi_uninstall();
+extern void digi_initial_volume(int vol);
+extern void digi_set_volume(int vol, int slot);
+inline void digi_read_another_chunk() {}
+
 } // namespace Forest
 } // namespace MADSV2
 } // namespace MADS

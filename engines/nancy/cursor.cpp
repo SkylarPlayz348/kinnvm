@@ -123,7 +123,7 @@ void CursorManager::init(Common::SeekableReadStream *chunkStream) {
 
 	g_nancy->_resource->loadImage(inventoryCursorsImageName, _invCursorsSurface);
 
-	setCursor(kNormalArrow, -1);
+	setCursor(kNormalArrow, -1, false);
 	showCursor(false);
 
 	_isInitialized = true;
@@ -133,7 +133,7 @@ void CursorManager::init(Common::SeekableReadStream *chunkStream) {
 	delete chunkStream;
 }
 
-uint CursorManager::resolveNancy10CursorID(CursorType type, int16 itemID) {
+uint CursorManager::resolveNancy10CursorID(CursorType type, int16 itemID, bool setFromScript) {
 	// Item-held variants. The Nancy 10+ chunk reserves `numItems × 2`
 	// slots after the two 37-entry system arrays (= _numCursorTypes * 2),
 	// each item getting one [idle, hotspot] pair. Held items only
@@ -147,6 +147,14 @@ uint CursorManager::resolveNancy10CursorID(CursorType type, int16 itemID) {
 		return itemsOffset + (uint)itemID * 2 + variant;
 	}
 
+	if (setFromScript) {
+		// Scripts store a raw cursor type number T, while the chunk lays
+		// each type out as a [idle, hotspot] pair (slots T*2 and T*2+1).
+		// Script cursors are only ever applied while hovering a hotspot,
+		// so we always pick the hotspot variant.
+		return (uint)type * 2 + 1;
+	}
+
 	// System cursors: translate the legacy CursorType to the matching
 	// kNew* idle slot. Each Nancy 10+ cursor type T occupies a pair
 	// (T*2, T*2+1) in the chunk — idle followed by hotspot. We always
@@ -156,6 +164,7 @@ uint CursorManager::resolveNancy10CursorID(CursorType type, int16 itemID) {
 	case kHotspot:              return kNewHotspot;
 	case kHotspotTalk:          return kNewHotspotTalk;
 	case kDragHand:             return kNewDragHand;
+	case kDropHand:             return kNewDropHand;
 	case kNormalArrow:          return kNewNormalArrow;
 	case kHotspotArrow:         return kNewHotspotArrow;
 	case kExit:                 return kNewExit;
@@ -177,7 +186,7 @@ uint CursorManager::resolveNancy10CursorID(CursorType type, int16 itemID) {
 	}
 }
 
-void CursorManager::setCursor(CursorType type, int16 itemID) {
+void CursorManager::setCursor(CursorType type, int16 itemID, bool setFromScript) {
 	if (!_isInitialized)
 		return;
 
@@ -191,7 +200,7 @@ void CursorManager::setCursor(CursorType type, int16 itemID) {
 	_hasItem = false;
 
 	if (gameType >= kGameTypeNancy10) {
-		_curCursorID = resolveNancy10CursorID(type, itemID);
+		_curCursorID = resolveNancy10CursorID(type, itemID, setFromScript);
 		return;
 	}
 
@@ -304,12 +313,12 @@ void CursorManager::setCursor(CursorType type, int16 itemID) {
 	_curCursorID = (uint)(itemID * _numCursorTypes) + itemsOffset + (uint)type;
 }
 
-void CursorManager::setCursorType(CursorType type) {
-	setCursor(type, _curItemID);
+void CursorManager::setCursorType(CursorType type, bool setFromScript) {
+	setCursor(type, _curItemID, setFromScript);
 }
 
 void CursorManager::setCursorItemID(int16 itemID) {
-	setCursor(_curCursorType, itemID);
+	setCursor(_curCursorType, itemID, false);
 }
 
 void CursorManager::warpCursor(const Common::Point &pos) {

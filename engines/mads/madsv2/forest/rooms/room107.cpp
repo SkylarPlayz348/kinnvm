@@ -19,15 +19,14 @@
  *
  */
 
-#include "mads/madsv2/core/digi.h"
+#include "mads/madsv2/forest/rooms/section1.h"
+#include "mads/madsv2/forest/digi.h"
+#include "mads/madsv2/forest/global.h"
 #include "mads/madsv2/core/game.h"
 #include "mads/madsv2/core/kernel.h"
 #include "mads/madsv2/core/matte.h"
 #include "mads/madsv2/core/mouse.h"
 #include "mads/madsv2/core/player.h"
-#include "mads/madsv2/forest/global.h"
-#include "mads/madsv2/forest/rooms/section1.h"
-#include "mads/madsv2/forest/rooms/room107.h"
 
 namespace MADS {
 namespace MADSV2 {
@@ -120,7 +119,7 @@ static void room_107_anim1() {
 		if (scratch._8e == 21) {
 			aainfo[0]._val3 = 2;
 			scratch._8e = -1;
-			global_digi_play(4);
+			global_midi_play(4);
 			aainfo[0]._frame = 26;
 			kernel_reset_animation(aa[0], 26);
 		}

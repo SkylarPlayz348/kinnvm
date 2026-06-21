@@ -6,8 +6,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ScummVM 1.8.0svn\n"
 "Report-Msgid-Bugs-To: scummvm-devel@lists.scummvm.org\n"
-"POT-Creation-Date: 2026-06-14 18:41+0000\n"
-"PO-Revision-Date: 2026-05-06 08:54+0000\n"
+"POT-Creation-Date: 2026-06-21 16:24+0000\n"
+"PO-Revision-Date: 2026-06-20 15:03+0000\n"
 "Last-Translator: Eugene Sandulenko <sev@scummvm.org>\n"
 "Language-Team: Russian <https://translations.scummvm.org/projects/scummvm/"
 "scummvm/ru/>\n"
@@ -83,7 +83,7 @@ msgstr "Закрыть"
 #. I18N: Opens the help screen.
 #: gui/browser.cpp:64 gui/launcher.cpp:277 gui/launcher.cpp:959
 #: backends/platform/sdl/macosx/appmenu_osx.mm:319
-#: engines/access/metaengine.cpp:360 engines/bladerunner/metaengine.cpp:321
+#: engines/access/metaengine.cpp:381 engines/bladerunner/metaengine.cpp:321
 #: engines/ngi/metaengine.cpp:162 engines/supernova/metaengine.cpp:238
 #: engines/tucker/metaengine.cpp:215 engines/zvision/metaengine.cpp:246
 msgid "Help"
@@ -2351,28 +2351,21 @@ msgid "Disable fixed font scaling"
 msgstr "Выключить масшатибрование некоторых шрифтов"
 
 #: gui/options.cpp:2667
-#, fuzzy
-#| msgid ""
-#| "Do not upscale fixed size fonts in the GUI. This reduces artefacts on low "
-#| "resolution screens"
 msgid ""
 "Do not upscale fixed size fonts in the GUI. This reduces artefacts on low "
 "resolution screens."
 msgstr ""
 "Не увеличивать масштаб шрифтов фиксированного размера в GUI. Это уменьшает "
-"количество артефактов на экранах с низким разрешением"
+"количество артефактов на экранах с низким разрешением."
 
 #: gui/options.cpp:2673
-#, fuzzy
-#| msgid "Enable smooth scrolling when walking"
 msgid "Enable kinetic scrolling in lists"
-msgstr "Включить плавную прокрутку во время ходьбы"
+msgstr "Включить плавную прокрутку в списках"
 
 #: gui/options.cpp:2674
-#, fuzzy
-#| msgid "Enable smooth scrolling when walking"
 msgid "Enable smooth, momentum-based scrolling in list widgets."
-msgstr "Включить плавную прокрутку во время ходьбы"
+msgstr ""
+"Включает плавную прокрутку с использованием инерции в виджетах списков."
 
 #: gui/options.cpp:2680
 msgid "GUI language:"
@@ -2439,7 +2432,7 @@ msgid "Debug level:"
 msgstr "Уровень отладки:"
 
 #. I18N: Debug level -1, no messages
-#: gui/options.cpp:2758 gui/options.cpp:2895 audio/fmopl.cpp:83
+#: gui/options.cpp:2758 gui/options.cpp:2895 audio/fmopl.cpp:112
 msgid "None"
 msgstr "Нет"
 
@@ -2694,7 +2687,7 @@ msgstr ""
 "Далее..."
 
 #: gui/options.cpp:2975 engines/engine.cpp:647
-#: engines/access/metaengine.cpp:298 engines/drascula/metaengine.cpp:255
+#: engines/access/metaengine.cpp:319 engines/drascula/metaengine.cpp:255
 #: engines/queen/metaengine.cpp:269 engines/sherlock/metaengine.cpp:410
 #: engines/ultima/nuvie/metaengine.cpp:71
 msgid "Move"
@@ -3410,7 +3403,8 @@ msgstr "Движок графической адвенчуры"
 #: backends/events/default/default-events.cpp:217
 #: backends/events/default/default-events.cpp:358
 #: engines/adl/metaengine.cpp:352 engines/buried/metaengine.cpp:154
-#: engines/chamber/metaengine.cpp:84 engines/drascula/metaengine.cpp:304
+#: engines/chamber/metaengine.cpp:84 engines/colony/intro.cpp:156
+#: engines/colony/intro.cpp:1243 engines/drascula/metaengine.cpp:304
 #: engines/hdb/metaengine.cpp:275 engines/hypno/metaengine.cpp:308
 #: engines/lab/metaengine.cpp:172 engines/mohawk/myst_stacks/menu.cpp:317
 #: engines/mohawk/riven_stacks/aspit.cpp:454
@@ -3841,6 +3835,10 @@ msgid ""
 "testing mode.\n"
 "If you encounter any bugs or oddities, please report them to our bugtracker."
 msgstr ""
+"ВНИМАНИЕ: Игра, которую вы собираетесь запустить, только недавно получила "
+"новую поддержку и находится в режиме тестирования.\n"
+"Если вы обнаружите какие-либо ошибки или странности, пожалуйста, сообщите о "
+"них в нашу систему отслеживания ошибок."
 
 #: engines/engine.cpp:861
 #, c-format
@@ -4001,7 +3999,7 @@ msgstr "Меню игры"
 
 #. I18N: Skipping cutscene plaback
 #. I18N: Skipping cutscene playback
-#: engines/metaengine.cpp:112 engines/access/metaengine.cpp:225
+#: engines/metaengine.cpp:112 engines/access/metaengine.cpp:246
 #: engines/composer/metaengine.cpp:126 engines/drascula/metaengine.cpp:224
 #: engines/efh/metaengine.cpp:379 engines/freescape/movement.cpp:93
 #: engines/grim/grim.cpp:533 engines/grim/grim.cpp:633
@@ -4061,33 +4059,73 @@ msgstr "OpenGL с шейдерами"
 msgid "AdLib emulator"
 msgstr "Эмулятор AdLib"
 
-#: audio/fmopl.cpp:85
+#: audio/fmopl.cpp:114
 msgid "MAME OPL emulator"
 msgstr "Эмулятор MAME OPL"
 
-#: audio/fmopl.cpp:88
+#: audio/fmopl.cpp:117
 msgid "DOSBox OPL emulator"
 msgstr "Эмулятор DOSBox OPL"
 
-#: audio/fmopl.cpp:91
+#: audio/fmopl.cpp:120
 msgid "Nuked OPL emulator"
 msgstr "Эмулятор Nuked OPL"
 
-#: audio/fmopl.cpp:94
+#: audio/fmopl.cpp:123
 msgid "ALSA Direct FM"
 msgstr "Прямой FM ALSA"
 
-#: audio/fmopl.cpp:97
+#: audio/fmopl.cpp:126
 msgid "OPL2LPT"
 msgstr "OPL2LPT"
 
-#: audio/fmopl.cpp:98
+#: audio/fmopl.cpp:127
 msgid "OPL3LPT"
 msgstr "OPL3LPT"
 
-#: audio/fmopl.cpp:101
+#: audio/fmopl.cpp:130
 msgid "RetroWave OPL3"
 msgstr "RetroWave OPL3"
+
+#: audio/fmopl.cpp:133
+msgid "[nFM] NokturnFM2 (OPL2)"
+msgstr ""
+
+#: audio/fmopl.cpp:134
+msgid "[nFM] NokturnFM3 (OPL3)"
+msgstr ""
+
+#: audio/fmopl.cpp:135
+msgid "[nFM] RetroWave USB OPL3 Express (OPL3)"
+msgstr ""
+
+#: audio/fmopl.cpp:136
+msgid "[nFM] Serdaco OPL2LPT (OPL2)"
+msgstr ""
+
+#: audio/fmopl.cpp:137
+msgid "[nFM] Serdaco OPL3LPT (OPL3)"
+msgstr ""
+
+#: audio/fmopl.cpp:138
+msgid "[nFM] Cheerful Electronics OPL2 Audio Board (OPL2)"
+msgstr ""
+
+#: audio/fmopl.cpp:139
+msgid "[nFM] Cheerful Electronics OPL3 Duo! (2xOPL3)"
+msgstr ""
+
+#: audio/fmopl.cpp:140
+msgid "[nFM] ST Bus ISA / VME SoundBlaster"
+msgstr ""
+
+#: audio/fmopl.cpp:141
+msgid "[nFM] NatFeats / NULL"
+msgstr ""
+
+#: audio/fmopl.cpp:142
+msgid "[nFM] Nuked-OPL3 softsynth (OPL3)"
+msgstr ""
 
 #: audio/mididrv.cpp:232
 #, c-format
@@ -4183,11 +4221,11 @@ msgstr "Настраиваю эмулятор MT-32"
 msgid "MT-32 emulator"
 msgstr "Эмулятор MT-32"
 
-#: audio/softsynth/pcspk.cpp:250
+#: audio/softsynth/pcspk.cpp:224
 msgid "PC Speaker emulator"
 msgstr "Эмулятор динамика ПК"
 
-#: audio/softsynth/pcspk.cpp:269
+#: audio/softsynth/pcspk.cpp:243
 msgid "IBM PCjr emulator"
 msgstr "Эмулятор IBM PCjr"
 
@@ -6317,7 +6355,17 @@ msgstr "Главное меню"
 msgid "Check for Updates..."
 msgstr "Проверить обновления..."
 
-#: engines/access/metaengine.cpp:215 engines/alcachofa/metaengine.cpp:94
+#: engines/access/metaengine.cpp:82
+msgid "Use 'high definition' OGG music"
+msgstr "Использовать музыку OGG «высокого разрешения»"
+
+#: engines/access/metaengine.cpp:83
+msgid "Use the OGG audio from the re-release instead of original MIDI tracks"
+msgstr ""
+"Вместо оригинальных MIDI-треков использовать аудиофайлы в формате OGG из "
+"переиздания"
+
+#: engines/access/metaengine.cpp:236 engines/alcachofa/metaengine.cpp:94
 #: engines/bbvs/metaengine.cpp:92 engines/buried/metaengine.cpp:133
 #: engines/chamber/metaengine.cpp:59 engines/cine/metaengine.cpp:270
 #: engines/cruise/metaengine.cpp:168 engines/dm/metaengine.cpp:124
@@ -6341,16 +6389,16 @@ msgstr "Проверить обновления..."
 msgid "Default keymappings"
 msgstr "Раскладка клавиш по умолчанию"
 
-#: engines/access/metaengine.cpp:219
+#: engines/access/metaengine.cpp:240
 msgid "Move / Interact / Skip"
 msgstr "Переместить / Взаимодействовать / Пропустить"
 
-#: engines/access/metaengine.cpp:231 engines/sherlock/metaengine.cpp:483
+#: engines/access/metaengine.cpp:252 engines/sherlock/metaengine.cpp:483
 msgid "Skip movie"
 msgstr "Пропустить ролик"
 
 #. I18N: Move Actor to upwards direction
-#: engines/access/metaengine.cpp:237 engines/asylum/metaengine.cpp:171
+#: engines/access/metaengine.cpp:258 engines/asylum/metaengine.cpp:171
 #: engines/asylum/metaengine.cpp:198 engines/cine/metaengine.cpp:377
 #: engines/efh/metaengine.cpp:286 engines/hdb/metaengine.cpp:213
 #: engines/hypno/metaengine.cpp:363 engines/hypno/metaengine.cpp:411
@@ -6360,7 +6408,7 @@ msgid "Move up"
 msgstr "Идти вверх"
 
 #. I18N: Move Actor to downwards direction
-#: engines/access/metaengine.cpp:244 engines/asylum/metaengine.cpp:177
+#: engines/access/metaengine.cpp:265 engines/asylum/metaengine.cpp:177
 #: engines/asylum/metaengine.cpp:205 engines/cine/metaengine.cpp:384
 #: engines/efh/metaengine.cpp:293 engines/hdb/metaengine.cpp:219
 #: engines/hypno/metaengine.cpp:351 engines/hypno/metaengine.cpp:399
@@ -6371,7 +6419,7 @@ msgstr "Идти вниз"
 
 #. I18N: Move Actor to left direction
 #. I18N: Move actor left during fight
-#: engines/access/metaengine.cpp:251 engines/asylum/metaengine.cpp:183
+#: engines/access/metaengine.cpp:272 engines/asylum/metaengine.cpp:183
 #: engines/asylum/metaengine.cpp:212 engines/cine/metaengine.cpp:391
 #: engines/efh/metaengine.cpp:300 engines/hdb/metaengine.cpp:225
 #: engines/hypno/metaengine.cpp:345 engines/hypno/metaengine.cpp:393
@@ -6384,7 +6432,7 @@ msgstr "Идти влево"
 
 #. I18N: Move Actor to right direction
 #. I18N: Move actor right during fight
-#: engines/access/metaengine.cpp:258 engines/asylum/metaengine.cpp:189
+#: engines/access/metaengine.cpp:279 engines/asylum/metaengine.cpp:189
 #: engines/asylum/metaengine.cpp:219 engines/cine/metaengine.cpp:398
 #: engines/efh/metaengine.cpp:307 engines/hdb/metaengine.cpp:231
 #: engines/hypno/metaengine.cpp:357 engines/hypno/metaengine.cpp:405
@@ -6396,31 +6444,31 @@ msgid "Move right"
 msgstr "Идти вправо"
 
 #. I18N: Move Actor to top-left direction
-#: engines/access/metaengine.cpp:265 engines/cine/metaengine.cpp:405
+#: engines/access/metaengine.cpp:286 engines/cine/metaengine.cpp:405
 #: engines/efh/metaengine.cpp:314
 msgid "Move up-left"
 msgstr "Переместиться вверх-влево"
 
 #. I18N: Move Actor to top-right direction
-#: engines/access/metaengine.cpp:270 engines/cine/metaengine.cpp:411
+#: engines/access/metaengine.cpp:291 engines/cine/metaengine.cpp:411
 #: engines/efh/metaengine.cpp:320
 msgid "Move up-right"
 msgstr "Переместиться вверх-вправо"
 
 #. I18N: Move Actor to bottom-left direction
-#: engines/access/metaengine.cpp:275 engines/cine/metaengine.cpp:417
+#: engines/access/metaengine.cpp:296 engines/cine/metaengine.cpp:417
 #: engines/efh/metaengine.cpp:326
 msgid "Move down-left"
 msgstr "Переместиться вниз-влево"
 
 #. I18N: Move Actor to bottom-right direction
-#: engines/access/metaengine.cpp:280 engines/cine/metaengine.cpp:423
+#: engines/access/metaengine.cpp:301 engines/cine/metaengine.cpp:423
 #: engines/efh/metaengine.cpp:332
 msgid "Move down-right"
 msgstr "Переместиться вниз-вправо"
 
 #. I18N: (Game name: The Lost Files of Sherlock Holmes: The Case of the Rose Tattoo) This action is used to look at an object or npc in the game
-#: engines/access/metaengine.cpp:285 engines/bbvs/metaengine.cpp:124
+#: engines/access/metaengine.cpp:306 engines/bbvs/metaengine.cpp:124
 #: engines/dgds/metaengine.cpp:83 engines/drascula/metaengine.cpp:230
 #: engines/petka/metaengine.cpp:130 engines/scumm/help.cpp:167
 #: engines/scumm/help.cpp:231 engines/sherlock/metaengine.cpp:405
@@ -6431,7 +6479,7 @@ msgstr "Переместиться вниз-вправо"
 msgid "Look"
 msgstr "Смотреть"
 
-#: engines/access/metaengine.cpp:293 engines/drascula/metaengine.cpp:240
+#: engines/access/metaengine.cpp:314 engines/drascula/metaengine.cpp:240
 #: engines/queen/metaengine.cpp:259 engines/saga/metaengine.cpp:369
 #: engines/scumm/help.cpp:125 engines/scumm/help.cpp:140
 #: engines/scumm/help.cpp:165 engines/scumm/help.cpp:193
@@ -6441,13 +6489,13 @@ msgstr "Смотреть"
 msgid "Open"
 msgstr "Открыть"
 
-#: engines/access/metaengine.cpp:303 engines/scumm/help.cpp:128
+#: engines/access/metaengine.cpp:324 engines/scumm/help.cpp:128
 #: engines/ultima/nuvie/metaengine.cpp:70
 msgid "Get"
 msgstr "Взять"
 
 #. I18N: Combat command in Might & Magic 1
-#: engines/access/metaengine.cpp:308 engines/access/metaengine.cpp:329
+#: engines/access/metaengine.cpp:329 engines/access/metaengine.cpp:350
 #: engines/bbvs/metaengine.cpp:136 engines/cine/metaengine.cpp:342
 #: engines/efh/metaengine.cpp:462 engines/hdb/metaengine.cpp:237
 #: engines/lab/metaengine.cpp:323 engines/mm/mm1/metaengine.cpp:86
@@ -6467,11 +6515,11 @@ msgstr "Взять"
 msgid "Use"
 msgstr "Использовать"
 
-#: engines/access/metaengine.cpp:313
+#: engines/access/metaengine.cpp:334
 msgid "Goto"
 msgstr "Перейти"
 
-#: engines/access/metaengine.cpp:318 engines/access/metaengine.cpp:349
+#: engines/access/metaengine.cpp:339 engines/access/metaengine.cpp:370
 #: engines/bbvs/metaengine.cpp:130 engines/drascula/metaengine.cpp:250
 #: engines/efh/metaengine.cpp:506 engines/petka/metaengine.cpp:158
 #: engines/scumm/help.cpp:174 engines/scumm/help.cpp:226
@@ -6482,18 +6530,18 @@ msgstr "Перейти"
 msgid "Talk"
 msgstr "Говорить"
 
-#: engines/access/metaengine.cpp:323 engines/scumm/help.cpp:175
+#: engines/access/metaengine.cpp:344 engines/scumm/help.cpp:175
 msgid "Travel"
 msgstr "Путешествовать"
 
-#: engines/access/metaengine.cpp:334 engines/cine/metaengine.cpp:332
+#: engines/access/metaengine.cpp:355 engines/cine/metaengine.cpp:332
 #: engines/petka/metaengine.cpp:144 engines/saga/metaengine.cpp:394
 #: engines/supernova/metaengine.cpp:331
 msgid "Take"
 msgstr "Поднять"
 
 #. I18N: Action in In Cold Blood
-#: engines/access/metaengine.cpp:339 engines/alcachofa/metaengine.cpp:116
+#: engines/access/metaengine.cpp:360 engines/alcachofa/metaengine.cpp:116
 #: engines/cine/metaengine.cpp:337 engines/crab/input/input.cpp:251
 #: engines/cruise/metaengine.cpp:192 engines/draci/metaengine.cpp:237
 #: engines/dragons/metaengine.cpp:147 engines/drascula/metaengine.cpp:218
@@ -6513,18 +6561,18 @@ msgstr "Поднять"
 msgid "Inventory"
 msgstr "Инвентарь"
 
-#: engines/access/metaengine.cpp:344 engines/ultima/ultima4/metaengine.cpp:51
+#: engines/access/metaengine.cpp:365 engines/ultima/ultima4/metaengine.cpp:51
 msgid "Climb"
 msgstr "Карабкаться"
 
-#: engines/access/metaengine.cpp:354 engines/bbvs/metaengine.cpp:142
+#: engines/access/metaengine.cpp:375 engines/bbvs/metaengine.cpp:142
 #: engines/freescape/games/castle/castle.cpp:511
 #: engines/petka/metaengine.cpp:137 engines/scumm/help.cpp:225
 #: engines/tsage/metaengine.cpp:201
 msgid "Walk"
 msgstr "Идти"
 
-#: engines/access/metaengine.cpp:365
+#: engines/access/metaengine.cpp:386
 msgid "Open save/load menu"
 msgstr "Открыть меню сохранения/загрузки"
 
@@ -8161,6 +8209,18 @@ msgstr ""
 "Игра будет поломана. Наверное придётся начать играть в Operation Stealth с "
 "самого начала, с новыми сохранениями."
 
+#: engines/colony/intro.cpp:154 engines/colony/intro.cpp:1244
+msgid "New Game"
+msgstr "Новая Игра"
+
+#: engines/colony/intro.cpp:155 engines/colony/intro.cpp:1242
+msgid "Load Game"
+msgstr "Загрузить игру"
+
+#: engines/colony/intro.cpp:1219 engines/colony/intro.cpp:1244
+msgid "You have been terminated."
+msgstr "Вы уничтожены."
+
 #: engines/colony/metaengine.cpp:45 engines/myst3/metaengine.cpp:40
 msgid "Widescreen mod"
 msgstr "Широкоэкранный мод"
@@ -9085,10 +9145,8 @@ msgstr "Инфо-меню"
 
 #. I18N: Toggles the red/blue stereoscopic 3D effect (anaglyph glasses).
 #: engines/freescape/movement.cpp:119
-#, fuzzy
-#| msgid "Toggle resizable window"
 msgid "Toggle red/blue 3D"
-msgstr "Переключить изменение размеров окна"
+msgstr "Переключить красный/синий 3D"
 
 #: engines/freescape/games/castle/castle.cpp:463
 msgid "Select prince"
@@ -10244,60 +10302,44 @@ msgid "Secondary shoot"
 msgstr "Вторичный выстрел"
 
 #: engines/hypno/metaengine.cpp:149
-#, fuzzy
-#| msgid "Map hide toolbar action"
 msgid "Rapid fire / secondary action"
-msgstr "Назначить действие \"Спрятать панель инструментов\""
+msgstr "Скорострельность / вторичное действие"
 
 #: engines/hypno/metaengine.cpp:155
-#, fuzzy
-#| msgid "Slide left"
 msgid "Aim left"
-msgstr "Скользить влево"
+msgstr "Целиться влево"
 
 #: engines/hypno/metaengine.cpp:160
-#, fuzzy
-#| msgid "Scroll down"
 msgid "Aim down"
-msgstr "Прокрутить вниз"
+msgstr "Целиться вниз"
 
 #: engines/hypno/metaengine.cpp:165
-#, fuzzy
-#| msgid "Up right"
 msgid "Aim right"
-msgstr "Вверх-вправо"
+msgstr "Целиться вправо"
 
 #: engines/hypno/metaengine.cpp:170
 msgid "Aim up"
-msgstr ""
+msgstr "Целиться вверх"
 
 #: engines/hypno/metaengine.cpp:175 engines/scumm/metaengine.cpp:1202
 #: engines/scumm/metaengine.cpp:1279
-#, fuzzy
-#| msgid "Slide left"
 msgid "Stick left"
-msgstr "Скользить влево"
+msgstr "Стик влево"
 
 #: engines/hypno/metaengine.cpp:182 engines/scumm/metaengine.cpp:1195
 #: engines/scumm/metaengine.cpp:1272
-#, fuzzy
-#| msgid "Scroll down"
 msgid "Stick down"
-msgstr "Прокрутить вниз"
+msgstr "Стик вниз"
 
 #: engines/hypno/metaengine.cpp:189 engines/scumm/metaengine.cpp:1209
 #: engines/scumm/metaengine.cpp:1286
-#, fuzzy
-#| msgid "Slide right"
 msgid "Stick right"
-msgstr "Скользить вправо"
+msgstr "Стик вправо"
 
 #: engines/hypno/metaengine.cpp:196 engines/scumm/metaengine.cpp:1188
 #: engines/scumm/metaengine.cpp:1265
-#, fuzzy
-#| msgid "Pick up"
 msgid "Stick up"
-msgstr "Поднять"
+msgstr "Стик вверх"
 
 #: engines/hypno/metaengine.cpp:203 engines/lab/metaengine.cpp:209
 #: engines/ngi/metaengine.cpp:168 engines/sherlock/metaengine.cpp:872
@@ -10374,28 +10416,20 @@ msgid "Show credits"
 msgstr "Показать авторов"
 
 #: engines/hypno/metaengine.cpp:417
-#, fuzzy
-#| msgid "Move left"
 msgid "Menu left"
-msgstr "Идти влево"
+msgstr "Меню влево"
 
 #: engines/hypno/metaengine.cpp:425
-#, fuzzy
-#| msgid "Move down"
 msgid "Menu down"
-msgstr "Идти вниз"
+msgstr "Меню вниз"
 
 #: engines/hypno/metaengine.cpp:433
-#, fuzzy
-#| msgid "Move right"
 msgid "Menu right"
-msgstr "Идти вправо"
+msgstr "Меню вправо"
 
 #: engines/hypno/metaengine.cpp:441
-#, fuzzy
-#| msgid "Menu"
 msgid "Menu up"
-msgstr "Меню"
+msgstr "Меню вверх"
 
 #. I18N: Action in In Cold Blood
 #: engines/icb/icb.cpp:107
@@ -11206,29 +11240,33 @@ msgstr "Бить"
 msgid "Unlock"
 msgstr "Открыть"
 
-#: engines/mm/mm1/metaengine.cpp:127 engines/ultima/ultima4/metaengine.cpp:112
+#: engines/mm/mm1/metaengine.cpp:128 engines/ultima/ultima4/metaengine.cpp:112
 msgid "Goto location"
 msgstr "Перейти в локацию"
 
-#: engines/mm/mm1/metaengine.cpp:152
+#: engines/mm/mm1/metaengine.cpp:154
 msgid "Might and Magic 1 - Menus"
 msgstr "Might and Magic 1 - Меню"
 
-#: engines/mm/mm1/metaengine.cpp:153
+#: engines/mm/mm1/metaengine.cpp:155
 msgid "Might and Magic 1 - Minimal Keys"
 msgstr "Might and Magic 1 - Минимальные клавиши"
 
-#: engines/mm/mm1/metaengine.cpp:154
+#: engines/mm/mm1/metaengine.cpp:156
 msgid "Might and Magic 1 - Main"
 msgstr "Might and Magic 1 - Главная"
 
-#: engines/mm/mm1/metaengine.cpp:155
+#: engines/mm/mm1/metaengine.cpp:157
 msgid "Might and Magic 1 - Party"
 msgstr "Might and Magic 1 - Отряд"
 
-#: engines/mm/mm1/metaengine.cpp:156
+#: engines/mm/mm1/metaengine.cpp:158
 msgid "Might and Magic 1 - Combat"
 msgstr "Might and Magic 1 - Бой"
+
+#: engines/mm/mm1/metaengine.cpp:160
+msgid "Might and Magic 1 - Cheats"
+msgstr "Might and Magic 1 - Читы"
 
 #: engines/mm/mm1/mm1.cpp:57
 msgid ""
@@ -12093,11 +12131,13 @@ msgstr "Выделить области, на которые можно нажа
 
 #: engines/private/metaengine.cpp:61
 msgid "Increased contrast for small print"
-msgstr ""
+msgstr "Повышенная контрастность для мелкого шрифта"
 
 #: engines/private/metaengine.cpp:62
 msgid "Enhance small printed paper close-ups for improved readability."
 msgstr ""
+"Улучшить качество крупных планов небольших печатных страниц для повышения "
+"читаемости."
 
 #: engines/private/metaengine.cpp:147 engines/trecision/metaengine.cpp:137
 msgid "Skip video"
@@ -13646,43 +13686,34 @@ msgid "Enable ambience sounds."
 msgstr "Включить звуки фона."
 
 #: engines/scumm/metaengine.cpp:882
-#, fuzzy
-#| msgctxt "Options menu"
-#| msgid "High resolution on"
 msgid "High resolution mode"
-msgstr "Высокое разрешение включено"
+msgstr "Режим высокого разрешения"
 
 #: engines/scumm/metaengine.cpp:883
 msgid "Run the game in 640x400 high resolution mode instead of 320x200"
-msgstr ""
+msgstr "Запустить игру в режиме высокого разрешения 640x400 вместо 320x200"
 
 #: engines/scumm/metaengine.cpp:892 engines/scumm/metaengine.cpp:919
-#, fuzzy
-#| msgid "All levels will be available to play."
 msgid "All levels will be available without requiring passwords"
-msgstr "Все уровни будут доступны для игры."
+msgstr "Все уровни будут доступны без паролей"
 
 #: engines/scumm/metaengine.cpp:900 engines/scumm/metaengine.cpp:927
-#, fuzzy
-#| msgid "No date saved"
 msgid "No damage"
-msgstr "Дата не записана"
+msgstr "Без повреждений"
 
 #: engines/scumm/metaengine.cpp:901 engines/scumm/metaengine.cpp:928
-#, fuzzy
-#| msgid "Disable save menu"
 msgid "Disable player damage"
-msgstr "Запретить меню сохранения"
+msgstr "Отключить урон, наносимый игроку"
 
 #: engines/scumm/metaengine.cpp:909
-#, fuzzy
-#| msgid "Fast mode"
 msgid "Yoda mode"
-msgstr "Быстрый режим"
+msgstr "Режим Йоды"
 
 #: engines/scumm/metaengine.cpp:910
 msgid "Enable original Yoda mode shortcuts, including movie mode and auto play"
 msgstr ""
+"Включить оригинальные комбинации клавиши режима Йоды, включая режим "
+"просмотра фильмов и автоматическое воспроизведение"
 
 #: engines/scumm/metaengine.cpp:1085
 msgid "Down left"
@@ -13711,63 +13742,51 @@ msgstr "Чит для выигрыша боёв на байках"
 
 #: engines/scumm/metaengine.cpp:1166
 msgid "Rebel Assault controls"
-msgstr ""
+msgstr "Управление Rebel Assault"
 
 #: engines/scumm/metaengine.cpp:1168 engines/scumm/metaengine.cpp:1245
 msgid "Aim up / menu up"
-msgstr ""
+msgstr "Целиться вверх / меню вверх"
 
 #: engines/scumm/metaengine.cpp:1173 engines/scumm/metaengine.cpp:1250
 msgid "Aim down / menu down"
-msgstr ""
+msgstr "Целиться вниз / меню вниз"
 
 #: engines/scumm/metaengine.cpp:1178 engines/scumm/metaengine.cpp:1255
 msgid "Aim left / menu left"
-msgstr ""
+msgstr "Целиться влево / меню влево"
 
 #: engines/scumm/metaengine.cpp:1183 engines/scumm/metaengine.cpp:1260
 msgid "Aim right / menu right"
-msgstr ""
+msgstr "Целиться вправо / меню вправо"
 
 #: engines/scumm/metaengine.cpp:1216 engines/scumm/metaengine.cpp:1293
-#, fuzzy
-#| msgid "Move / Select"
 msgid "Fire / select"
-msgstr "Идти / Выбрать"
+msgstr "Стрелять / Выбрать"
 
 #: engines/scumm/metaengine.cpp:1222
-#, fuzzy
-#| msgid "Skip main menu"
 msgid "Walk / menu back"
-msgstr "Пропустить главное меню"
+msgstr "Идти / меню назад"
 
 #: engines/scumm/metaengine.cpp:1227
-#, fuzzy
-#| msgid "Skip main menu"
 msgid "Skip / menu back"
-msgstr "Пропустить главное меню"
+msgstr "Пропустить / меню назад"
 
 #: engines/scumm/metaengine.cpp:1243
 msgid "Rebel Assault II controls"
-msgstr ""
+msgstr "Управление Rebel Assault II"
 
 #: engines/scumm/metaengine.cpp:1298
-#, fuzzy
-#| msgid "Move back"
-msgid "Cover / back"
-msgstr "Идти назад"
+msgid "Cover"
+msgstr ""
 
 #: engines/scumm/metaengine.cpp:1304
-#, fuzzy
-#| msgid "Skip walk"
 msgid "Skip / back"
-msgstr "Пропустить ходьбу"
+msgstr "Пропустить / назад"
 
 #: engines/scumm/metaengine.cpp:1311
-#, fuzzy
-#| msgid "Skip main menu"
 msgid "Skip / menu"
-msgstr "Пропустить главное меню"
+msgstr "Пропустить / меню"
 
 #: engines/scumm/saveload.cpp:1990
 #, c-format
@@ -17306,6 +17325,9 @@ msgstr ""
 "MIDI-аудио. Эти головоломки также можно решить с помощью субтитров, если они "
 "поддерживаются. Продолжить запуск игры?"
 
+#~ msgid "Cover / back"
+#~ msgstr "Прикрыть / назад"
+
 #, fuzzy
 #~| msgid "Move back"
 #~ msgid "Menu back"
@@ -17320,9 +17342,6 @@ msgstr ""
 #~| msgid "No"
 #~ msgid "N"
 #~ msgstr "Нет"
-
-#~ msgid "Might and Magic 1 - Cheats"
-#~ msgstr "Might and Magic 1 - Читы"
 
 #~ msgid "3DO Plumbers requires RGB support."
 #~ msgstr "Игра Plumbers для 3DO требует поддержки RGB."
@@ -17665,9 +17684,6 @@ msgstr ""
 
 #~ msgid "Save Game"
 #~ msgstr "Сохранить игру"
-
-#~ msgid "Load Game"
-#~ msgstr "Загрузить игру"
 
 #~ msgid "Quit Game"
 #~ msgstr "Выйти из игры"
@@ -18359,9 +18375,6 @@ msgstr ""
 
 #~ msgid "The game is now over.\n"
 #~ msgstr "Игра окончена.\n"
-
-#~ msgid "You have stored "
-#~ msgstr "Вы собрали "
 
 #~ msgid "I've stored "
 #~ msgstr "Я собрал "

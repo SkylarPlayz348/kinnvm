@@ -60,6 +60,16 @@ void OneBuildPuzzle::init() {
 			}
 		}
 
+		p.useAltSurface = false;
+		if (!p.altSrcRect.isEmpty() && !p.isPreRotated) {
+			int aw = p.altSrcRect.width();
+			int ah = p.altSrcRect.height();
+			p.altSurface.create(aw, ah, _image.format);
+			p.altSurface.setTransparentColor(_drawSurface.getTransparentColor());
+			p.altSurface.blitFrom(_image, p.altSrcRect, Common::Point(0, 0));
+			p.useAltSurface = true;
+		}
+
 		// Initial position and rotation
 		if (p.isPreRotated) {
 			// Pre-rotated pieces start at their slot and are already placed
@@ -127,12 +137,15 @@ void OneBuildPuzzle::readData(Common::SeekableReadStream &stream) {
 
 		Piece &p = _pieces[i];
 		if (isNancy10) {
-			// Fall back to the alt rect when the primary one is empty.
+			// Two rects: altSrc = at-home art, srcRect = active art
 			Common::Rect altSrc;
 			readRect(stream, altSrc);
 			readRect(stream, p.srcRect);
-			if (p.srcRect.isEmpty())
+			if (p.srcRect.isEmpty()) {
 				p.srcRect = altSrc;
+			} else if (!altSrc.isEmpty()) {
+				p.altSrcRect = altSrc;
+			}
 		} else {
 			readRect(stream, p.srcRect);
 		}
@@ -317,23 +330,29 @@ void OneBuildPuzzle::handleInput(NancyInput &input) {
 
 			Common::Rect slot = piece.slotRect;
 
-			// Correct placement: bounding-box must fit within slot +- tolerance
-			// (piece is rotation 0, same size as slot)
+			// Bounding-box must fit within slot +- tolerance. The original
+			// engine doesn't check rotation separately; a rotated piece's
+			// dimensions are reflected in gameRect, so a non-fitting rotation
+			// is rejected by the rect inequalities below.
 			bool nearSlot = (piece.gameRect.left >= slot.left - _slotTolerance &&
 							 piece.gameRect.top  >= slot.top  - _slotTolerance &&
 							 piece.gameRect.right  <= slot.right  + _slotTolerance &&
 							 piece.gameRect.bottom <= slot.bottom + _slotTolerance);
 
-			bool correctRotation = (piece.curRotation == 0);
 			bool orderOk = !_orderedPlacement ||
 				(_piecesPlaced < (uint16)_placementOrder.size() &&
 				 _placementOrder[_piecesPlaced] == (int16)(_pickedUpPiece + 1));
 
-			if (nearSlot && correctRotation && orderOk) {
+			if (nearSlot && orderOk) {
 				piece.gameRect = piece.slotRect;
 				piece.placed = true;
 				_correctlyPlaced = true;
 				++_piecesPlaced;
+
+				// Skip pre-placed pieces
+				if (_piecesPlaced < _placementOrder.size() && _placementOrder[_piecesPlaced] - 1 < _pieces.size())
+					if (_pieces[_placementOrder[_piecesPlaced] - 1].isPreRotated)
+						++_piecesPlaced;
 			} else {
 				_correctlyPlaced = false;
 				if (!_freePlacement) {
@@ -342,6 +361,12 @@ void OneBuildPuzzle::handleInput(NancyInput &input) {
 					piece.curRotation = piece.defaultRotation;
 					piece.gameRect = piece.homeRect;
 				}
+			}
+
+			// Re-arm at-home art when the piece lands back on homeRect
+			if (!piece.altSurface.empty() && !piece.placed &&
+					piece.gameRect == piece.homeRect) {
+				piece.useAltSurface = true;
 			}
 
 			updatePieceRender(_pickedUpPiece);
@@ -383,10 +408,12 @@ void OneBuildPuzzle::handleInput(NancyInput &input) {
 		if ((leftClick || rightClick) && topmostUnplaced != -1) {
 			_pickedUpPiece = topmostUnplaced;
 
+			Piece &pp = _pieces[_pickedUpPiece];
+			pp.useAltSurface = false;
+
 			if (rightClick)
 				rotatePiece(_pickedUpPiece);
 
-			Piece &pp = _pieces[_pickedUpPiece];
 			_isDragging = true;
 			_pickedUpWidth  = pp.rotateSurfaces[pp.curRotation].w;
 			_pickedUpHeight = pp.rotateSurfaces[pp.curRotation].h;
@@ -412,18 +439,26 @@ void OneBuildPuzzle::handleInput(NancyInput &input) {
 
 void OneBuildPuzzle::updatePieceRender(int pieceIdx) {
 	Piece &p = _pieces[pieceIdx];
-	int rot = p.curRotation;
-	if (!p.hasSurface[rot])
-		rot = 0;
-	if (!p.hasSurface[rot])
-		return;
-	p._drawSurface.create(p.rotateSurfaces[rot], p.rotateSurfaces[rot].getBounds());
+	if (p.useAltSurface && !p.altSurface.empty()) {
+		p._drawSurface.create(p.altSurface, p.altSurface.getBounds());
+	} else {
+		int rot = p.curRotation;
+		if (!p.hasSurface[rot])
+			rot = 0;
+		if (!p.hasSurface[rot])
+			return;
+		p._drawSurface.create(p.rotateSurfaces[rot], p.rotateSurfaces[rot].getBounds());
+	}
 	p.setTransparent(true);
 	p.moveTo(p.gameRect);
 }
 
 void OneBuildPuzzle::rotatePiece(int pieceIdx) {
 	Piece &p = _pieces[pieceIdx];
+
+	if (!_canRotateAll && !p.isPreRotated)
+		return;
+
 	int oldRot = p.curRotation;
 	int oldW = p.rotateSurfaces[oldRot].w;
 	int oldH = p.rotateSurfaces[oldRot].h;
@@ -496,8 +531,16 @@ void OneBuildPuzzle::clampRectToViewport(Common::Rect &rect) {
 
 void OneBuildPuzzle::checkAllPlaced() {
 	for (uint i = 0; i < _pieces.size(); ++i) {
-		if (!_pieces[i].placed)
-			return;
+		if (_pieces[i].placed)
+			continue;
+
+		// Nancy 10: pieces with an empty slotRect (top == 0 && bottom == 0)
+		// are filler — they don't need to be placed for the puzzle to solve.
+		const Common::Rect &slot = _pieces[i].slotRect;
+		if (slot.top == 0 && slot.bottom == 0)
+			continue;
+
+		return;
 	}
 	_isSolved = true;
 	_solveState = kTriggerCompletion;

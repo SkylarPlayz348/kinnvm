@@ -72,6 +72,11 @@ void NoctropolisEngine::initObjects() {
 	}
 }
 
+Common::Path NoctropolisEngine::getIconPath() const {
+	return ((NoctropolisResources *)_res)->translatePath("DARK/ICONS.AP");
+}
+
+
 void NoctropolisEngine::setupGame() {
 	_timers.clear();
 	for (int i = 0; i < 32; ++i) {
@@ -115,6 +120,8 @@ void NoctropolisEngine::initVariables() {
 	for (auto &entry : _inventory->_inv) {
 		entry._value = ITEM_NOT_FOUND;
 	}
+
+	_startAboutBox = _startAboutItem = 0;
 
 	// This is Noct_InitTravel in the original
 	_travScrollRow = 15;

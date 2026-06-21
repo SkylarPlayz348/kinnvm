@@ -19,16 +19,15 @@
  *
  */
 
-#include "mads/madsv2/core/digi.h"
+#include "mads/madsv2/forest/rooms/section2.h"
+#include "mads/madsv2/forest/digi.h"
+#include "mads/madsv2/forest/global.h"
+#include "mads/madsv2/forest/journal.h"
 #include "mads/madsv2/core/game.h"
 #include "mads/madsv2/core/inter.h"
 #include "mads/madsv2/core/kernel.h"
 #include "mads/madsv2/core/object.h"
 #include "mads/madsv2/core/player.h"
-#include "mads/madsv2/forest/global.h"
-#include "mads/madsv2/forest/journal.h"
-#include "mads/madsv2/forest/rooms/section2.h"
-#include "mads/madsv2/forest/rooms/room201.h"
 
 namespace MADS {
 namespace MADSV2 {
@@ -73,7 +72,7 @@ static Scratch scratch;
 static void room_201_init1() {
 	global[player_score] = -1;
 	global[g009] = -1;
-	global_digi_play(11);
+	global_midi_play(11);
 	global[g131] = 0;
 	global[g141] = 0;
 

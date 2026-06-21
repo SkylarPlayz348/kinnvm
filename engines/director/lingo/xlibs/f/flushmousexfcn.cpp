@@ -19,31 +19,42 @@
  *
  */
 
-#ifndef DIRECTOR_LINGO_XLIBS_WIDGETXOBJ_H
-#define DIRECTOR_LINGO_XLIBS_WIDGETXOBJ_H
+#include "common/system.h"
+
+#include "director/director.h"
+#include "director/lingo/lingo.h"
+#include "director/lingo/lingo-object.h"
+#include "director/lingo/lingo-utils.h"
+#include "director/lingo/xlibs/f/flushmousexfcn.h"
+
+/**************************************************
+ *
+ * USED IN:
+ * Yellow Brick Road
+ *
+ **************************************************/
 
 namespace Director {
 
-class WidgetXObject : public Object<WidgetXObject> {
-public:
-	WidgetXObject(ObjectType objType);
+const char *FlushMouseXFCN::xlibName = "FlushMouse";
+const XlibFileDesc FlushMouseXFCN::fileNames[] = {
+	{ "FlushMouse", nullptr },
+	{ nullptr, nullptr }
 };
 
-namespace WidgetXObj {
+static BuiltinProto builtins[] = {
+	{ "FlushMouse", FlushMouseXFCN::m_FlushMouse, -1, 0, 300, HBLTIN },
+	{ nullptr, nullptr, 0, 0, 0, VOIDSYM }
+};
 
-extern const char *const xlibName;
-extern const XlibFileDesc fileNames[];
+void FlushMouseXFCN::open(ObjectType type, const Common::Path &path) {
+	g_lingo->initBuiltIns(builtins);
+}
 
-void open(ObjectType type, const Common::Path &path);
-void close(ObjectType type);
+void FlushMouseXFCN::close(ObjectType type) {
+	g_lingo->cleanupBuiltIns(builtins);
+}
 
-void m_new(int nargs);
-void m_dispose(int nargs);
-void m_getPro(int nargs);
-void m_askQuit(int nargs);
+XOBJSTUB(FlushMouseXFCN::m_FlushMouse, 0)
 
-} // End of namespace WidgetXObj
-
-} // End of namespace Director
-
-#endif
+}

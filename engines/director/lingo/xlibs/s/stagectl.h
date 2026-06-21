@@ -19,23 +19,33 @@
  *
  */
 
-#ifndef MADS_FOREST_ROOMS_404_H
-#define MADS_FOREST_ROOMS_404_H
+#ifndef DIRECTOR_LINGO_XLIBS_S_STAGECTL_H
+#define DIRECTOR_LINGO_XLIBS_S_STAGECTL_H
 
-#include "common/serializer.h"
-#include "mads/madsv2/core/general.h"
+namespace Director {
 
-namespace MADS {
-namespace MADSV2 {
-namespace Forest {
-namespace Rooms {
+class StageControlXObject : public Object<StageControlXObject> {
+public:
+	StageControlXObject(ObjectType objType);
+};
 
-extern void room_404_preload();
-extern void room_404_synchronize(Common::Serializer &s);
+namespace StageControlXObj {
 
-} // namespace Rooms
-} // namespace Forest
-} // namespace MADSV2
-} // namespace MADS
+extern const char *xlibName;
+extern const XlibFileDesc fileNames[];
+
+void open(ObjectType type, const Common::Path &path);
+void close(ObjectType type);
+
+void m_new(int nargs);
+void m_dispose(int nargs);
+void m_name(int nargs);
+void m_noisy(int nargs);
+void m_numberOfInstances(int nargs);
+void m_becomeSystemModal(int nargs);
+
+} // End of namespace StageControlXObj
+
+} // End of namespace Director
 
 #endif

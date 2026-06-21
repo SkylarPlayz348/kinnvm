@@ -51,9 +51,11 @@
 
 namespace Scumm {
 
-const int kRA2MenuAxisThreshold = Common::JOYAXIS_MAX / 5;
+const int kRA2MenuAxisThreshold = Common::JOYAXIS_MAX / 2;
 const uint32 kRA2MenuGamepadNavigationDebounceMs = 250;
 const uint32 kRA2MenuGamepadMouseSuppressMs = 250;
+const int kRA2MenuKeyLikeFirstAxis = 8;
+const int kRA2MenuKeyLikeAxisTolerance = Common::JOYAXIS_MAX / 14;
 const int kRA2Handler7MouseSettleJumpThreshold = 40;
 const int kRA2Handler7MouseSettleRelativeThreshold = 40;
 const int kRA2Handler7MouseSettleEdgeMargin = 16;
@@ -61,39 +63,70 @@ const int kRA2GameplayMouseMaxX = 319;
 const int kRA2GameplayMouseMaxY = 199;
 const uint32 kRA2Handler7MouseSettleExtendMs = 1000;
 
-bool rebel2UsesRelativeGamepadAim(int selectedLevel) {
-	return selectedLevel == 1 || selectedLevel == 5 || selectedLevel == 14;
+int16 normalizeRebel2AxisMagnitude(int16 position) {
+	return position == Common::JOYAXIS_MIN ? Common::JOYAXIS_MAX : ABS((int)position);
 }
 
-bool isRebel2RawMenuAxis(int axis) {
-	return axis == Common::JOYSTICK_AXIS_LEFT_STICK_X ||
-	       axis == Common::JOYSTICK_AXIS_LEFT_STICK_Y ||
-	       axis == Common::JOYSTICK_AXIS_RIGHT_STICK_X ||
-	       axis == Common::JOYSTICK_AXIS_RIGHT_STICK_Y ||
-	       axis == Common::JOYSTICK_AXIS_HAT_X ||
-	       axis == Common::JOYSTICK_AXIS_HAT_Y ||
-	       axis >= 8;
+int16 combineRebel2MenuAxis(int16 mappedAxis, int16 rawAxis) {
+	return ABS((int)rawAxis) > ABS((int)mappedAxis) ? rawAxis : mappedAxis;
 }
 
-Common::KeyCode getRebel2RawMenuAxisKey(int axis, int16 position) {
-	const bool horizontalAxis = axis == Common::JOYSTICK_AXIS_LEFT_STICK_X ||
-	                            axis == Common::JOYSTICK_AXIS_RIGHT_STICK_X ||
-	                            axis == Common::JOYSTICK_AXIS_HAT_X ||
-	                            (axis >= 8 && (axis % 2) == 0);
-	const bool verticalAxis = axis == Common::JOYSTICK_AXIS_LEFT_STICK_Y ||
-	                          axis == Common::JOYSTICK_AXIS_RIGHT_STICK_Y ||
-	                          axis == Common::JOYSTICK_AXIS_HAT_Y ||
-	                          (axis >= 8 && (axis % 2) != 0);
+int getRebel2MenuAxisDirection(int16 axisValue) {
+	if (axisValue >= kRA2MenuAxisThreshold)
+		return 1;
+	if (axisValue <= -kRA2MenuAxisThreshold)
+		return -1;
+	return 0;
+}
 
-	if (!horizontalAxis && !verticalAxis)
-		return Common::KEYCODE_INVALID;
+bool decodeRebel2MenuKeyLikeAxis(int axis, int16 position, int16 &axisX, int16 &axisY) {
+	if (axis < kRA2MenuKeyLikeFirstAxis)
+		return false;
 
-	if (position >= kRA2MenuAxisThreshold)
-		return horizontalAxis ? Common::KEYCODE_RIGHT : Common::KEYCODE_DOWN;
-	if (position <= -kRA2MenuAxisThreshold)
-		return horizontalAxis ? Common::KEYCODE_LEFT : Common::KEYCODE_UP;
+	axisX = 0;
+	axisY = 0;
 
-	return Common::KEYCODE_INVALID;
+	// Some backends expose a key-like POV as a single extra axis whose neutral
+	// value is beyond the normal range and arrives clamped to JOYAXIS_MAX.
+	if (position == 0 || position >= Common::JOYAXIS_MAX - kRA2MenuKeyLikeAxisTolerance)
+		return true;
+
+	static const int16 povValues[] = {
+		-Common::JOYAXIS_MAX,
+		-(Common::JOYAXIS_MAX * 5) / 7,
+		-(Common::JOYAXIS_MAX * 3) / 7,
+		-Common::JOYAXIS_MAX / 7,
+		Common::JOYAXIS_MAX / 7,
+		(Common::JOYAXIS_MAX * 3) / 7,
+		(Common::JOYAXIS_MAX * 5) / 7
+	};
+	static const int16 povDirections[][2] = {
+		{ 0, -Common::JOYAXIS_MAX },
+		{ Common::JOYAXIS_MAX, -Common::JOYAXIS_MAX },
+		{ Common::JOYAXIS_MAX, 0 },
+		{ Common::JOYAXIS_MAX, Common::JOYAXIS_MAX },
+		{ 0, Common::JOYAXIS_MAX },
+		{ -Common::JOYAXIS_MAX, Common::JOYAXIS_MAX },
+		{ -Common::JOYAXIS_MAX, 0 }
+	};
+
+	int bestIndex = -1;
+	int bestDistance = Common::JOYAXIS_MAX;
+	for (uint i = 0; i < ARRAYSIZE(povValues); i++) {
+		const int distance = ABS((int)position - povValues[i]);
+		if (distance < bestDistance) {
+			bestDistance = distance;
+			bestIndex = i;
+		}
+	}
+
+	if (bestIndex >= 0 && bestDistance <= kRA2MenuKeyLikeAxisTolerance) {
+		axisX = povDirections[bestIndex][0];
+		axisY = povDirections[bestIndex][1];
+		return true;
+	}
+
+	return false;
 }
 
 bool isRebel2MenuDirectionKey(Common::KeyCode keycode) {
@@ -136,8 +169,6 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	_smush_iconsNut = new NutRenderer(_vm, highRes ? "SYSTM/CPITIMHI.NUT" : "SYSTM/CPITIMAG.NUT");
 	_smush_icons2Nut = nullptr;  // Not used for Rebel2
 
-	// Initialize laser texture buffer (DAT_0047fee4) from sprite 5 of CPITIMAG/CPITIMHI.NUT
-	// This is done by FUN_0040BAB0/FUN_0040BB87 in the original with sprite index 5
 	// Sprite 5 is 136x13 pixels - a wide, thin texture perfect for laser beams
 	_laserTexture.pixels = nullptr;
 	_laserTexture.width = 0;
@@ -146,11 +177,8 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 		initLaserTexture(_smush_iconsNut, 5);
 	}
 
-	// Initialize edge blend table with default identity table (FUN_404BCE -> FUN_410510(NULL))
 	// Per-level tables are loaded later via IACT opcode 8 par4=1000
 	initEdgeTable(nullptr);
-	// DAT_0047a7fc: Controls edge highlight rendering and widescreen features.
-	// Set from param_10 of FUN_403BD0 (main game init). Values:
 	//   < 0: Edge highlights disabled (low-detail mode)
 	//   >= 0: Edge highlights enabled, >= 1: high-detail (secondary NUTs, widescreen)
 	// Always use high detail.
@@ -160,9 +188,7 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	// Load DIHIFONT.NUT for in-video messages/subtitles (Opcode 9)
 	_rebelMsgFont = makeRebel2Font(_vm, "SYSTM/DIHIFONT.NUT");
 
-	// Load menu system fonts (from info.md - FUN_403BD0 lines 302-348)
 	// In low resolution mode, fonts are loaded as a linked list:
-	//   Font 0 (^f00): TALKFONT.NUT - Default menu font (DAT_00485058)
 	//   Font 1 (^f01): SMALFONT.NUT - Small font for format code switching
 	//   Font 2 (^f02): TITLFONT.NUT - Title font
 	//   Font 3 (^f03): POVFONT.NUT - POV font
@@ -193,7 +219,6 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	_hiResPresentationViewY = 0;
 	_gameplayPresentationClipBottom = 179;
 
-	// Damage visual effect counters (FUN_420515/420562/420754/42073B)
 	_damageFlashCounter = 0;
 	_damageHighFlashCounter = 0;
 	_damageShakeCounter = 0;
@@ -201,7 +226,6 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	memset(_damageRestorePalette, 0, sizeof(_damageRestorePalette));
 	_damageRestorePaletteValid = false;
 
-	// Text overlay state (FUN_004171c5 chapter title rendering)
 	_textOverlayActive = false;
 	_textOverlayID = 0;
 	_textOverlayX = 0;
@@ -209,7 +233,6 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	_textOverlayFadeIn = 0;
 	_textOverlayFadeOut = 0;
 
-	// Original globals mapped: hit counter, cooldown, movie/auto-play flags.
 	_rebelOp6Initialized = false;
 	_rebelHitCounter = 0;
 	_rebelKillCounter = 0;
@@ -232,15 +255,24 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	_rebelViewMode1 = 0;
 	_rebelViewMode2 = 0;
 
-	// Initialize mirrored original counters.
 	for (int i = 0; i < 10; ++i) {
 		_rebelValueCounters[i] = 0;
 		_rebelMaskCounters[i] = 0;
 	}
 	_rebelLastCounter = 0;
 
+	for (int i = 0; i < 512; ++i)
+		_rebelGaugeSlot[i] = -1;
+	_rebelShieldGateActive = false;
+	_rebelShieldDestroyed = false;
+	_rebelReactorMode = false;
+	_rebelGaugeArmed = false;
+	_rebelLastArmedSlot = -1;
+	for (int i = 0; i < 10; ++i)
+		_rebelGaugeCleared[i] = false;
+
 	_difficulty = 1; // Default to Medium.
-	_targetLockTimer = 0;  // DAT_00443676 equivalent
+	_targetLockTimer = 0;
 
 	_speed = 12;
 	_insaneIsRunning = false;
@@ -338,15 +370,12 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 		_primaryZones[i].active = false;
 		_secondaryZones[i].active = false;
 	}
-	// Corridor boundaries in game coordinate space (FUN_40C040 lines 21-24)
-	// DAT_00443b0a=0, DAT_00443b0c=0, DAT_00443b0e=0x1a8(424), DAT_00443b10=0x104(260)
 	_corridorLeftX = 0;
 	_corridorTopY = 0;
 	_corridorRightX = 0x1A8;   // 424 — full game buffer width
 	_corridorBottomY = 0x104;  // 260 — full game buffer height
 	_hitCooldown = 0;
 
-	// Initialize Handler 0x26 Turret shot system (FUN_40AD63)
 	for (i = 0; i < 2; i++) {
 		_turretShots[i].counter = 0;
 		_turretShots[i].targetX = 0;
@@ -357,7 +386,6 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	}
 	_turretShotSeqCounter = 0;
 
-	// Initialize Handler 8 Vehicle shot system (FUN_402ED0)
 	for (i = 0; i < 2; i++) {
 		_vehicleShots[i].counter = 0;
 		_vehicleShots[i].targetX = 0;
@@ -371,7 +399,6 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	}
 	_vehicleShotImpactIndex = 0;
 
-	// Initialize Handler 7 Space shot system (FUN_40FADF)
 	for (i = 0; i < 2; i++) {
 		_spaceShots[i].counter = 0;
 		_spaceShots[i].targetX = 0;
@@ -411,8 +438,8 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	_shipTargetX = 0xa0;
 	_shipTargetY = 0x28;
 	_shipLevelMode = 0;
-	_movementRangeLimit = 127;  // DAT_0047e034 - Start at full range (shooting state)
-	_flyControlMode = 0;   // DAT_004437c0 - Start in flight-only mode (no shooting)
+	_movementRangeLimit = 127;
+	_flyControlMode = 0;
 	_shipFiring = false;
 	_prevMouseButtons = 0; // For edge detection in mouse button handling
 	_shipDirectionH = 2;   // Start centered horizontally (0-4 range)
@@ -424,34 +451,34 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	_flyLaserSprite = nullptr;   // FLY002 - effect sprites (danger/overlay cues)
 	_flyTargetSprite = nullptr;  // FLY003 - targeting overlay
 	_flyHiResSprite = nullptr;   // FLY004 - high-res alternative
-	_flyEffectAnimCounter = 0;   // DAT_0047ff1c
-	_flyOverlayRepeatCount = 0;  // DAT_00443b52
-	_flyShipScreenX = 0xd4;      // Start at center (212) - matches DAT_00443708 default
-	_flyShipScreenY = 0x82;      // Start at center (130) - matches DAT_0044370a default
-	_smoothedVelocity = 0;       // DAT_0044370c
-	_verticalInput = 0;          // DAT_0044370e
-	memset(_velocityHistory, 0, sizeof(_velocityHistory));  // DAT_00443716
-	memset(_windHistoryX, 0, sizeof(_windHistoryX));         // DAT_00443b16
-	memset(_windHistoryY, 0, sizeof(_windHistoryY));         // DAT_00443b34
-	_windParamX = 0;             // DAT_00443b12
-	_windParamY = 0;             // DAT_00443b14
-	_perspectiveX = 0;           // DAT_00443712
-	_perspectiveY = 0;           // DAT_00443714
-	_viewShift = 0;              // DAT_00443710
-	_facingRight = false;        // DAT_0047ab8c
+	_flyEffectAnimCounter = 0;
+	_flyOverlayRepeatCount = 0;
+	_flyShipScreenX = 0xd4;
+	_flyShipScreenY = 0x82;
+	_smoothedVelocity = 0;
+	_verticalInput = 0;
+	memset(_velocityHistory, 0, sizeof(_velocityHistory));
+	memset(_windHistoryX, 0, sizeof(_windHistoryX));
+	memset(_windHistoryY, 0, sizeof(_windHistoryY));
+	_windParamX = 0;
+	_windParamY = 0;
+	_perspectiveX = 0;
+	_perspectiveY = 0;
+	_viewShift = 0;
+	_facingRight = false;
 
 	// Initialize Handler 25 GRD ship system
-	_grd001Sprite = nullptr;     // DAT_00482240 - GRD001 primary ship
-	_grd002Sprite = nullptr;     // DAT_00482238 - GRD002 secondary ship
-	_grd005Sprite = nullptr;     // DAT_00482258 - GRD005 mode 3 overlay
-	_grdSpriteMode = 0;          // DAT_00457900 - sprite mode (1,2,3,4)
+	_grd001Sprite = nullptr;
+	_grd002Sprite = nullptr;
+	_grd005Sprite = nullptr;
+	_grdSpriteMode = 0;
 	memset(_grdShotOriginX, 0, sizeof(_grdShotOriginX));
 	memset(_grdShotOriginY, 0, sizeof(_grdShotOriginY));
 	_grdShotOriginTableLoaded = false;
 
 	// Initialize Handler 0x26 turret HUD overlay system
-	_hudOverlayNut = nullptr;    // DAT_0047fe78 - Primary HUD overlay (GRD files, animated)
-	_hudOverlay2Nut = nullptr;   // DAT_0047fe80 - Secondary HUD overlay
+	_hudOverlayNut = nullptr;
+	_hudOverlay2Nut = nullptr;
 
 	// Initialize audio system for RA2 (since we don't use iMUSE).
 	// Individual SMUSH audio blocks carry their own source rate.
@@ -476,7 +503,6 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	// Main menu has 7 selectable items (0-6) matching GAME.TRS indices 11-17:
 	//   0: Start Game, 1: Options, 2: Calibrate Joystick, 3: Continue Intro,
 	//   4: Show Top Pilots, 5: Show Credits, 6: Return to Launcher
-	// FUN_0041f5ae uses the selectable item count for Y position calculation.
 	_menuItemCount = 7;
 	_menuInactivityTimer = 0;
 	_menuInactivityTimedOut = false;
@@ -487,7 +513,6 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 		_levelUnlocked[i] = (i == 0);  // Only level 1 unlocked initially
 	}
 
-	// Initialize chapter selection system (FUN_00415CF8)
 	// 17 items: 16 chapters + BACK option
 	_chapterSelection = 0;        // First chapter selected
 	_chapterItemCount = 17;       // 16 chapters + BACK
@@ -495,7 +520,6 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	_passwordInput = "";          // No password input
 
 	// Debug flag to unlock all chapters for testing
-	// Based on original debug mode (DAT_0047ab34 == 'd') from FUN_00415CF8
 	// Set to true to bypass normal unlock progression
 	_debugUnlockAll = ConfMan.getBool("rebel2_unlock_all");
 	_noDamage = ConfMan.getBool("rebel2_no_damage");
@@ -504,11 +528,9 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	for (i = 0; i < 16; i++) {
 		// If debug unlock is enabled, unlock all chapters
 		// Otherwise only chapter 1 (index 0) is unlocked initially
-		// Original: pilotData->scores[chapter] < 0xFF means unlocked
 		_chapterUnlocked[i] = _debugUnlockAll || (i == 0);
 	}
 
-	// Initialize preview offset for chapter selection (FUN_00425170)
 	// X offset: -90 (0xffa6), Y offset: selection * -50 + 75
 	_previewOffsetX = -90;
 	_previewOffsetY = 75;  // Chapter 0: 0 * -50 + 75 = 75
@@ -521,22 +543,19 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	}
 	loadPilots(); // Load saved pilots from disk
 
-	// Initialize pilot selection system (FUN_00414A41)
 	// Menu structure: [saved pilots] + 4 fixed options (NEW/DUPE/DELETE/MAIN MENU)
 	_levelSelection = 0;          // First item selected
 	_levelItemCount = _numPilots + 4; // N saved pilots + 4 fixed options
 	_selectedLevel = 1;           // Default selected level
-	_difficultySelection = 2;     // Default to 3rd difficulty (matching original init param_3=2)
+	_difficultySelection = 2;
 	_pilotMenuMode = kPilotModeSelect;
 	_pilotNameInput = "";
 	_pilotEditIndex = -1;
 
-	// Initialize top pilots display state and ranking table (FUN_0040FF00)
 	_topPilotsFrameCount = 0;
 	_topPilotsMaxFrames = 120;
 	initDefaultRankings();
 
-	// Initialize options menu state (FUN_004167A6 defaults)
 	_optionsSelection = 0;
 	_optionsItemCount = 8;
 	_optMusicEnabled = !_vm->_mixer->isSoundTypeMuted(Audio::Mixer::kMusicSoundType);
@@ -564,6 +583,11 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	_gameplayMouseSettleUntil = 0;
 	_lastGameplayMenuCloseTime = 0;
 	_lastMenuGamepadNavigationTime = 0;
+	_menuGamepadAxisX = 0;
+	_menuGamepadAxisY = 0;
+	_menuGamepadRawAxis = -1;
+	_menuGamepadRawAxisX = 0;
+	_menuGamepadRawAxisY = 0;
 	_handler8HudGlyph = '#';
 	_handler8HudMessageTimer = 0;
 	_handler8HudMessageIndex = 0;
@@ -616,7 +640,6 @@ InsaneRebel2::~InsaneRebel2() {
 	delete _hudOverlayNut;
 	delete _hudOverlay2Nut;
 
-	// Clean up laser texture buffer (DAT_0047fee4)
 	freeLaserTexture();
 
 	// Clean up embedded HUD overlays
@@ -670,9 +693,107 @@ void InsaneRebel2::restoreIOSGamepadController() {
 	_iosGamepadControllerState.restore();
 }
 
+void InsaneRebel2::resetMenuGamepadAxis() {
+	_menuGamepadAxisX = 0;
+	_menuGamepadAxisY = 0;
+	_menuGamepadRawAxis = -1;
+	_menuGamepadRawAxisX = 0;
+	_menuGamepadRawAxisY = 0;
+}
+
+void InsaneRebel2::queueMenuGamepadAxisKey(Common::KeyCode keycode) {
+	Common::Event syntheticEvent = Common::Event();
+	syntheticEvent.type = Common::EVENT_KEYDOWN;
+	syntheticEvent.kbd.keycode = keycode;
+	_menuEventQueue.push(syntheticEvent);
+
+	_lastMenuGamepadNavigationTime = _vm->_system->getMillis();
+}
+
+void InsaneRebel2::updateMenuGamepadAxisKey(int16 oldAxisX, int16 oldAxisY) {
+	const int16 axisX = combineRebel2MenuAxis(_menuGamepadAxisX, _menuGamepadRawAxisX);
+	const int16 axisY = combineRebel2MenuAxis(_menuGamepadAxisY, _menuGamepadRawAxisY);
+	const int oldX = getRebel2MenuAxisDirection(oldAxisX);
+	const int oldY = getRebel2MenuAxisDirection(oldAxisY);
+	const int newX = getRebel2MenuAxisDirection(axisX);
+	const int newY = getRebel2MenuAxisDirection(axisY);
+
+	if (newY != oldY && newY != 0)
+		queueMenuGamepadAxisKey(newY > 0 ? Common::KEYCODE_DOWN : Common::KEYCODE_UP);
+	else if (newX != oldX && newX != 0)
+		queueMenuGamepadAxisKey(newX > 0 ? Common::KEYCODE_RIGHT : Common::KEYCODE_LEFT);
+}
+
+bool InsaneRebel2::handleMenuGamepadAxisEvent(const Common::Event &event) {
+	if (event.type != Common::EVENT_CUSTOM_BACKEND_ACTION_AXIS)
+		return false;
+
+	const int16 oldAxisX = combineRebel2MenuAxis(_menuGamepadAxisX, _menuGamepadRawAxisX);
+	const int16 oldAxisY = combineRebel2MenuAxis(_menuGamepadAxisY, _menuGamepadRawAxisY);
+	const int16 axisPosition = normalizeRebel2AxisMagnitude(event.joystick.position);
+	const bool pressed = axisPosition >= kRA2MenuAxisThreshold;
+
+	switch (event.customType) {
+	case kScummBackendActionRebel2AxisUp:
+		if (pressed)
+			_menuGamepadAxisY = -axisPosition;
+		else
+			_menuGamepadAxisY = 0;
+		break;
+
+	case kScummBackendActionRebel2AxisDown:
+		if (pressed)
+			_menuGamepadAxisY = axisPosition;
+		else
+			_menuGamepadAxisY = 0;
+		break;
+
+	case kScummBackendActionRebel2AxisLeft:
+		if (pressed)
+			_menuGamepadAxisX = -axisPosition;
+		else
+			_menuGamepadAxisX = 0;
+		break;
+
+	case kScummBackendActionRebel2AxisRight:
+		if (pressed)
+			_menuGamepadAxisX = axisPosition;
+		else
+			_menuGamepadAxisX = 0;
+		break;
+
+	default:
+		return false;
+	}
+
+	updateMenuGamepadAxisKey(oldAxisX, oldAxisY);
+	return true;
+}
+
+bool InsaneRebel2::handleMenuRawJoystickAxisEvent(const Common::Event &event) {
+	if (event.type != Common::EVENT_JOYAXIS_MOTION)
+		return false;
+
+	int16 axisX = 0;
+	int16 axisY = 0;
+	if (!decodeRebel2MenuKeyLikeAxis(event.joystick.axis, event.joystick.position, axisX, axisY))
+		return false;
+
+	const bool active = axisX != 0 || axisY != 0;
+	if (!active && _menuGamepadRawAxis != event.joystick.axis && _menuGamepadRawAxis != -1)
+		return false;
+
+	const int16 oldAxisX = combineRebel2MenuAxis(_menuGamepadAxisX, _menuGamepadRawAxisX);
+	const int16 oldAxisY = combineRebel2MenuAxis(_menuGamepadAxisY, _menuGamepadRawAxisY);
+	_menuGamepadRawAxis = active ? event.joystick.axis : -1;
+	_menuGamepadRawAxisX = axisX;
+	_menuGamepadRawAxisY = axisY;
+	updateMenuGamepadAxisKey(oldAxisX, oldAxisY);
+	return true;
+}
+
 // notifyEvent -- EventObserver callback for global input dispatch.
 // Handles ESC (skip) and SPACE (pause) regardless of menu state.
-// Pause behavior matches original FUN_405A21: SPACE pauses, ANY key unpauses.
 bool InsaneRebel2::notifyEvent(const Common::Event &event) {
 	SmushPlayer *splayer = ((ScummEngine_v7 *)_vm)->_splayer;
 
@@ -686,7 +807,6 @@ bool InsaneRebel2::notifyEvent(const Common::Event &event) {
 	if (_rebelYodaMode && event.type == Common::EVENT_KEYDOWN && !event.kbdRepeat && event.kbd.hasFlags(Common::KBD_ALT)) {
 		switch (event.kbd.keycode) {
 		case Common::KEYCODE_m:
-			// DAT_0047ab60: Yoda-mode Movie Mode skips playable
 			// sections and keeps the story/cutscene sequence moving.
 			_rebelMovieMode = !_rebelMovieMode;
 			debugC(DEBUG_INSANE, "Movie mode %s", _rebelMovieMode ? "enabled" : "disabled");
@@ -695,7 +815,6 @@ bool InsaneRebel2::notifyEvent(const Common::Event &event) {
 			return true;
 
 		case Common::KEYCODE_p:
-			// DAT_0047ab64: Yoda-mode Auto Play makes gameplay
 			// computer controlled.
 			_rebelAutoPlay = !_rebelAutoPlay;
 			debugC(DEBUG_INSANE, "Auto play %s", _rebelAutoPlay ? "enabled" : "disabled");
@@ -754,15 +873,11 @@ bool InsaneRebel2::notifyEvent(const Common::Event &event) {
 	// every shot. We observe before ScummEngine (priority 1 > kEventManPriority), so
 	// dropping the event here prevents the clobber. Firing is driven by the
 	// kScummActionInsaneAttack action, not the pointer, so this does not affect shots.
-	// A genuine mouse/touch motion (nonzero relative delta) normally hands control
-	// back; handler 0x26 keeps ownership until its gamepad reticle returns to center,
-	// except for relative gamepad aiming levels where the reticle deliberately holds.
+	// A genuine mouse/touch motion (nonzero relative delta) hands control back.
 	if (_gamepadAimActive && _gameState == kStateGameplay && !_menuInputActive) {
 		switch (event.type) {
 		case Common::EVENT_MOUSEMOVE:
 			if (event.relMouse.x != 0 || event.relMouse.y != 0) {
-				if (_rebelHandler == 0x26 && !rebel2UsesRelativeGamepadAim(_selectedLevel))
-					return true;
 				_gamepadAimActive = false; // real pointer motion takes over
 				break;
 			}
@@ -778,26 +893,8 @@ bool InsaneRebel2::notifyEvent(const Common::Event &event) {
 	}
 
 	if (_menuInputActive && event.type == Common::EVENT_JOYAXIS_MOTION) {
-		const int axis = event.joystick.axis;
-
-		if (!isRebel2RawMenuAxis(axis))
-			return false;
-
-		const Common::KeyCode keycode = getRebel2RawMenuAxisKey(axis, event.joystick.position);
-		if (keycode == Common::KEYCODE_INVALID)
+		if (handleMenuRawJoystickAxisEvent(event))
 			return true;
-
-		const uint32 now = _vm->_system->getMillis();
-		if (_lastMenuGamepadNavigationTime != 0 &&
-				now - _lastMenuGamepadNavigationTime < kRA2MenuGamepadNavigationDebounceMs)
-			return true;
-
-		_lastMenuGamepadNavigationTime = now;
-		Common::Event syntheticEvent = Common::Event();
-		syntheticEvent.type = Common::EVENT_KEYDOWN;
-		syntheticEvent.kbd.keycode = keycode;
-		_menuEventQueue.push(syntheticEvent);
-		return true;
 	}
 
 	// Analog stick → reticle velocity (mirrors RA1's analog model). The mapped
@@ -805,53 +902,8 @@ bool InsaneRebel2::notifyEvent(const Common::Event &event) {
 	// We ignore a recentre that would fight the opposite direction so a quick
 	// flick doesn't get cancelled by the trailing zero of the other axis half.
 	if (event.type == Common::EVENT_CUSTOM_BACKEND_ACTION_AXIS) {
-		if (_menuInputActive) {
-			if (event.joystick.position == 0) {
-				switch (event.customType) {
-				case kScummBackendActionRebel2AxisUp:
-				case kScummBackendActionRebel2AxisDown:
-					return true;
-				case kScummBackendActionRebel2AxisLeft:
-				case kScummBackendActionRebel2AxisRight:
-					return true;
-				default:
-					break;
-				}
-				return true;
-			}
-
-			Common::KeyCode keycode = Common::KEYCODE_INVALID;
-			switch (event.customType) {
-			case kScummBackendActionRebel2AxisUp:
-				keycode = Common::KEYCODE_UP;
-				break;
-			case kScummBackendActionRebel2AxisDown:
-				keycode = Common::KEYCODE_DOWN;
-				break;
-			case kScummBackendActionRebel2AxisLeft:
-				keycode = Common::KEYCODE_LEFT;
-				break;
-			case kScummBackendActionRebel2AxisRight:
-				keycode = Common::KEYCODE_RIGHT;
-				break;
-			default:
-				break;
-			}
-
-			if (keycode != Common::KEYCODE_INVALID) {
-				const uint32 now = _vm->_system->getMillis();
-				if (_lastMenuGamepadNavigationTime != 0 &&
-						now - _lastMenuGamepadNavigationTime < kRA2MenuGamepadNavigationDebounceMs)
-					return true;
-
-				_lastMenuGamepadNavigationTime = now;
-				Common::Event syntheticEvent = Common::Event();
-				syntheticEvent.type = Common::EVENT_KEYDOWN;
-				syntheticEvent.kbd.keycode = keycode;
-				_menuEventQueue.push(syntheticEvent);
-				return true;
-			}
-		}
+		if (_menuInputActive && handleMenuGamepadAxisEvent(event))
+			return true;
 
 		const int16 axisPosition = (event.joystick.position == Common::JOYAXIS_MIN)
 			? Common::JOYAXIS_MAX : event.joystick.position;
@@ -974,9 +1026,6 @@ bool InsaneRebel2::notifyEvent(const Common::Event &event) {
 				case kScummActionInsaneAttack:
 					keycode = Common::KEYCODE_RETURN;
 					break;
-				case kScummActionInsaneSwitch:
-					keycode = Common::KEYCODE_ESCAPE;
-					break;
 				case kScummActionInsaneBack:
 					keycode = Common::KEYCODE_ESCAPE;
 					break;
@@ -991,8 +1040,7 @@ bool InsaneRebel2::notifyEvent(const Common::Event &event) {
 			case kStateTopPilots:
 				if (event.customType == kScummActionInsaneAttack)
 					keycode = Common::KEYCODE_RETURN;
-				else if (event.customType == kScummActionInsaneSwitch ||
-				         event.customType == kScummActionInsaneBack ||
+				else if (event.customType == kScummActionInsaneBack ||
 				         event.customType == kScummActionInsaneSkip)
 					keycode = Common::KEYCODE_ESCAPE;
 				break;
@@ -1066,7 +1114,6 @@ bool InsaneRebel2::notifyEvent(const Common::Event &event) {
 	if (event.type == Common::EVENT_KEYDOWN) {
 		// Gamepad buttons mapped to ESC can lose their key-up while the GMM is open,
 		// leaving the key repeat source to synthesize another ESC immediately after
-		// returning to gameplay. Treat repeats as part of the original press.
 		if (event.kbd.keycode == Common::KEYCODE_ESCAPE && event.kbdRepeat) {
 			debugC(DEBUG_INSANE, "Ignoring repeated ESC keydown");
 			return true;
@@ -1080,11 +1127,8 @@ bool InsaneRebel2::notifyEvent(const Common::Event &event) {
 			return true;
 		}
 
-		// When paused during gameplay, ANY key unpauses (FUN_405A21 line 360-365).
-		// ESC additionally opens the global menu (original: quit key exits level).
 		if (splayer && splayer->_paused && _gameState == kStateGameplay) {
 			debugC(DEBUG_INSANE, "Key pressed while paused - unpausing");
-			// Restore the original palette saved by showPauseOverlay
 			if (_pauseOverlayActive) {
 				_vm->_system->getPaletteManager()->setPalette(_savedPausePalette, 0, 256);
 				_pauseOverlayActive = false;
@@ -1118,7 +1162,6 @@ bool InsaneRebel2::notifyEvent(const Common::Event &event) {
 			break;
 
 		case Common::KEYCODE_SPACE:
-			// SPACE pauses during gameplay (FUN_405A21).
 			// Unpausing is handled above (any key while paused).
 			if (splayer && _gameState == kStateGameplay && !splayer->_paused) {
 				debugC(DEBUG_INSANE, "SPACE pressed - pausing");
@@ -1192,8 +1235,6 @@ bool InsaneRebel2::notifyEvent(const Common::Event &event) {
 	return false;
 }
 
-// Per-level difficulty parameters extracted from RA2WIN95.EXE at VA 0x47e0f0
-// Original: 2D table indexed by DAT_0047a7fa (difficulty) * 0x242 + DAT_0047a7f8 (levelType) * 0x22
 // 17 fields per entry (34 bytes), 17 entries per difficulty, 6 difficulties
 // Field names from official Difficulty Editor: {laserDelay, snapDistance, missDamage, dodgeDamage,
 //   shotDamage, specialDamage, shotAccuracy, hitPoints, dodgePoints, timePoints,
@@ -1280,7 +1321,6 @@ const InsaneRebel2::LevelDifficultyParams InsaneRebel2::kDifficultyTable[6][17] 
 		{   5,    4,   -1,   -1,   10,   -1,   79,  100,   -1,    8, 2000,   -1,    4,   -1,   -1,   -1,   -1}, // Lv15A
 		{   5,    4,  255,   45,    8,    5,   80,  100,  200,    8, 2000, 1000,    4,   -1,   -1,   -1,   -1}, // Lv15B
 	},
-	// Difficulty 4 (Custom1) — identical to difficulty 2 (Standard) in original data
 	{
 		{   7,    0,   35,   -1,    5,   -1,   75,   75,   -1,    6, 1500,  750,    0,    7,    7,    8,   -1}, // Lv1
 		{   4,    1,   -1,   -1,    6,   -1,   40,   75,   -1,    0, 1500,  750,    0,  110,  110,  150,   35}, // Lv2
@@ -1327,9 +1367,7 @@ InsaneRebel2::LevelDifficultyParams InsaneRebel2::getDifficultyParams() const {
 	int diff = CLIP(_difficulty, 0, 5);
 	int lvIdx = 0;
 
-	// DAT_0047a7f8 is the per-segment difficulty table index.
 	// This is NOT the same as handler 0x26's gun "levelType" from opcode 6.
-	//
 	// Index mapping reconstructed from level handlers:
 	//   Lv1->0, Lv2->1, Lv3->2, Lv4->3, Lv5->4,
 	//   Lv6A->5, Lv6B->6, Lv7->7 ... Lv14->14, Lv15A->15, Lv15B->16.
@@ -1363,10 +1401,7 @@ bool InsaneRebel2::applyPlayerDamage(int damage) {
 	return true;
 }
 
-// addScore -- Score system with bonus life awards (FUN_0041bf8d).
 void InsaneRebel2::addScore(int points) {
-	// Calculate bonus life threshold based on difficulty (DAT_0047a7fa)
-	// From FUN_0041bf8d:
 	//   if (difficulty < 4) threshold = (difficulty * 5 + 5) * 1000
 	//   else threshold = 15000
 	int threshold;
@@ -1384,7 +1419,6 @@ void InsaneRebel2::addScore(int points) {
 		if (oldMilestone < newMilestone) {
 			// Award bonus life
 			_playerLives++;
-			// TODO: Play bonus life sound (FUN_0041189e(5, 0, 0x7f, 0, 0))
 			debugC(DEBUG_INSANE, "BONUS LIFE! Score crossed %d threshold. Lives=%d", threshold, _playerLives);
 		}
 	}
@@ -1394,9 +1428,6 @@ void InsaneRebel2::addScore(int points) {
 	debugC(DEBUG_INSANE, "Score +%d = %d", points, _playerScore);
 }
 
-// Render score text to HUD (part of FUN_0041c012)
-// FUN_0041c012 lines 133-137: calls FUN_00434cb0 with format "%07ld"
-// using DAT_00482200 (DISPFONT in low-res mode).
 void InsaneRebel2::renderScoreHUD(byte *renderBitmap, int pitch, int width, int height, int statusBarY) {
 	// In low-res mode, score text shares the same NUT as the status bar sprites.
 	NutRenderer *statusFont = _smush_cockpitNut;
@@ -1406,7 +1437,6 @@ void InsaneRebel2::renderScoreHUD(byte *renderBitmap, int pitch, int width, int 
 	char scoreStr[16];
 	Common::sprintf_s(scoreStr, "%07d", _playerScore);
 
-	// Score position from FUN_0041c012 assembly:
 	//   X = 0x101 low-res, 0x202 high-res
 	//   Y = 4 low-res, 8 high-res (within status bar)
 	const int statusScale = isHiRes() ? 2 : 1;
@@ -1414,12 +1444,8 @@ void InsaneRebel2::renderScoreHUD(byte *renderBitmap, int pitch, int width, int 
 	int scoreY = statusBarY + 4 * statusScale + _viewY;
 
 	// Render each digit as a NUT sprite (direct pixel blit with color 0 transparency).
-	// This matches the original's FUN_00434cb0 → FUN_004341a0 text rendering which
 	// uses the NUT font's embedded palette colors (1=white, 3=gray, 4=black outline).
 	// Render each character applying xoffs/yoffs from NUT frame headers,
-	// matching FUN_0042cba0 lines 13-14:
-	//   param_3 = *(short *)(param_6 + 2) + param_3;  // X += xoffs
-	//   param_4 = *(short *)(param_6 + 4) + param_4;  // Y += yoffs
 	int x = scoreX;
 	for (int i = 0; scoreStr[i] != '\0'; i++) {
 		byte ch = (byte)scoreStr[i];
@@ -1432,16 +1458,12 @@ void InsaneRebel2::renderScoreHUD(byte *renderBitmap, int pitch, int width, int 
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Pilot Data System
-// ---------------------------------------------------------------------------
 // Save/load pilot profiles using the save file system.
-// Original: FUN_00411980 (load) / FUN_00411A5D (save).
 
 const uint32 kPilotSaveMagic = MKTAG('R', 'A', '2', 'P');
 const uint16 kPilotSaveVersion = 2;
 
-// loadPilots -- Load all pilot profiles from save files (FUN_00411980).
 bool InsaneRebel2::loadPilots() {
 	_numPilots = 0;
 
@@ -1482,7 +1504,6 @@ bool InsaneRebel2::loadPilots() {
 	return _numPilots > 0;
 }
 
-// savePilots -- Save all pilot profiles to save files (FUN_00411A5D).
 bool InsaneRebel2::savePilots() {
 	bool ok = true;
 
@@ -1525,7 +1546,6 @@ bool InsaneRebel2::savePilots() {
 }
 
 int InsaneRebel2::createNewPilot() {
-	// FUN_00411B9A: Create new pilot slot
 	if (_numPilots >= kMaxPilots)
 		return -1;
 
@@ -1536,7 +1556,6 @@ int InsaneRebel2::createNewPilot() {
 }
 
 void InsaneRebel2::deletePilot(int index) {
-	// FUN_00411D29: Delete pilot and shift remaining down
 	if (index < 0 || index >= _numPilots)
 		return;
 
@@ -1615,10 +1634,8 @@ int32 InsaneRebel2::processMouse() {
 	// Store current state for next frame's edge detection
 	_prevMouseButtons = currentButtons;
 
-	// Update _rebelControlMode (DAT_0047a7e4) for Handler 25 covered/uncovered toggle:
 	// Use "sticky" flags - set on button press, cleared by IACT handler after consumption.
 	// This ensures button presses aren't missed due to timing.
-	//
 	// For Handler 25: use edge detection with sticky flags
 	if (_rebelHandler == 25) {
 		// Only SET flags on button press (edge), don't clear them here
@@ -1654,7 +1671,6 @@ int32 InsaneRebel2::processMouse() {
 
 	bool triggerShot = ((_rebelHandler == 25) ? (leftPressed && !leftWasPressed) : leftPressed) || autoFire;
 	if (_rebelHandler == 8) {
-		// FUN_00401CCF uses the same per-frame fire bit both to spawn shots and
 		// to choose the POV gun sprite. Keep the sprite driven by the event-manager
 		// input that processMouse() uses during SMUSH playback.
 		_shipFiring = triggerShot && canShoot;
@@ -1703,7 +1719,6 @@ int32 InsaneRebel2::processMouse() {
 					it->id, it->type, mousePos.x, mousePos.y,
 					it->rect.left, it->rect.top, it->rect.right, it->rect.bottom);
 
-				// Explosion scale is handler-specific in the original:
 				// - H8/H7/H26 use object half-width
 				// - H25 uses half-width + snapDistance (and type 100 doubles it)
 				int explosionHalfWidth = it->rect.width() / 2;
@@ -1714,15 +1729,8 @@ int32 InsaneRebel2::processMouse() {
 						explosionHalfWidth *= 2;
 				}
 
-				// Spawn visual explosion based on handler, enemy type, and flags.
-				//
-				// Rendering functions (FUN_409FBC, FUN_402696, FUN_40F1C5,
-				// FUN_41F29A) check DAT_0047e108 flags & 1 - when set,
 				// explosion NUT sprites are suppressed. This is checked
 				// during rendering in renderExplosions().
-				//
-				// Handler 8 (FUN_4028C5): Only type 0 spawns explosion.
-				// Handler 25 (FUN_41E7C2): Types > 3 set counter but
 				// rendering suppressed by flags bit 0.
 				// Handlers 0x26, 7: All types get visual explosions.
 				if (_rebelHandler != 8 && _rebelHandler != 25) {
@@ -1744,19 +1752,38 @@ int32 InsaneRebel2::processMouse() {
 				// Disable self (prevents sprite from rendering via SKIP chunks)
 				setBit(it->id);
 
-				// Set enemy type bit in wave state (FUN_004028c5 line 74)
-				// DAT_0047ab98 |= 1 << (enemyType & 0x1f)
+				// Shield hit-point gauge: if this target feeds a gauge counter, destroying it
+				// decrements that counter; the shield is destroyed when it reaches 0.
+				if (_rebelShieldGateActive && it->id >= 0 && it->id < 512 && _rebelGaugeSlot[it->id] >= 0) {
+					int slot = _rebelGaugeSlot[it->id];
+					short *counter = (slot < 10) ? &_rebelValueCounters[slot]
+					                             : &_rebelMaskCounters[slot - 10];
+					if (*counter > 0) {
+						(*counter)--;
+						_rebelLastCounter = *counter;
+						if (*counter == 0) {
+							if (slot < 10)
+								_rebelGaugeCleared[slot] = true; // group emptied → its par3==2 surface can drop
+							// Level 6 ends on any group emptying; Level 13's reactor is gated in
+							// procPostRendering instead, so early obstacle groups don't complete it.
+							if (!_rebelReactorMode) {
+								_rebelShieldDestroyed = true;
+								debugC(DEBUG_INSANE, "Shield destroyed (gauge slot %d depleted by target %d)", slot, it->id);
+							}
+						}
+					}
+					_rebelGaugeSlot[it->id] = -1; // consume: avoid double-counting
+				}
+
 				// This tracks which enemy GROUPS have been killed in this wave
 				if (it->type > 0 && it->type < 32) {
 					_rebelWaveState |= (1 << it->type);
 					debugC(DEBUG_INSANE, "Wave state updated: 0x%x (set bit %d)", _rebelWaveState, it->type);
 				}
 
-				// Increment kill counter (DAT_0047ab88)
 				_rebelKillCounter++;
 
 				// Handle dependencies.
-				// Handler 25 (FUN_41E7C2) has two kill paths:
 				// - type <= 3: process dependency tables
 				// - type > 3 (and 100): skip dependency handling
 				// Other handlers always use link-table side effects.
@@ -1781,24 +1808,19 @@ int32 InsaneRebel2::processMouse() {
 				}
 
 				// Play enemy death sound.
-				// Pan based on enemy center X position: (screenX - 160) mapped to [-127,127]
 				{
 					int cameraX = (_rebelHandler == 8) ? _shipPosX : _viewX;
 					int enemyCenterX = (it->rect.left + it->rect.right) / 2 - cameraX;
 					int sfxPan = CLIP((enemyCenterX - 160) * 127 / 160, -127, 127);
 					if (_rebelHandler == 8 && it->type >= 1 && it->type <= 4) {
 						// Handler 8 soldier types 1-4: play from auxiliary buffer 0
-						// Original: FUN_00411931(0, slot+3, 0x7f, pan, 0)
 						playAuxSfx(0, 127, sfxPan);
 					} else {
 						// All other enemies: EXPLODE.SAD
-						// Original: FUN_0041189e(2, slot+3, 0x7f, pan, 0)
 						playSfx(2, 127, sfxPan);
 					}
 				}
 
-				// Award score for destroying enemy (FUN_0041bf8d called from FUN_40A2E0)
-				// Score value comes from DAT_0047e0fe indexed by difficulty*level
 				{
 					LevelDifficultyParams dparams = getDifficultyParams();
 					if (dparams.hitPoints > 0) {
@@ -1864,7 +1886,6 @@ Common::Point InsaneRebel2::getGameplayAimPoint() {
 	x = CLIP<int>(x, 0, 319);
 	y = CLIP<int>(y, 0, 199);
 	if (_optControlsFlipped) {
-		// Original DAT_0047a7fe reverses only the up/down gameplay axis.
 		y = CLIP<int>(200 - y, 0, 199);
 	}
 	return Common::Point(x, y);
@@ -1895,27 +1916,7 @@ void InsaneRebel2::updateGameplayAimFromGamepad() {
 	int deltaY = 0;
 	bool activeGamepadAim = false;
 
-	if (_rebelHandler == 0x26 && rebel2UsesRelativeGamepadAim(_selectedLevel)) {
-		// Levels 1, 5, and 14 play best with the older mouse-like gamepad behavior from
-		// ec305dee371/0025c4e1086: pan the reticle directly and leave it where
-		// the player releases the stick. Later handler 0x26 levels keep the
-		// original-style centered mapping for obstacle avoidance.
-		if (dpadX || dpadY) {
-			const int kLevel1DigitalStep = 3;
-			deltaX = dpadX * kLevel1DigitalStep;
-			deltaY = dpadY * kLevel1DigitalStep;
-			activeGamepadAim = true;
-		} else if (velX || velY) {
-			const int kLevel1AnalogMaxStep = 8;
-			deltaX = velX * kLevel1AnalogMaxStep / 127;
-			deltaY = velY * kLevel1AnalogMaxStep / 127;
-			activeGamepadAim = true;
-		}
-	} else if (_rebelHandler == 0x26) {
-		// Original RA2 maps joystick axes into a small centered handler 0x26 reticle box.
-		// Gamepad aiming deliberately exposes the full 320x200 mouse aim range
-		// too, but preserves the original joystick feel: curved response for precise
-		// center aiming, and automatic return to screen center when the stick is released.
+	if (_rebelHandler == 7) {
 		int axisX = 0;
 		int axisY = 0;
 		if (dpadX || dpadY) {
@@ -1926,76 +1927,72 @@ void InsaneRebel2::updateGameplayAimFromGamepad() {
 			axisY = velY;
 		}
 
+		const bool useDirectHandler7Gamepad = _selectedLevel == 10;
+		const bool useCenteredHandler7Gamepad = (_selectedLevel == 3 && _flyControlMode == 1);
+		if (!useDirectHandler7Gamepad && !useCenteredHandler7Gamepad && !axisX && !axisY)
+			return;
+
 		if (axisX || axisY || _gamepadAimActive) {
 			const Common::Point aimPos = getGameplayAimPoint();
 			const int centerX = 160;
 			const int centerY = 100;
-			const int absAxisX = ABS(axisX);
-			const int absAxisY = ABS(axisY);
-			const int curvedX = (absAxisX * absAxisX + 126) / 127;
-			const int curvedY = (absAxisY * absAxisY + 126) / 127;
-			const int targetX = axisX < 0 ?
-				centerX - curvedX * centerX / 127 :
-				centerX + curvedX * (319 - centerX) / 127;
-			const int targetY = axisY < 0 ?
-				centerY - curvedY * centerY / 127 :
-				centerY + curvedY * (199 - centerY) / 127;
-			const int maxStep = (axisX || axisY) ? 14 : 10;
-			const int distX = targetX - aimPos.x;
-			const int distY = targetY - aimPos.y;
-
-			if (distX || distY) {
-				deltaX = CLIP<int>(distX, -maxStep, maxStep);
-				deltaY = CLIP<int>(distY, -maxStep, maxStep);
-				activeGamepadAim = true;
+			int targetX;
+			int targetY;
+			if (useDirectHandler7Gamepad) {
+				targetX = (axisX < 0) ?
+					centerX + axisX * centerX / 127 :
+					centerX + axisX * (319 - centerX) / 127;
+				targetY = (axisY < 0) ?
+					centerY + axisY * centerY / 127 :
+					centerY + axisY * (199 - centerY) / 127;
 			} else {
-				_gamepadAimActive = (axisX || axisY);
-				return;
+				// The wider Level 10 mapping makes other Handler 7 stages swing the
+				// camera too hard. Keep their gamepad cursor in the older bounded
+				// range and move it there gradually. Level 3 mode 1 is wall-collision
+				// tunnel flight, so neutral stick axes must feed zero input instead of
+				// leaving stale off-center mouse coordinates to keep pushing the ship.
+				const int kHandler7HorizontalRange = 120;
+				const int kHandler7VerticalRange = 80;
+				targetX = axisX ?
+					CLIP<int>(centerX + axisX * kHandler7HorizontalRange / 127, 0, 319) :
+					(useCenteredHandler7Gamepad ? centerX : aimPos.x);
+				targetY = axisY ?
+					CLIP<int>(centerY + axisY * kHandler7VerticalRange / 127, 0, 199) :
+					(useCenteredHandler7Gamepad ? centerY : aimPos.y);
 			}
-		}
-	} else if (_rebelHandler == 7) {
-		int axisX = 0;
-		int axisY = 0;
-		if (dpadX || dpadY) {
-			axisX = dpadX * 127;
-			axisY = dpadY * 127;
-		} else {
-			axisX = velX;
-			axisY = velY;
-		}
-
-		if (axisX || axisY || _gamepadAimActive) {
-			const Common::Point aimPos = getGameplayAimPoint();
-			const int centerX = 160;
-			const int centerY = 100;
-			const int targetX = (axisX < 0) ?
-				centerX + axisX * centerX / 127 :
-				centerX + axisX * (319 - centerX) / 127;
-			const int targetY = (axisY < 0) ?
-				centerY + axisY * centerY / 127 :
-				centerY + axisY * (199 - centerY) / 127;
 			const int distX = targetX - aimPos.x;
 			const int distY = targetY - aimPos.y;
 
 			if (distX || distY) {
-				deltaX = distX;
-				deltaY = distY;
+				if (useDirectHandler7Gamepad || useCenteredHandler7Gamepad) {
+					deltaX = distX;
+					deltaY = distY;
+				} else {
+					const int kHandler7HorizontalMaxStep = 24;
+					const int kHandler7VerticalMaxStep = 32;
+					deltaX = CLIP<int>(distX, -kHandler7HorizontalMaxStep, kHandler7HorizontalMaxStep);
+					deltaY = CLIP<int>(distY, -kHandler7VerticalMaxStep, kHandler7VerticalMaxStep);
+				}
 				activeGamepadAim = true;
 			} else {
 				_gamepadAimActive = true;
 				return;
 			}
 		}
-	} else if (dpadX || dpadY) {
-		const int kOriginalDigitalStep = 3;
-		deltaX = dpadX * kOriginalDigitalStep;
-		deltaY = dpadY * kOriginalDigitalStep;
-		activeGamepadAim = true;
-	} else if (velX || velY) {
-		const int kAnalogMaxStep = 8;
-		deltaX = velX * kAnalogMaxStep / 127;
-		deltaY = velY * kAnalogMaxStep / 127;
-		activeGamepadAim = true;
+	} else {
+		// Handler 0x26 and the remaining gamepad-driven aim modes use relative
+		// reticle panning: releasing the stick leaves the aim point in place.
+		if (dpadX || dpadY) {
+			const int kOriginalDigitalStep = 3;
+			deltaX = dpadX * kOriginalDigitalStep;
+			deltaY = dpadY * kOriginalDigitalStep;
+			activeGamepadAim = true;
+		} else if (velX || velY) {
+			const int kAnalogMaxStep = 8;
+			deltaX = velX * kAnalogMaxStep / 127;
+			deltaY = velY * kAnalogMaxStep / 127;
+			activeGamepadAim = true;
+		}
 	}
 
 	if (!activeGamepadAim)
@@ -2013,7 +2010,6 @@ void InsaneRebel2::updateGameplayAimFromGamepad() {
 }
 
 bool InsaneRebel2::isBitSet(int n) {
-	// FUN_00423970: When param_1 < 1 (0 or negative), the bounds check fails and returns false.
 	// This means ID 0 or negative IDs are always treated as "enabled" (not skipped).
 	if (n < 1) {
 		return false;
@@ -2024,7 +2020,6 @@ bool InsaneRebel2::isBitSet(int n) {
 }
 
 void InsaneRebel2::setBit(int n) {
-	// FUN_004239b0: When n < 1 (i.e., n == 0 or negative), set ALL bits to 1 (disable all objects)
 	// This is used to disable all enemies/objects at once
 	if (n < 1) {
 		for (int i = 0; i < 0x401; i++)
@@ -2036,8 +2031,6 @@ void InsaneRebel2::setBit(int n) {
 }
 
 void InsaneRebel2::clearBit(int n) {
-	// FUN_00423a00: When n < 1 (i.e., n == 0 or negative), clear ALL bits to 0 (enable all objects)
-	// This is called by FUN_00423880 at the start of video playback to reset the bit table,
 	// ensuring all enemies are visible when a new level/segment starts.
 	if (n < 1) {
 		for (int i = 0; i < 0x401; i++)
@@ -2052,21 +2045,17 @@ void InsaneRebel2::clearBit(int n) {
 // Handler 7: only mode 2. Handler 8: not mode 4/5. Handler 25: not damaged.
 bool InsaneRebel2::isShootingAllowed() {
 	// Handler 7 (Third-Person Ship): Only mode 2 allows shooting
-	// FUN_0040d836 line 141: if (DAT_004437c0 == 2) { /* spawn shots, draw crosshair */ }
 	if (_rebelHandler == 7) {
 		return (_flyControlMode == 2);
 	}
 
 	// Handler 8 (Third-Person On Foot): Modes 4/5 disable shooting
-	// FUN_00401CCF line 82-84: if (DAT_0043e000 == 4) { param_5 = 0; }
 	// Mode 5: Ship not rendered (cutscene)
 	if (_rebelHandler == 8) {
 		return (_shipLevelMode != 4 && _shipLevelMode != 5);
 	}
 
 	// Handler 25 (0x19): Only allow shooting when fully uncovered
-	// FUN_41DB5E lines 170-171: if (((param_5 & 1) != 0) && (DAT_0045790a == 0))
-	// _rebelDamageLevel = DAT_0045790a (cover transition counter, 0 = uncovered, 5 = covered)
 	if (_rebelHandler == 25) {
 		return (_rebelDamageLevel == 0);
 	}
@@ -2075,7 +2064,6 @@ bool InsaneRebel2::isShootingAllowed() {
 	return (_rebelHandler != 0);
 }
 
-// procSKIP -- Conditional FOBJ/PSAD skip via bit table (FUN_00423A50).
 // Same mechanism as Full Throttle, but RA2 uses it for enemy objects:
 // when setBit(enemy_id) is called on destruction, SKIP chunks containing
 // that ID cause the next FOBJ (enemy sprite) to be skipped.

@@ -19,16 +19,15 @@
  *
  */
 
-#include "mads/madsv2/core/digi.h"
+#include "mads/madsv2/forest/rooms/section1.h"
+#include "mads/madsv2/forest/digi.h"
+#include "mads/madsv2/forest/global.h"
+#include "mads/madsv2/forest/journal.h"
 #include "mads/madsv2/core/game.h"
 #include "mads/madsv2/core/global.h"
 #include "mads/madsv2/core/kernel.h"
 #include "mads/madsv2/core/matte.h"
 #include "mads/madsv2/core/player.h"
-#include "mads/madsv2/forest/global.h"
-#include "mads/madsv2/forest/journal.h"
-#include "mads/madsv2/forest/rooms/section1.h"
-#include "mads/madsv2/forest/rooms/room199.h"
 
 namespace MADS {
 namespace MADSV2 {
@@ -102,7 +101,7 @@ static void room_199_init1() {
 static void room_199_init() {
 	global[player_score] = 0;
 	global[g009] = -1;
-	global_digi_play(7);
+	global_midi_play(7);
 
 	aainfo[2]._val3 = -1;
 	aainfo[2]._val4 = 0;

@@ -19,23 +19,23 @@
  *
  */
 
-#ifndef MADS_FOREST_ROOMS_301_H
-#define MADS_FOREST_ROOMS_301_H
+#ifndef DIRECTOR_LINGO_XLIBS_G_GETSOUNDXFCN_H
+#define DIRECTOR_LINGO_XLIBS_G_GETSOUNDXFCN_H
 
-#include "common/serializer.h"
-#include "mads/madsv2/core/general.h"
+namespace Director {
 
-namespace MADS {
-namespace MADSV2 {
-namespace Forest {
-namespace Rooms {
+namespace GetSoundXFCN {
 
-extern void room_301_preload();
-extern void room_301_synchronize(Common::Serializer &s);
+extern const char *xlibName;
+extern const XlibFileDesc fileNames[];
 
-} // namespace Rooms
-} // namespace Forest
-} // namespace MADSV2
-} // namespace MADS
+void open(ObjectType type, const Common::Path &path);
+void close(ObjectType type);
+
+void m_GetSound(int nargs);
+
+} // End of namespace GetSoundXFCN
+
+} // End of namespace Director
 
 #endif

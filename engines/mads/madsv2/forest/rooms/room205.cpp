@@ -19,20 +19,19 @@
  *
  */
 
-#include "mads/madsv2/core/digi.h"
+#include "mads/madsv2/forest/rooms/section2.h"
+#include "mads/madsv2/forest/digi.h"
+#include "mads/madsv2/forest/global.h"
+#include "mads/madsv2/forest/journal.h"
+#include "mads/madsv2/forest/midi.h"
 #include "mads/madsv2/core/game.h"
 #include "mads/madsv2/core/global.h"
 #include "mads/madsv2/core/imath.h"
 #include "mads/madsv2/core/inter.h"
 #include "mads/madsv2/core/kernel.h"
 #include "mads/madsv2/core/matte.h"
-#include "mads/madsv2/core/midi.h"
 #include "mads/madsv2/core/object.h"
 #include "mads/madsv2/core/player.h"
-#include "mads/madsv2/forest/global.h"
-#include "mads/madsv2/forest/journal.h"
-#include "mads/madsv2/forest/rooms/section2.h"
-#include "mads/madsv2/forest/rooms/room205.h"
 
 namespace MADS {
 namespace MADSV2 {
@@ -253,7 +252,7 @@ static void room_205_anim5() {
 
 	if (aainfo[6]._frame == 135) {
 		global[g009] = 0;
-		global_digi_play(9);
+		global_midi_play(9);
 		kernel_timing_trigger(180, 105);
 	} else if (aainfo[6]._frame == 138) {
 		aainfo[6]._frame = 137;

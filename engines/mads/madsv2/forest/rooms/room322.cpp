@@ -19,25 +19,23 @@
  *
  */
 
-#include "mads/madsv2/core/conv.h"
+#include "mads/madsv2/forest/rooms/section1.h"
+#include "mads/madsv2/forest/mads/inventory.h"
+#include "mads/madsv2/forest/mads/sounds.h"
+#include "mads/madsv2/forest/mads/words.h"
+#include "mads/madsv2/forest/digi.h"
+#include "mads/madsv2/forest/global.h"
+#include "mads/madsv2/forest/journal.h"
+#include "mads/madsv2/forest/midi.h"
 #include "mads/madsv2/core/game.h"
 #include "mads/madsv2/core/imath.h"
 #include "mads/madsv2/core/inter.h"
 #include "mads/madsv2/core/kernel.h"
-#include "mads/madsv2/core/digi.h"
-#include "mads/madsv2/core/midi.h"
 #include "mads/madsv2/core/object.h"
 #include "mads/madsv2/core/player.h"
 #include "mads/madsv2/core/sound.h"
 #include "mads/madsv2/core/sprite.h"
 #include "mads/madsv2/core/text.h"
-#include "mads/madsv2/forest/journal.h"
-#include "mads/madsv2/forest/mads/inventory.h"
-#include "mads/madsv2/forest/mads/sounds.h"
-#include "mads/madsv2/forest/mads/words.h"
-#include "mads/madsv2/forest/global.h"
-#include "mads/madsv2/forest/rooms/section1.h"
-#include "mads/madsv2/forest/rooms/room322.h"
 
 namespace MADS {
 namespace MADSV2 {
@@ -340,7 +338,7 @@ static void room_322_anim8() {
 		digi_play_build(322, '_', 1, 2);
 	} else if (cur == 27) {
 		global[g009] = 0;
-		global_digi_play(4);
+		global_midi_play(4);
 	}
 
 	if (result >= 0) {

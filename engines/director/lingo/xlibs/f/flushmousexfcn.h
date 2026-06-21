@@ -19,23 +19,23 @@
  *
  */
 
-#ifndef MADS_FOREST_ROOMS_302_H
-#define MADS_FOREST_ROOMS_302_H
+#ifndef DIRECTOR_LINGO_XLIBS_F_FLUSHMOUSEXFCN_H
+#define DIRECTOR_LINGO_XLIBS_F_FLUSHMOUSEXFCN_H
 
-#include "common/serializer.h"
-#include "mads/madsv2/core/general.h"
+namespace Director {
 
-namespace MADS {
-namespace MADSV2 {
-namespace Forest {
-namespace Rooms {
+namespace FlushMouseXFCN {
 
-extern void room_302_preload();
-extern void room_302_synchronize(Common::Serializer &s);
+extern const char *xlibName;
+extern const XlibFileDesc fileNames[];
 
-} // namespace Rooms
-} // namespace Forest
-} // namespace MADSV2
-} // namespace MADS
+void open(ObjectType type, const Common::Path &path);
+void close(ObjectType type);
+
+void m_FlushMouse(int nargs);
+
+} // End of namespace FlushMouseXFCN
+
+} // End of namespace Director
 
 #endif

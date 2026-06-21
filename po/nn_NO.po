@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ScummVM 1.3.0svn\n"
 "Report-Msgid-Bugs-To: scummvm-devel@lists.scummvm.org\n"
-"POT-Creation-Date: 2026-06-14 18:41+0000\n"
+"POT-Creation-Date: 2026-06-21 16:24+0000\n"
 "PO-Revision-Date: 2023-12-14 14:28+0000\n"
 "Last-Translator: Eugene Sandulenko <sev@scummvm.org>\n"
 "Language-Team: Norwegian Nynorsk <https://translations.scummvm.org/projects/"
@@ -88,7 +88,7 @@ msgstr "Steng"
 #. I18N: Opens the help screen.
 #: gui/browser.cpp:64 gui/launcher.cpp:277 gui/launcher.cpp:959
 #: backends/platform/sdl/macosx/appmenu_osx.mm:319
-#: engines/access/metaengine.cpp:360 engines/bladerunner/metaengine.cpp:321
+#: engines/access/metaengine.cpp:381 engines/bladerunner/metaengine.cpp:321
 #: engines/ngi/metaengine.cpp:162 engines/supernova/metaengine.cpp:238
 #: engines/tucker/metaengine.cpp:215 engines/zvision/metaengine.cpp:246
 msgid "Help"
@@ -2387,7 +2387,7 @@ msgid "Debug level:"
 msgstr "Debugger"
 
 #. I18N: Debug level -1, no messages
-#: gui/options.cpp:2758 gui/options.cpp:2895 audio/fmopl.cpp:83
+#: gui/options.cpp:2758 gui/options.cpp:2895 audio/fmopl.cpp:112
 #, fuzzy
 msgid "None"
 msgstr "Ingen"
@@ -2634,7 +2634,7 @@ msgid ""
 msgstr "Legg til spill..."
 
 #: gui/options.cpp:2975 engines/engine.cpp:647
-#: engines/access/metaengine.cpp:298 engines/drascula/metaengine.cpp:255
+#: engines/access/metaengine.cpp:319 engines/drascula/metaengine.cpp:255
 #: engines/queen/metaengine.cpp:269 engines/sherlock/metaengine.cpp:410
 #: engines/ultima/nuvie/metaengine.cpp:71
 #, fuzzy
@@ -3342,7 +3342,8 @@ msgstr ""
 #: backends/events/default/default-events.cpp:217
 #: backends/events/default/default-events.cpp:358
 #: engines/adl/metaengine.cpp:352 engines/buried/metaengine.cpp:154
-#: engines/chamber/metaengine.cpp:84 engines/drascula/metaengine.cpp:304
+#: engines/chamber/metaengine.cpp:84 engines/colony/intro.cpp:156
+#: engines/colony/intro.cpp:1243 engines/drascula/metaengine.cpp:304
 #: engines/hdb/metaengine.cpp:275 engines/hypno/metaengine.cpp:308
 #: engines/lab/metaengine.cpp:172 engines/mohawk/myst_stacks/menu.cpp:317
 #: engines/mohawk/riven_stacks/aspit.cpp:454
@@ -3930,7 +3931,7 @@ msgstr "Spelmeny"
 
 #. I18N: Skipping cutscene plaback
 #. I18N: Skipping cutscene playback
-#: engines/metaengine.cpp:112 engines/access/metaengine.cpp:225
+#: engines/metaengine.cpp:112 engines/access/metaengine.cpp:246
 #: engines/composer/metaengine.cpp:126 engines/drascula/metaengine.cpp:224
 #: engines/efh/metaengine.cpp:379 engines/freescape/movement.cpp:93
 #: engines/grim/grim.cpp:533 engines/grim/grim.cpp:633
@@ -3993,32 +3994,72 @@ msgstr ""
 msgid "AdLib emulator"
 msgstr "AdLib emulator:"
 
-#: audio/fmopl.cpp:85
+#: audio/fmopl.cpp:114
 msgid "MAME OPL emulator"
 msgstr "MAME OPL emulator"
 
-#: audio/fmopl.cpp:88
+#: audio/fmopl.cpp:117
 msgid "DOSBox OPL emulator"
 msgstr "DOSBox OPL emulator"
 
-#: audio/fmopl.cpp:91
+#: audio/fmopl.cpp:120
 msgid "Nuked OPL emulator"
 msgstr "Nuked OPL emulator"
 
-#: audio/fmopl.cpp:94
+#: audio/fmopl.cpp:123
 msgid "ALSA Direct FM"
 msgstr "ALSA Direct FM"
 
-#: audio/fmopl.cpp:97
+#: audio/fmopl.cpp:126
 msgid "OPL2LPT"
 msgstr "OPL2LPT"
 
-#: audio/fmopl.cpp:98
+#: audio/fmopl.cpp:127
 msgid "OPL3LPT"
 msgstr ""
 
-#: audio/fmopl.cpp:101
+#: audio/fmopl.cpp:130
 msgid "RetroWave OPL3"
+msgstr ""
+
+#: audio/fmopl.cpp:133
+msgid "[nFM] NokturnFM2 (OPL2)"
+msgstr ""
+
+#: audio/fmopl.cpp:134
+msgid "[nFM] NokturnFM3 (OPL3)"
+msgstr ""
+
+#: audio/fmopl.cpp:135
+msgid "[nFM] RetroWave USB OPL3 Express (OPL3)"
+msgstr ""
+
+#: audio/fmopl.cpp:136
+msgid "[nFM] Serdaco OPL2LPT (OPL2)"
+msgstr ""
+
+#: audio/fmopl.cpp:137
+msgid "[nFM] Serdaco OPL3LPT (OPL3)"
+msgstr ""
+
+#: audio/fmopl.cpp:138
+msgid "[nFM] Cheerful Electronics OPL2 Audio Board (OPL2)"
+msgstr ""
+
+#: audio/fmopl.cpp:139
+msgid "[nFM] Cheerful Electronics OPL3 Duo! (2xOPL3)"
+msgstr ""
+
+#: audio/fmopl.cpp:140
+msgid "[nFM] ST Bus ISA / VME SoundBlaster"
+msgstr ""
+
+#: audio/fmopl.cpp:141
+msgid "[nFM] NatFeats / NULL"
+msgstr ""
+
+#: audio/fmopl.cpp:142
+msgid "[nFM] Nuked-OPL3 softsynth (OPL3)"
 msgstr ""
 
 #: audio/mididrv.cpp:232
@@ -4118,12 +4159,12 @@ msgstr "Initialiserar MT-32 Emulator"
 msgid "MT-32 emulator"
 msgstr "MT-32 Emulator"
 
-#: audio/softsynth/pcspk.cpp:250
+#: audio/softsynth/pcspk.cpp:224
 #, fuzzy
 msgid "PC Speaker emulator"
 msgstr "PC Speaker Emulator"
 
-#: audio/softsynth/pcspk.cpp:269
+#: audio/softsynth/pcspk.cpp:243
 #, fuzzy
 msgid "IBM PCjr emulator"
 msgstr "IBM PCjr Emulator"
@@ -6019,7 +6060,15 @@ msgstr "Oppstartar"
 msgid "Check for Updates..."
 msgstr "SJå etter oppdateringar..."
 
-#: engines/access/metaengine.cpp:215 engines/alcachofa/metaengine.cpp:94
+#: engines/access/metaengine.cpp:82
+msgid "Use 'high definition' OGG music"
+msgstr ""
+
+#: engines/access/metaengine.cpp:83
+msgid "Use the OGG audio from the re-release instead of original MIDI tracks"
+msgstr ""
+
+#: engines/access/metaengine.cpp:236 engines/alcachofa/metaengine.cpp:94
 #: engines/bbvs/metaengine.cpp:92 engines/buried/metaengine.cpp:133
 #: engines/chamber/metaengine.cpp:59 engines/cine/metaengine.cpp:270
 #: engines/cruise/metaengine.cpp:168 engines/dm/metaengine.cpp:124
@@ -6045,20 +6094,20 @@ msgstr "SJå etter oppdateringar..."
 msgid "Default keymappings"
 msgstr "Spelval"
 
-#: engines/access/metaengine.cpp:219
+#: engines/access/metaengine.cpp:240
 #, fuzzy
 #| msgid "Highlight next dialogue"
 msgid "Move / Interact / Skip"
 msgstr "Merk neste dialog"
 
-#: engines/access/metaengine.cpp:231 engines/sherlock/metaengine.cpp:483
+#: engines/access/metaengine.cpp:252 engines/sherlock/metaengine.cpp:483
 #, fuzzy
 #| msgid "Skip line"
 msgid "Skip movie"
 msgstr "Hopp over linje"
 
 #. I18N: Move Actor to upwards direction
-#: engines/access/metaengine.cpp:237 engines/asylum/metaengine.cpp:171
+#: engines/access/metaengine.cpp:258 engines/asylum/metaengine.cpp:171
 #: engines/asylum/metaengine.cpp:198 engines/cine/metaengine.cpp:377
 #: engines/efh/metaengine.cpp:286 engines/hdb/metaengine.cpp:213
 #: engines/hypno/metaengine.cpp:363 engines/hypno/metaengine.cpp:411
@@ -6069,7 +6118,7 @@ msgid "Move up"
 msgstr "Beveg Bakover"
 
 #. I18N: Move Actor to downwards direction
-#: engines/access/metaengine.cpp:244 engines/asylum/metaengine.cpp:177
+#: engines/access/metaengine.cpp:265 engines/asylum/metaengine.cpp:177
 #: engines/asylum/metaengine.cpp:205 engines/cine/metaengine.cpp:384
 #: engines/efh/metaengine.cpp:293 engines/hdb/metaengine.cpp:219
 #: engines/hypno/metaengine.cpp:351 engines/hypno/metaengine.cpp:399
@@ -6081,7 +6130,7 @@ msgstr "Skli til Høyre"
 
 #. I18N: Move Actor to left direction
 #. I18N: Move actor left during fight
-#: engines/access/metaengine.cpp:251 engines/asylum/metaengine.cpp:183
+#: engines/access/metaengine.cpp:272 engines/asylum/metaengine.cpp:183
 #: engines/asylum/metaengine.cpp:212 engines/cine/metaengine.cpp:391
 #: engines/efh/metaengine.cpp:300 engines/hdb/metaengine.cpp:225
 #: engines/hypno/metaengine.cpp:345 engines/hypno/metaengine.cpp:393
@@ -6095,7 +6144,7 @@ msgstr "Skli til Venstre"
 
 #. I18N: Move Actor to right direction
 #. I18N: Move actor right during fight
-#: engines/access/metaengine.cpp:258 engines/asylum/metaengine.cpp:189
+#: engines/access/metaengine.cpp:279 engines/asylum/metaengine.cpp:189
 #: engines/asylum/metaengine.cpp:219 engines/cine/metaengine.cpp:398
 #: engines/efh/metaengine.cpp:307 engines/hdb/metaengine.cpp:231
 #: engines/hypno/metaengine.cpp:357 engines/hypno/metaengine.cpp:405
@@ -6108,35 +6157,35 @@ msgid "Move right"
 msgstr "Skli til Høyre"
 
 #. I18N: Move Actor to top-left direction
-#: engines/access/metaengine.cpp:265 engines/cine/metaengine.cpp:405
+#: engines/access/metaengine.cpp:286 engines/cine/metaengine.cpp:405
 #: engines/efh/metaengine.cpp:314
 #, fuzzy
 msgid "Move up-left"
 msgstr "Skli til Venstre"
 
 #. I18N: Move Actor to top-right direction
-#: engines/access/metaengine.cpp:270 engines/cine/metaengine.cpp:411
+#: engines/access/metaengine.cpp:291 engines/cine/metaengine.cpp:411
 #: engines/efh/metaengine.cpp:320
 #, fuzzy
 msgid "Move up-right"
 msgstr "Skli til Høyre"
 
 #. I18N: Move Actor to bottom-left direction
-#: engines/access/metaengine.cpp:275 engines/cine/metaengine.cpp:417
+#: engines/access/metaengine.cpp:296 engines/cine/metaengine.cpp:417
 #: engines/efh/metaengine.cpp:326
 #, fuzzy
 msgid "Move down-left"
 msgstr "Skli til Høyre"
 
 #. I18N: Move Actor to bottom-right direction
-#: engines/access/metaengine.cpp:280 engines/cine/metaengine.cpp:423
+#: engines/access/metaengine.cpp:301 engines/cine/metaengine.cpp:423
 #: engines/efh/metaengine.cpp:332
 #, fuzzy
 msgid "Move down-right"
 msgstr "Skli til Høyre"
 
 #. I18N: (Game name: The Lost Files of Sherlock Holmes: The Case of the Rose Tattoo) This action is used to look at an object or npc in the game
-#: engines/access/metaengine.cpp:285 engines/bbvs/metaengine.cpp:124
+#: engines/access/metaengine.cpp:306 engines/bbvs/metaengine.cpp:124
 #: engines/dgds/metaengine.cpp:83 engines/drascula/metaengine.cpp:230
 #: engines/petka/metaengine.cpp:130 engines/scumm/help.cpp:167
 #: engines/scumm/help.cpp:231 engines/sherlock/metaengine.cpp:405
@@ -6147,7 +6196,7 @@ msgstr "Skli til Høyre"
 msgid "Look"
 msgstr "Kikk"
 
-#: engines/access/metaengine.cpp:293 engines/drascula/metaengine.cpp:240
+#: engines/access/metaengine.cpp:314 engines/drascula/metaengine.cpp:240
 #: engines/queen/metaengine.cpp:259 engines/saga/metaengine.cpp:369
 #: engines/scumm/help.cpp:125 engines/scumm/help.cpp:140
 #: engines/scumm/help.cpp:165 engines/scumm/help.cpp:193
@@ -6157,13 +6206,13 @@ msgstr "Kikk"
 msgid "Open"
 msgstr "Åpne"
 
-#: engines/access/metaengine.cpp:303 engines/scumm/help.cpp:128
+#: engines/access/metaengine.cpp:324 engines/scumm/help.cpp:128
 #: engines/ultima/nuvie/metaengine.cpp:70
 msgid "Get"
 msgstr "Få"
 
 #. I18N: Combat command in Might & Magic 1
-#: engines/access/metaengine.cpp:308 engines/access/metaengine.cpp:329
+#: engines/access/metaengine.cpp:329 engines/access/metaengine.cpp:350
 #: engines/bbvs/metaengine.cpp:136 engines/cine/metaengine.cpp:342
 #: engines/efh/metaengine.cpp:462 engines/hdb/metaengine.cpp:237
 #: engines/lab/metaengine.cpp:323 engines/mm/mm1/metaengine.cpp:86
@@ -6183,11 +6232,11 @@ msgstr "Få"
 msgid "Use"
 msgstr "Nytt"
 
-#: engines/access/metaengine.cpp:313
+#: engines/access/metaengine.cpp:334
 msgid "Goto"
 msgstr ""
 
-#: engines/access/metaengine.cpp:318 engines/access/metaengine.cpp:349
+#: engines/access/metaengine.cpp:339 engines/access/metaengine.cpp:370
 #: engines/bbvs/metaengine.cpp:130 engines/drascula/metaengine.cpp:250
 #: engines/efh/metaengine.cpp:506 engines/petka/metaengine.cpp:158
 #: engines/scumm/help.cpp:174 engines/scumm/help.cpp:226
@@ -6198,11 +6247,11 @@ msgstr ""
 msgid "Talk"
 msgstr "Snakk"
 
-#: engines/access/metaengine.cpp:323 engines/scumm/help.cpp:175
+#: engines/access/metaengine.cpp:344 engines/scumm/help.cpp:175
 msgid "Travel"
 msgstr "Reis"
 
-#: engines/access/metaengine.cpp:334 engines/cine/metaengine.cpp:332
+#: engines/access/metaengine.cpp:355 engines/cine/metaengine.cpp:332
 #: engines/petka/metaengine.cpp:144 engines/saga/metaengine.cpp:394
 #: engines/supernova/metaengine.cpp:331
 #, fuzzy
@@ -6211,7 +6260,7 @@ msgid "Take"
 msgstr "Ta av (klede)"
 
 #. I18N: Action in In Cold Blood
-#: engines/access/metaengine.cpp:339 engines/alcachofa/metaengine.cpp:116
+#: engines/access/metaengine.cpp:360 engines/alcachofa/metaengine.cpp:116
 #: engines/cine/metaengine.cpp:337 engines/crab/input/input.cpp:251
 #: engines/cruise/metaengine.cpp:192 engines/draci/metaengine.cpp:237
 #: engines/dragons/metaengine.cpp:147 engines/drascula/metaengine.cpp:218
@@ -6231,18 +6280,18 @@ msgstr "Ta av (klede)"
 msgid "Inventory"
 msgstr "Inventar"
 
-#: engines/access/metaengine.cpp:344 engines/ultima/ultima4/metaengine.cpp:51
+#: engines/access/metaengine.cpp:365 engines/ultima/ultima4/metaengine.cpp:51
 msgid "Climb"
 msgstr ""
 
-#: engines/access/metaengine.cpp:354 engines/bbvs/metaengine.cpp:142
+#: engines/access/metaengine.cpp:375 engines/bbvs/metaengine.cpp:142
 #: engines/freescape/games/castle/castle.cpp:511
 #: engines/petka/metaengine.cpp:137 engines/scumm/help.cpp:225
 #: engines/tsage/metaengine.cpp:201
 msgid "Walk"
 msgstr "Gå"
 
-#: engines/access/metaengine.cpp:365
+#: engines/access/metaengine.cpp:386
 #, fuzzy
 msgid "Open save/load menu"
 msgstr "Sett in lagre/laste speldisk"
@@ -7943,6 +7992,21 @@ msgid ""
 "Things will be broken. Please consider starting Operation Stealth from "
 "beginning using new savegames."
 msgstr ""
+
+#: engines/colony/intro.cpp:154 engines/colony/intro.cpp:1244
+#, fuzzy
+msgid "New Game"
+msgstr "Ny Lagring"
+
+#: engines/colony/intro.cpp:155 engines/colony/intro.cpp:1242
+#, fuzzy
+msgid "Load Game"
+msgstr "Åpne spel:"
+
+#: engines/colony/intro.cpp:1219 engines/colony/intro.cpp:1244
+#, fuzzy
+msgid "You have been terminated."
+msgstr "Gjenopprett"
 
 #: engines/colony/metaengine.cpp:45 engines/myst3/metaengine.cpp:40
 #, fuzzy
@@ -11300,29 +11364,33 @@ msgstr ""
 msgid "Unlock"
 msgstr "Lås opp"
 
-#: engines/mm/mm1/metaengine.cpp:127 engines/ultima/ultima4/metaengine.cpp:112
+#: engines/mm/mm1/metaengine.cpp:128 engines/ultima/ultima4/metaengine.cpp:112
 #, fuzzy
 msgid "Goto location"
 msgstr "~F~orrige"
 
-#: engines/mm/mm1/metaengine.cpp:152
+#: engines/mm/mm1/metaengine.cpp:154
 msgid "Might and Magic 1 - Menus"
 msgstr ""
 
-#: engines/mm/mm1/metaengine.cpp:153
+#: engines/mm/mm1/metaengine.cpp:155
 msgid "Might and Magic 1 - Minimal Keys"
 msgstr ""
 
-#: engines/mm/mm1/metaengine.cpp:154
+#: engines/mm/mm1/metaengine.cpp:156
 msgid "Might and Magic 1 - Main"
 msgstr ""
 
-#: engines/mm/mm1/metaengine.cpp:155
+#: engines/mm/mm1/metaengine.cpp:157
 msgid "Might and Magic 1 - Party"
 msgstr ""
 
-#: engines/mm/mm1/metaengine.cpp:156
+#: engines/mm/mm1/metaengine.cpp:158
 msgid "Might and Magic 1 - Combat"
+msgstr ""
+
+#: engines/mm/mm1/metaengine.cpp:160
+msgid "Might and Magic 1 - Cheats"
 msgstr ""
 
 #: engines/mm/mm1/mm1.cpp:57
@@ -13821,10 +13889,8 @@ msgid "Rebel Assault II controls"
 msgstr ""
 
 #: engines/scumm/metaengine.cpp:1298
-#, fuzzy
-#| msgid "Move Back"
-msgid "Cover / back"
-msgstr "Beveg Bakover"
+msgid "Cover"
+msgstr ""
 
 #: engines/scumm/metaengine.cpp:1304
 #, fuzzy
@@ -17784,6 +17850,11 @@ msgstr ""
 
 #, fuzzy
 #~| msgid "Move Back"
+#~ msgid "Cover / back"
+#~ msgstr "Beveg Bakover"
+
+#, fuzzy
+#~| msgid "Move Back"
 #~ msgid "Menu back"
 #~ msgstr "Beveg Bakover"
 
@@ -18092,10 +18163,6 @@ msgstr ""
 #, fuzzy
 #~ msgid "Save Game"
 #~ msgstr "Lagra spel:"
-
-#, fuzzy
-#~ msgid "Load Game"
-#~ msgstr "Åpne spel:"
 
 #, fuzzy
 #~ msgid "Quit Game"
@@ -18521,10 +18588,6 @@ msgstr ""
 #, fuzzy
 #~ msgid "The game is now over.\n"
 #~ msgstr "Spelet vart IKKJE lasta"
-
-#, fuzzy
-#~ msgid "You have stored "
-#~ msgstr "Gjenopprett"
 
 #, fuzzy
 #~ msgid "I've stored "

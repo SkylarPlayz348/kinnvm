@@ -57,6 +57,7 @@ typedef struct ImGuiScriptCodeLine {
 
 typedef struct ImGuiScript {
 	bool score = false;
+	bool showByteCode = false;
 	CastMemberID id;
 	ScriptType type;
 	Common::String handlerId;
@@ -97,6 +98,7 @@ typedef struct ImGuiWindows {
 	bool archive = false;
 	bool watchedVars = false;
 	bool executionContext = false;
+	bool scripts = false;
 	bool search = false;
 	bool imageViewer = false;
 	bool windows = false;
@@ -276,8 +278,7 @@ typedef struct ImGuiState {
 	ImGuiWindows _savedW;
 	bool _wasHidden = false;
 
-	Common::List<CastMemberID> _scriptCasts;
-	Common::HashMap<int, ImGuiScript> _openHandlers;
+	ScriptData _openScripts;
 	bool _showCompleteScript = true;
 
 	Common::HashMap<Common::String, bool, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> _variables;
@@ -385,9 +386,8 @@ void renderScriptAST(ImGuiScript &script, bool showByteCode, bool scrollTo);	   
 
 // dt-scripts.cpp
 void showFuncList();
-void showScriptCasts();
 void showExecutionContext();
-void showHandlers();
+void showScriptsWindow();
 
 // dt-save-state.cpp
 void saveCurrentState();

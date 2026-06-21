@@ -1,19 +1,23 @@
 Umfangreichere Informationen über die Änderungen des aktuellen Codes findest Du unter:
         https://github.com/scummvm/scummvm/commits/
 
-#### 2026.3.0 (XX.06.2026)
+#### 2026.3.0 "Carousels & Killer Whales" (20.06.2026)
 
  Neue Spiele:
    - Unterstützung für Nancy Drew: The Haunted Carousel hinzugefügt.
    - Unterstützung für Nancy Drew: Danger on Deception Island hinzugefügt.
+   - Unterstützung für Noctropolis hinzugefügt.
    - Unterstützung für Cartoon Carnival hinzugefügt.
    - Unterstützung für Alfred Pelrock: En Busca de un Sueño hinzugefügt.
-   - Unterstützung für Noctropolis hinzugefügt.
+   - Unterstützung für Pilot Brothers: On the Track of Striped Elephant,
+     Pilot Brothers: The Case of Serial Maniac, und 5 kleinere Spiele,
+     die die Gamos-Engine nutzen, hinzugefügt.
 
  Allgemein:
    - Klickbare Links in der Benutzeroberfläche werden jetzt durch einen veränderten Cursor hervorgehoben.
    - Die Fenstergröße wird jetzt korrekt wiederhergestellt, wenn in 3D-Engines von Vollbild zurück zum Fenster-Modus gewechselt wird.
    - NULL OPL-Treiber für schwächere Systeme implementiert.
+   - Flüssiges Scrollen in Listen innerhalb der Benutzeroberfläche implementiert.
 
  ACCESS:
    - Mehrere Skript-Fehler in Martian Memorandum behoben.
@@ -69,6 +73,14 @@ Umfangreichere Informationen über die Änderungen des aktuellen Codes findest D
    - Falsche Skalierung des Plasma-Menüeffekts behoben.
    - Darstellung des Holomap-Modells korrigiert.
    - Automatische Speicherung beim Fahren eines Fahrzeugs deaktiviert.
+
+ Atari-Portierung:
+   - Native Unterstützung für CDDA hinzugefügt.
+   - Unterstützung für Plugins hinzugefügt. ScummVM kann jetzt schon mit wenigen MB RAM genutzt werden.
+   - Native Unterstützung für YM2149 hinzugefügt (aktuell verwendbar in Wlvira 1 und 2).
+   - Audio-Mixer überarbeitet, was auch Audio-Probleme in Secret of Monkey Island behebt.
+   - Autosave ist jetzt standardmäßig deaktiviert, da die Funktion zu hörbaren Audio-Problemen
+     während des Spiels führt.
 
  PS3-Portierung:
    - ScummVM-Engines können jetzt als separate Module/Programmdateien ausgeführt werden.

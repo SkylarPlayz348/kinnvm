@@ -19,8 +19,13 @@
  *
  */
 
-#include "mads/madsv2/core/conv.h"
-#include "mads/madsv2/core/digi.h"
+#include "mads/madsv2/forest/rooms/section1.h"
+#include "mads/madsv2/forest/mads/inventory.h"
+#include "mads/madsv2/forest/mads/sounds.h"
+#include "mads/madsv2/forest/mads/words.h"
+#include "mads/madsv2/forest/digi.h"
+#include "mads/madsv2/forest/global.h"
+#include "mads/madsv2/forest/journal.h"
 #include "mads/madsv2/core/game.h"
 #include "mads/madsv2/core/imath.h"
 #include "mads/madsv2/core/inter.h"
@@ -30,13 +35,6 @@
 #include "mads/madsv2/core/sound.h"
 #include "mads/madsv2/core/sprite.h"
 #include "mads/madsv2/core/text.h"
-#include "mads/madsv2/forest/mads/inventory.h"
-#include "mads/madsv2/forest/mads/sounds.h"
-#include "mads/madsv2/forest/mads/words.h"
-#include "mads/madsv2/forest/global.h"
-#include "mads/madsv2/forest/journal.h"
-#include "mads/madsv2/forest/rooms/section1.h"
-#include "mads/madsv2/forest/rooms/room321.h"
 
 namespace MADS {
 namespace MADSV2 {
@@ -156,9 +154,9 @@ static void room_321_init() {
 		kernel_seq_loc(seq[4], 230, 105);
 		kernel_seq_scale(seq[4], 83);
 		kernel_flip_hotspot(177, 0);
-		global_digi_play(13);
+		global_midi_play(13);
 	} else {
-		global_digi_play(3);
+		global_midi_play(3);
 	}
 
 	global[g009] = -1;

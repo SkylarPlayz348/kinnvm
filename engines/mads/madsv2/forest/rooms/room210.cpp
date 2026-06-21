@@ -19,20 +19,20 @@
  *
  */
 
-#include "mads/madsv2/core/digi.h"
-#include "mads/madsv2/core/game.h"
-#include "mads/madsv2/core/imath.h"
-#include "mads/madsv2/core/kernel.h"
-#include "mads/madsv2/core/midi.h"
-#include "mads/madsv2/core/player.h"
-#include "mads/madsv2/core/speech.h"
+#include "mads/madsv2/forest/rooms/section1.h"
 #include "mads/madsv2/forest/mads/inventory.h"
 #include "mads/madsv2/forest/mads/sounds.h"
 #include "mads/madsv2/forest/mads/words.h"
+#include "mads/madsv2/forest/digi.h"
 #include "mads/madsv2/forest/global.h"
 #include "mads/madsv2/forest/journal.h"
-#include "mads/madsv2/forest/rooms/section1.h"
-#include "mads/madsv2/forest/rooms/room210.h"
+#include "mads/madsv2/forest/midi.h"
+#include "mads/madsv2/core/config.h"
+#include "mads/madsv2/core/game.h"
+#include "mads/madsv2/core/imath.h"
+#include "mads/madsv2/core/kernel.h"
+#include "mads/madsv2/core/player.h"
+#include "mads/madsv2/core/speech.h"
 
 namespace MADS {
 namespace MADSV2 {
@@ -385,13 +385,13 @@ static void room_210_daemon() {
 		case 3:
 			aainfo[8]._frame = 12;
 			kernel_reset_animation(aa[8], 12);
-			if (digi_val1 != 0) kernel_timing_trigger(1, 109);
+			if (config_file.forest1 != 0) kernel_timing_trigger(1, 109);
 			break;
 		case 4:
 			global[walker_converse_state] = 0;
 			close_journal(3);
 			player.commands_allowed = -1;
-			if (digi_val1 != 0) kernel_timing_trigger(1, 109);
+			if (config_file.forest1 != 0) kernel_timing_trigger(1, 109);
 			break;
 		}
 		scratch._a6 = 0;

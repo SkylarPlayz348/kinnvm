@@ -19,18 +19,15 @@
  *
  */
 
-#include "mads/madsv2/core/conv.h"
+#include "mads/madsv2/forest/rooms/section9.h"
+#include "mads/madsv2/forest/forest.h"
+#include "mads/madsv2/forest/global.h"
 #include "mads/madsv2/core/game.h"
 #include "mads/madsv2/core/imath.h"
 #include "mads/madsv2/core/inter.h"
 #include "mads/madsv2/core/kernel.h"
 #include "mads/madsv2/core/matte.h"
 #include "mads/madsv2/core/mouse.h"
-#include "mads/madsv2/forest/global.h"
-#include "mads/madsv2/forest/rooms/section9.h"
-#include "mads/madsv2/forest/rooms/room903.h"
-#include "mads/madsv2/forest/global.h"
-#include "mads/madsv2/forest/forest.h"
 
 namespace MADS {
 namespace MADSV2 {
@@ -54,7 +51,7 @@ static void room_903_init() {
 
 static void room_903_daemon() {
 	if (kernel.trigger == TRIGGER1)
-		global_digi_play(14);
+		global_midi_play(14);
 
 	if (mouse_any_stroke || g_engine->hasPendingKey() || kernel.trigger == TRIGGER0) {
 		g_engine->flushKeys();

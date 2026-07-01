@@ -27,6 +27,7 @@
 #include "mads/madsv2/core/matte.h"
 #include "mads/madsv2/core/mouse.h"
 #include "mads/madsv2/core/player.h"
+#include "mads/madsv2/engine.h"
 
 namespace MADS {
 namespace MADSV2 {
@@ -76,8 +77,8 @@ static void room_107_init() {
 	viewing_at_y = 22;
 	global[player_score] = 0;
 	global[g009] = 0;
-	player.walker_visible = 0;
-	player.commands_allowed = 0;
+	player.walker_visible = false;
+	player.commands_allowed = false;
 	mouse_hide();
 
 	for (int16 i = 0; i < 10; i++) {
@@ -128,8 +129,7 @@ static void room_107_anim1() {
 
 static void room_107_daemon() {
 	if (global[player_hyperwalked] == -1) {
-		game_save_name(0);
-		kernel_save_game(save_game_buf);
+		g_engine->saveAutosaveIfEnabled();
 		new_room = 904;
 	}
 

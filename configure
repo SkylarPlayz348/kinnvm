@@ -304,6 +304,7 @@ _imgui=yes
 _cdtoons=auto
 _indeo3=auto
 _indeo45=auto
+_hmi_audio=auto
 _hnm=auto
 _jyv1=auto
 _qdm2=auto
@@ -341,6 +342,7 @@ add_component cdtoons "CDTOONS" "_cdtoons" "USE_CDTOONS"
 add_component enet "ENet" "_enet" "USE_ENET"
 add_component fmtowns_pc98_audio "FM-TOWNS/PC98 audio" "_fmtowns_pc98_audio" "USE_FMTOWNS_PC98_AUDIO"
 add_component gif "GIF" "_gif" "USE_GIF"
+add_component hmi_audio "HMI Infinite Audio" "_hmi_audio" "USE_HMI_AUDIO"
 add_component hnm "HNM" "_hnm" "USE_HNM"
 add_component imgui "Dear ImGui based debugger" "_imgui" "USE_IMGUI"
 add_component indeo3 "Indeo 3" "_indeo3" "USE_INDEO3"
@@ -3375,6 +3377,7 @@ EOF
 
 		append_var LDFLAGS "-s EXPORTED_FUNCTIONS=[_main,_malloc,_free,_raise]"
 		append_var LDFLAGS "-s EXPORTED_RUNTIME_METHODS=[ccall,lengthBytesUTF8,setValue,writeArrayToMemory]"
+		append_var LDFLAGS "--js-library backends/networking/http/emscripten/networkreadstream-emscripten.js"
 
 		append_var LDFLAGS "-O2"
 		_optimization_level=-O2
@@ -3474,6 +3477,10 @@ EOF
 	haiku*)
 		append_var DEFINES "-DSYSTEM_NOT_SUPPORTING_D_TYPE"
 		append_var DEFINES "-D_GNU_SOURCE"
+		if test "$_dynamic_modules" = yes ; then
+			_detection_features_static=no
+			_plugins_default=dynamic
+		fi
 		# Needs -lnetwork for the timidity MIDI driver
 		append_var LIBS "-lnetwork"
 		_seq_midi=no
@@ -5207,6 +5214,18 @@ _mak_plugins='
 PLUGIN_LDFLAGS		+= -Wl,-T$(srcdir)/backends/plugins/wii/plugin.ld
 '
 		;;
+	haiku*)
+		_plugin_prefix="lib"
+		_plugin_suffix=".so"
+		append_var CXXFLAGS "-fPIC"
+		append_var DEFINES "-DUNCACHED_PLUGINS"
+_mak_plugins='
+PLUGIN_EXTRA_DEPS =
+PLUGIN_LDFLAGS  += -shared
+PRE_OBJS_FLAGS  := -Wl,-export-dynamic -Wl,-whole-archive
+POST_OBJS_FLAGS := -Wl,-no-whole-archive
+'
+		;;
 	irix*)
 		_plugin_prefix="lib"
 		_plugin_suffix=".so"
@@ -5612,16 +5631,16 @@ echocheck "nFM OPL2 / OPL3"
 if test "$_nfm" = auto ; then
 	_nfm=no
 	cat > $TMPC << EOF
-extern "C"
-{
+
 #include <nfmcore.h>
 #include <nfmutil.h>
-}
 
 sOplInterface gOplIf;
 
 int main(void)
 { 
+	nfInit(NULL, NULL);
+
 	sOplInterfaceConfiguration ifCfg;
 	ifCfg.deviceType = FMD_NULL;
     ifCfg.soundchip = CM_OPL3;
@@ -5635,11 +5654,11 @@ int main(void)
 
     gOplIf = nfCreateInterface(ifCfg); 
 
-    const int32_t retval = nfInit(&gOplIf, &params);
+    const int32_t retval = nfInitialiseInterface(&gOplIf, &params);
 
     if (retval >= 0)
     {
-	 (void)nfDeinit(&gOplIf);
+	 (void)nfDestroyInterface(&gOplIf);
      return 0;
     }	
 

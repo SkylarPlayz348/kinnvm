@@ -88,16 +88,32 @@ protected:
 	Common::String getRecordTypeName() const override { return "SpecialEffect"; }
 };
 
-// Adds a caption to the textbox.
+// Adds a caption to the textbox. The Nancy 11+ "autotext" variant (AR 81),
+// carries an extra header that makes the record wait for a sound to finish
+// or a timer to elapse before it completes; in both variants the body is
+// either inline text or resolved from an AUTOTEXT key.
 class TextBoxWrite : public ActionRecord {
 public:
+	enum WaitMode { kWaitNone = 0, kWaitForSound = 1, kWaitForTimer = 2 };
+
+	TextBoxWrite(bool isAutotext = false) : _isAutotext(isAutotext) {}
+
 	void readData(Common::SeekableReadStream &stream) override;
 	void execute() override;
 
 	Common::String _text;
 
+	// Nancy 11+ AR 81 only
+	bool _isAutotext;
+	int16 _waitMode = 0;
+	uint16 _soundChannel = 0;
+	uint32 _waitTimeMs = 0;
+
 protected:
-	Common::String getRecordTypeName() const override { return "TextBoxWrite"; }
+	Common::String getRecordTypeName() const override { return _isAutotext ? "AutotextTextBoxWrite" : "TextBoxWrite"; }
+
+private:
+	uint32 _endTime = 0;
 };
 
 // Clears the textbox. Used very rarely.
@@ -116,8 +132,7 @@ class FrameTextBox : public ActionRecord {
 public:
 	enum Variant {
 		kVariant74 = 74,
-		kVariant75 = 75,
-		kVariant81 = 81
+		kVariant75 = 75
 	};
 
 	FrameTextBox(Variant variant) : _variant(variant), _flags(0), _slot(0) {}
@@ -273,11 +288,14 @@ protected:
 };
 
 // Starts the timer. Used in combination with Dependency types that check for
-// how much time has passed since the timer was started.
+// how much time has passed since the timer was started. From Nancy 11 onwards
+// the record also carries a software-timer slot index (see TimerControl).
 class ResetAndStartTimer : public ActionRecord {
 public:
 	void readData(Common::SeekableReadStream &stream) override;
 	void execute() override;
+
+	byte _timerIndex = 0; // Nancy 11+ software-timer slot
 
 protected:
 	Common::String getRecordTypeName() const override { return "ResetAndStartTimer"; }
@@ -289,8 +307,66 @@ public:
 	void readData(Common::SeekableReadStream &stream) override;
 	void execute() override;
 
+	byte _timerIndex = 0; // Nancy 11+ software-timer slot
+
 protected:
 	Common::String getRecordTypeName() const override { return "StopTimer"; }
+};
+
+// Nancy 11+ AR 69 (AT_TIMER_CONTROL). Issues a command to one of the 10
+// software-timer slots (see TimerData::Timer). The fixed-size chunk
+// (0xc4 header + count*4 flag entries) carries a slot index, a command, a
+// target duration, an optional sound + caption, and the event flags to fire
+// when the timer expires.
+class TimerControl : public ActionRecord {
+public:
+	enum Command {
+		kReset       = 0, // Clear the slot back to idle
+		kStart       = 1, // Begin counting, with no target
+		kPause       = 2, // Suspend counting
+		kAddTime     = 3, // Add the duration to the elapsed time
+		kSubtractTime = 4, // Subtract the duration from the elapsed time
+		kConfigOneShot   = 5, // Set target/payload; fire once, then reset
+		kConfigRepeating = 6  // Set target/payload; fire once, then keep running
+	};
+
+	void readData(Common::SeekableReadStream &stream) override;
+	void execute() override;
+
+	int16 _timerIndex = 0;
+	int16 _command = 0;
+	int16 _hours = 0;
+	int16 _minutes = 0;
+	int16 _seconds = 0;
+
+	SoundDescription _sound;
+	Common::String _autotextKey;
+	Common::String _caption;
+	Common::Array<FlagDescription> _flags;
+
+protected:
+	Common::String getRecordTypeName() const override { return "TimerControl"; }
+};
+
+// Nancy 11+ AR 30. Disables the player's ability to scroll/pan the viewport
+// (both mouse-edge and keyboard movement). State persists across scene changes.
+class StopPlayerScrolling : public ActionRecord {
+public:
+	void readData(Common::SeekableReadStream &stream) override;
+	void execute() override;
+
+protected:
+	Common::String getRecordTypeName() const override { return "StopPlayerScrolling"; }
+};
+
+// Nancy 11+ AR 31. Re-enables the player's ability to scroll/pan the viewport.
+class StartPlayerScrolling : public ActionRecord {
+public:
+	void readData(Common::SeekableReadStream &stream) override;
+	void execute() override;
+
+protected:
+	Common::String getRecordTypeName() const override { return "StartPlayerScrolling"; }
 };
 
 // Returns the player back to the main menu
@@ -367,6 +443,22 @@ public:
 
 protected:
 	Common::String getRecordTypeName() const override { return "HintSystem"; }
+};
+
+// Added in Nancy12 (AR 132). Adjusts a UI overlay resource (from the UIRC boot
+// chunk) at runtime.
+class ResourceUse : public ActionRecord {
+public:
+	void readData(Common::SeekableReadStream &stream) override;
+	void execute() override;
+
+protected:
+	Common::String getRecordTypeName() const override { return "ResourceUse"; }
+
+	int16 _resourceIndex = 0;
+	int16 _amount = 0;
+	byte _mode = 0;        // 0 = set the resource, non-zero = add (clamped to >= 0)
+	FlagDescription _flag; // event flag set when the change is applied
 };
 
 } // End of namespace Action

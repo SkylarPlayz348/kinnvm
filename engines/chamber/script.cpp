@@ -30,6 +30,7 @@
 #include "chamber/cga.h"
 #include "chamber/ega.h"
 #include "chamber/ega_resource.h"
+#include "chamber/amiga.h"
 #include "chamber/cursor.h"
 #include "chamber/portrait.h"
 #include "chamber/input.h"
@@ -669,7 +670,7 @@ uint16 SCR_5_DrawPortraitLiftRight(void) {
 		return 0;
 
 	/*TODO: use local args instead of globals*/
-	if (g_vm->_videoMode == Common::kRenderEGA)
+	if (isEgaLikeRenderer())
 		g_vm->_renderer->animLiftToRight(width, cur_image_pixels + width * 4 - 4, width, 1, height, SCREENBUFFER, g_vm->_renderer->calcXY_p(x, y));
 	else
 		g_vm->_renderer->animLiftToRight(width, cur_image_pixels + width - 1, width, 1, height, SCREENBUFFER, g_vm->_renderer->calcXY_p(x, y));
@@ -866,7 +867,7 @@ uint16 SCR_D_DrawPortraitDotEffect(void) {
 	if (!drawPortrait(&script_ptr, &x, &y, &width, &height))
 		return 0;
 
-	if (g_vm->_videoMode == Common::kRenderEGA) {
+	if (isEgaLikeRenderer()) {
 		uint16 pw = width * 4;
 		cur_image_end = pw * height;
 		uint16 baseOfs = g_vm->_renderer->calcXY_p(x, y);
@@ -876,8 +877,13 @@ uint16 SCR_D_DrawPortraitDotEffect(void) {
 			uint16 py = offs / pw;
 			target[baseOfs + py * EGA_BYTES_PER_LINE + px] = cur_image_pixels[offs];
 
-			if (count % 20 == 0)
+			if (count % 20 == 0) {
 				g_vm->_renderer->blitToScreen(x * 4, y, pw, height);
+				pollInput();
+				g_system->updateScreen();
+				if (g_vm->_shouldQuit)
+					return 0;
+			}
 
 			offs += step;
 			if (offs > cur_image_end)
@@ -901,8 +907,15 @@ uint16 SCR_D_DrawPortraitDotEffect(void) {
 	for (offs = 0; offs != cur_image_end;) {
 		target[g_vm->_renderer->calcXY_p(x + offs % cur_image_size_w, y + offs / cur_image_size_w)] = cur_image_pixels[offs]; // TODO check this
 
-		if (count % 5 == 0)
+		if (count % 5 == 0) {
 			g_vm->_renderer->blitToScreen(offs, g_vm->_screenPPB, 1);
+			if ((count % 100) == 0) {
+				pollInput();
+				g_system->updateScreen();
+				if (g_vm->_shouldQuit)
+					return 0;
+			}
+		}
 
 		offs += step;
 		if (offs > cur_image_end)
@@ -940,7 +953,7 @@ uint16 drawPortraitZoomed(byte **params) {
 	zwidth = *((*params)++);
 	zheight = *((*params)++);
 
-	if (g_vm->_videoMode == Common::kRenderEGA) {
+	if (isEgaLikeRenderer()) {
 		/*EGA can't zoom: draw at original size; dirty rect already has correct dimensions from drawPortrait*/
 		g_vm->_renderer->zoomImage(cur_image_pixels, cur_image_size_w, cur_image_size_h, cur_image_size_w, cur_image_size_h, frontbuffer, cur_image_offs);
 	} else {
@@ -989,7 +1002,7 @@ uint16 SCR_19_HidePortraitLiftLeft(void) {
 
 	/*TODO: This originally was done by reusing door sliding routine*/
 
-	if (g_vm->_videoMode == Common::kRenderEGA) {
+	if (isEgaLikeRenderer()) {
 		offs += 4;
 		while (--width)
 			g_vm->_renderer->hideScreenBlockLiftToLeft(1, SCREENBUFFER, backbuffer, width, height, SCREENBUFFER, offs);
@@ -1050,7 +1063,7 @@ uint16 SCR_1A_HidePortraitLiftRight(void) {
 
 	/*TODO: This originally was done by reusing door sliding routine*/
 
-	if (g_vm->_videoMode == Common::kRenderEGA) {
+	if (isEgaLikeRenderer()) {
 		offs = g_vm->_renderer->calcXY_p(x + width - 2, y);
 		while (--width)
 			g_vm->_renderer->hideScreenBlockLiftToRight(1, SCREENBUFFER, backbuffer, width, height, SCREENBUFFER, offs);
@@ -1108,8 +1121,14 @@ uint16 SCR_1B_HidePortraitLiftUp(void) {
 		return 0;
 	}
 
-	if (g_vm->_videoMode == Common::kRenderEGA) {
-		g_vm->_renderer->copyScreenBlock(backbuffer, width, height, SCREENBUFFER, offs);
+	if (isEgaLikeRenderer()) {
+		offs = g_vm->_renderer->calcXY_p(x, y + 1);
+		while (--height)
+			g_vm->_renderer->hideScreenBlockLiftToUp(1, SCREENBUFFER, backbuffer, width, height, SCREENBUFFER, offs);
+		/*hide topmost line*/
+		offs -= EGA_BYTES_PER_LINE;
+		memcpy(SCREENBUFFER + offs, backbuffer + offs, width * 4);
+		g_vm->_renderer->blitToScreen(offs % EGA_BYTES_PER_LINE, offs / EGA_BYTES_PER_LINE, width * 4, 1);
 		return 0;
 	}
 
@@ -1149,8 +1168,14 @@ uint16 SCR_1C_HidePortraitLiftDown(void) {
 		return 0;
 	}
 
-	if (g_vm->_videoMode == Common::kRenderEGA) {
-		g_vm->_renderer->copyScreenBlock(backbuffer, width, height, SCREENBUFFER, offs);
+	if (isEgaLikeRenderer()) {
+		offs = g_vm->_renderer->calcXY_p(x, y + height - 2);
+		while (--height)
+			g_vm->_renderer->hideScreenBlockLiftToDown(1, SCREENBUFFER, backbuffer, width, height, SCREENBUFFER, offs);
+		/*hide bottommost line*/
+		offs += EGA_BYTES_PER_LINE;
+		memcpy(SCREENBUFFER + offs, backbuffer + offs, width * 4);
+		g_vm->_renderer->blitToScreen(offs % EGA_BYTES_PER_LINE, offs / EGA_BYTES_PER_LINE, width * 4, 1);
 		return 0;
 	}
 
@@ -1409,7 +1434,7 @@ void drawStars(star_t *stars, int16 iter, byte *target) {
 		short z, x, y;
 		byte pixel, mask;
 
-		if (g_vm->_videoMode == Common::kRenderEGA)
+		if (isEgaLikeRenderer())
 			target[stars->ofs] = 0;
 		else
 			target[stars->ofs] &= stars->mask;
@@ -1433,7 +1458,7 @@ void drawStars(star_t *stars, int16 iter, byte *target) {
 			continue;
 		}
 
-		if (g_vm->_videoMode == Common::kRenderEGA) {
+		if (isEgaLikeRenderer()) {
 			stars->ofs = g_vm->_renderer->calcXY_p(x, y);
 			pixel = (stars->z < 0xE00) ? 15 : 8;
 			stars->pixel = pixel;
@@ -1612,6 +1637,8 @@ Draw new zone
 */
 uint16 SCR_43_RefreshZone(void) {
 	script_ptr++;
+	// A standalone refresh (not a zone change) should just redraw instantly.
+	skip_zone_transition = 1;
 	refreshZone();
 	return 0;
 }
@@ -2875,7 +2902,17 @@ static void AnimSaucer(void) {
 	uint16 delay;
 	byte scroll_done = 0;
 
-	memset(backbuffer, 0, sizeof(backbuffer) - 2);  /*TODO: original bug?*/
+	/*Clear the whole buffer: the original's "- 2" left the bottom-right two
+	  bytes (row 199, x=318..319) holding stale pixels. In EGA those are visible
+	  and the scroll-reveal lifts them up the screen as a red dot rising with the
+	  saucer, so clear all of it.*/
+	memset(backbuffer, 0, sizeof(backbuffer));
+	/*EGA: also blank the front buffer. The saucer animation only paints the
+	  saucer region, so leftover sprites from the final game frame (player,
+	  HUD pixels) would otherwise survive on the black backdrop right through to
+	  THE END screen.*/
+	if (isEgaLikeRenderer())
+		memset(frontbuffer, 0, sizeof(SCREENBUFFER));
 	g_vm->_renderer->backBufferToRealFull();
 	g_vm->_renderer->colorSelect(0x30);
 
@@ -2998,6 +3035,11 @@ void theEnd(void) {
 			askDisk2();
 		jaggedZoom(backbuffer, frontbuffer);
 		g_vm->_renderer->backBufferToRealFull();
+	} else if (g_vm->getPlatform() == Common::kPlatformAmiga) {
+		while (!ega_loadFond("PRES.BIN"))
+			askDisk2();
+		g_vm->_renderer->colorSelect(AMIGA_NUM_PALETTES - 1);
+		g_vm->_renderer->backBufferToRealFull();
 	} else {
 		while (!loadSplash("PRES.BIN"))
 			askDisk2();
@@ -3011,10 +3053,17 @@ uint16 SCR_5B_TheEnd(void) {
 
 	theEnd();
 
-	if (g_vm->getLanguage() == Common::EN_USA)
+	if (g_vm->getLanguage() == Common::EN_USA) {
 		restartGame();
-	else
-		for (;;) ;  /*HANG*/
+	} else {
+		clearButtons();
+		do {
+			pollInputButtonsOnly();
+			g_system->delayMillis(10);
+			g_system->updateScreen();
+		} while (!g_vm->_shouldQuit && buttons == 0);
+		g_vm->_shouldQuit = true;
+	}
 
 	return 0;
 }
@@ -3530,7 +3579,7 @@ void DrawStickyNet(void) {
 
 	/*16x30 is the net sprite size*/
 
-	if (g_vm->_videoMode == Common::kRenderEGA) {
+	if (isEgaLikeRenderer()) {
 		Graphics::Surface *surf = ega_puzzl_res->getSprite(80);
 		uint16 sprW = surf->w;
 		uint16 sprH = surf->h;
@@ -3641,7 +3690,8 @@ uint16 CMD_D_PsiBrainwarp(void) {
 
 
 uint16 CMD_E_PsiZoneScan(void) {
-	byte x, y, w, h;
+	byte y, h;
+	uint16 x, w;
 	uint16 offs;
 
 	if (!ConsumePsiEnergy(1))
@@ -3659,6 +3709,11 @@ uint16 CMD_E_PsiZoneScan(void) {
 	offs = g_vm->_renderer->calcXY_p(room_bounds_rect.sx, room_bounds_rect.sy);
 	w = room_bounds_rect.ex - room_bounds_rect.sx;
 	h = room_bounds_rect.ey - room_bounds_rect.sy;
+
+	/*room coords are in 4-pixel blocks; EGA is 1 byte/pixel so the scan line
+	  spans w*4 bytes, while CGA packs 4 pixels/byte and spans w bytes*/
+	if (g_vm->_videoMode == Common::kRenderEGA)
+		w *= 4;
 
 	for (y = room_bounds_rect.sy; h; y++, h--) {
 		spot_t *spot;
@@ -4464,6 +4519,13 @@ uint16 RunScript(byte *code) {
 		}
 #endif
 
+
+		// Amiga pads opcodes to word with 0x00 or 0xAA
+		if (g_vm->getPlatform() == Common::kPlatformAmiga
+		        && (opcode == 0x00 || opcode == 0xAA)) {
+			script_ptr++;
+			continue;
+		}
 
 		if (opcode == 0 || opcode >= MAX_SCR_HANDLERS)
 			break;

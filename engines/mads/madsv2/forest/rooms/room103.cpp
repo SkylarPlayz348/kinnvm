@@ -74,8 +74,8 @@ static void room_103_init() {
 	global[player_score] = -1;
 	global[g009] = -1;
 	viewing_at_y = 22;
-	player.walker_visible = 0;
-	player.commands_allowed = 0;
+	player.walker_visible = false;
+	player.commands_allowed = false;
 
 	for (int count = 0; count < 10; count++) {
 		aainfo[count]._active = 0;
@@ -395,7 +395,7 @@ static void room_103_daemon() {
 }
 
 static void room_103_pre_parser() {
-	if (player_parse(13, 15, 0))
+	if (player_parse(words_walk_to, words_room_101, 0))
 		player.walk_off_edge_to_room = 101;
 }
 

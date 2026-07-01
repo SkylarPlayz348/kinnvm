@@ -164,15 +164,9 @@ void InventoryPopup::drawBackground() {
 	Common::Rect src = _uiivData->header.normalSrcRect;
 	_drawSurface.blitFrom(_overlayImage, src, Common::Point(0, 0));
 
-	drawCloseButton(_closeButtonHovered ? kStateHover : kStateIdle);
+	drawCloseButton(_closeButtonHovered);
 
-	WidgetState sliderState = kStateIdle;
-	if (_scrollbarDragging)
-		sliderState = kStatePressed;
-	else if (_scrollbarHovered)
-		sliderState = kStateHover;
-
-	drawScrollbar(sliderState);
+	drawScrollbar(_scrollbarDragging ? kUIButtonPressed : (_scrollbarHovered ? kUIButtonHover : kUIButtonIdle));
 }
 
 Common::Rect InventoryPopup::computeSliderRect() const {
@@ -195,7 +189,7 @@ Common::Rect InventoryPopup::computeSliderRect() const {
 	return r;
 }
 
-void InventoryPopup::drawScrollbar(WidgetState state) {
+void InventoryPopup::drawScrollbar(UIButtonState state) {
 	const UISliderRecord &sl = _uiivData->header.slider;
 	if (!_uiivData->header.sliderEnabled)
 		return;
@@ -226,9 +220,9 @@ void InventoryPopup::updatePageFromScroll() {
 	_currentPage = MIN<uint>(page, maxPage);
 }
 
-void InventoryPopup::drawCloseButton(WidgetState state) {
+void InventoryPopup::drawCloseButton(bool hovered) {
 	const UIButtonRecord &btn = _uiivData->header.secondaryButton;
-	Common::Rect spr = btn.sourceRects[state];
+	Common::Rect spr = btn.sourceRects[hovered ? kUIButtonHover : kUIButtonIdle];
 	Common::Rect dstRect = btn.destRect;
 	if (btn.destUsesGameFrameOffset) {
 		const VIEW *view = GetEngineData(VIEW);
@@ -314,10 +308,12 @@ void InventoryPopup::handleInput(NancyInput &input) {
 		input.mousePos.x - _screenPosition.left + _uiivData->header.normalDestRect.left,
 		input.mousePos.y - _screenPosition.top  + _uiivData->header.normalDestRect.top);
 
-	// kHotspot is the highlighted magnifier and also the cursor that
-	// blends a held-item sprite on Nancy 10+, so it works in both
-	// "empty hand" (plain magnifier) and "carrying" (magnifier + item) states.
-	const CursorManager::CursorType hoverCursor = CursorManager::kHotspot;
+	// Item slots use kHotspot: the highlighted magnifier, which also blends a
+	// held-item sprite on Nancy 10+, so it works in both "empty hand" (plain
+	// magnifier) and "carrying" (magnifier + item) states. The popup chrome
+	// (close button, scrollbar, filter tabs) uses kHotspotArrow instead, like
+	// the other Nancy 10+ popups.
+	const CursorManager::CursorType slotCursor = CursorManager::kHotspot;
 
 	// Scrollbar interaction takes priority while dragging.
 	const UISliderRecord &slider = _uiivData->header.slider;
@@ -337,7 +333,7 @@ void InventoryPopup::handleInput(NancyInput &input) {
 		const bool overScrollbar = thumbInChunk.contains(chunkMouse);
 
 		if (_scrollbarDragging) {
-			g_nancy->_cursor->setCursorType(hoverCursor);
+			g_nancy->_cursor->setCursorType(CursorManager::kHotspotArrow);
 
 			const int newThumbTop = chunkMouse.y - _scrollbarGrabOffset;
 			const int clamped = CLIP<int>(newThumbTop, track.top, track.top + travel);
@@ -347,7 +343,7 @@ void InventoryPopup::handleInput(NancyInput &input) {
 
 			if (input.input & NancyInput::kLeftMouseButtonUp) {
 				_scrollbarDragging = false;
-				drawScrollbar(overScrollbar ? kStateHover : kStateIdle);
+				drawScrollbar(overScrollbar ? kUIButtonHover : kUIButtonIdle);
 				_needsRedraw = true;
 			}
 			input.eatMouseInput();
@@ -356,15 +352,15 @@ void InventoryPopup::handleInput(NancyInput &input) {
 
 		if (overScrollbar != _scrollbarHovered) {
 			_scrollbarHovered = overScrollbar;
-			drawScrollbar(overScrollbar ? kStateHover : kStateIdle);
+			drawScrollbar(overScrollbar ? kUIButtonHover : kUIButtonIdle);
 			_needsRedraw = true;
 		}
 		if (overScrollbar) {
-			g_nancy->_cursor->setCursorType(hoverCursor);
+			g_nancy->_cursor->setCursorType(CursorManager::kHotspotArrow);
 			if (slider.isDraggable && (input.input & NancyInput::kLeftMouseButtonDown)) {
 				_scrollbarDragging = true;
 				_scrollbarGrabOffset = chunkMouse.y - thumbY;
-				drawScrollbar(kStatePressed);
+				drawScrollbar(kUIButtonPressed);
 				_needsRedraw = true;
 				input.eatMouseInput();
 				return;
@@ -384,11 +380,11 @@ void InventoryPopup::handleInput(NancyInput &input) {
 		const bool overClose = closeScreen.contains(input.mousePos);
 		if (overClose != _closeButtonHovered) {
 			_closeButtonHovered = overClose;
-			drawCloseButton(overClose ? kStateHover : kStateIdle);
+			drawCloseButton(overClose);
 			_needsRedraw = true;
 		}
 		if (overClose) {
-			g_nancy->_cursor->setCursorType(hoverCursor);
+			g_nancy->_cursor->setCursorType(CursorManager::kHotspotArrow);
 			if (input.input & NancyInput::kLeftMouseButtonUp) {
 				input.eatMouseInput();
 				close();
@@ -415,7 +411,7 @@ void InventoryPopup::handleInput(NancyInput &input) {
 	}
 
 	if (hoveredSlot != -1) {
-		g_nancy->_cursor->setCursorType(hoverCursor);
+		g_nancy->_cursor->setCursorType(slotCursor);
 
 		if (input.input & NancyInput::kLeftMouseButtonUp) {
 			if (heldItem != -1) {
@@ -488,7 +484,7 @@ void InventoryPopup::handleInput(NancyInput &input) {
 			continue;
 		}
 
-		g_nancy->_cursor->setCursorType(hoverCursor);
+		g_nancy->_cursor->setCursorType(CursorManager::kHotspotArrow);
 
 		drawFilterTab(i, true);
 

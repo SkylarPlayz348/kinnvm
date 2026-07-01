@@ -20,25 +20,39 @@
  */
 
 #include "mads/madsv2/forest/journal.h"
+#include "mads/madsv2/forest/extra.h"
+#include "mads/madsv2/forest/global.h"
+#include "mads/madsv2/forest/midi.h"
+#include "mads/madsv2/core/global.h"
+#include "mads/madsv2/core/kernel.h"
+#include "mads/madsv2/core/player.h"
 
 namespace MADS {
 namespace MADSV2 {
 namespace Forest {
 
+static int prior_room;
+
+static void change_to_journal() {
+	save_player();
+	prior_room = room_id;
+	new_room = 199;
+}
+
+static int get_prior_room() {
+	return prior_room;
+}
+
 void display_journal() {
-	// TODO
+	open_interface(JOURNAL_FLY);
+	change_to_journal();
 }
 
 void leave_journal() {
-	// TODO
-}
-
-void open_journal() {
-	// TODO
-}
-
-void close_journal(int mode) {
-	// TODO
+	close_interface(JOURNAL_FLY);
+	global[g009] = 0;
+	midi_stop();
+	new_room = get_prior_room();
 }
 
 } // namespace Forest

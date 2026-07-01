@@ -65,6 +65,65 @@ void ega_drawBackground(byte *target) {
 		g_vm->_renderer->blitToScreen(0, 0, EGA_WIDTH, EGA_HEIGHT);
 }
 
+#define EGA_WIPE_BLOCK 20
+
+static int s_wipeBlocks;
+
+/*Reveal one clean-background block onto the screen; flush+throttle every few blocks*/
+static void egaRevealBlock(int bx, int by) {
+	int w = (bx + EGA_WIPE_BLOCK > EGA_WIDTH) ? (EGA_WIDTH - bx) : EGA_WIPE_BLOCK;
+	int h = (by + EGA_WIPE_BLOCK > EGA_HEIGHT) ? (EGA_HEIGHT - by) : EGA_WIPE_BLOCK;
+	if (w <= 0 || h <= 0)
+		return;
+	for (int i = 0; i < h; i++)
+		memcpy(SCREENBUFFER + (by + i) * EGA_BYTES_PER_LINE + bx,
+		       ega_fond_clean + (by + i) * EGA_BYTES_PER_LINE + bx, w);
+	if (++s_wipeBlocks % 3 == 0) {
+		g_vm->_renderer->blitToScreen(0, 0, EGA_WIDTH, EGA_HEIGHT);
+		waitVBlank();
+	}
+}
+
+void ega_zoneRevealWipe(void) {
+	// Original zone-change transition for The Ring / passages: first the empty
+	// background pattern spirals in over the old room (no room underneath), then
+	// the new room is shown. Here we spiral in the clean background, then blit the
+	// new room (already composited in the backbuffer) on top.
+	const int B = EGA_WIPE_BLOCK;
+	int left = 0, top = 0, right = EGA_WIDTH, bottom = EGA_HEIGHT;
+	s_wipeBlocks = 0;
+
+	while (left < right && top < bottom) {
+		for (int x = left; x < right; x += B)        /*top row, L->R*/
+			egaRevealBlock(x, top);
+		top += B;
+		for (int y = top; y < bottom; y += B)        /*right col, T->B*/
+			egaRevealBlock(right - B, y);
+		right -= B;
+		if (top < bottom) {
+			for (int x = right - B; x >= left; x -= B)   /*bottom row, R->L*/
+				egaRevealBlock(x, bottom - B);
+			bottom -= B;
+		}
+		if (left < right) {
+			for (int y = bottom - B; y >= top; y -= B)   /*left col, B->T*/
+				egaRevealBlock(left, y);
+			left += B;
+		}
+	}
+
+	// make sure the whole play area is the clean background (no room), then hold
+	// briefly so the empty background is visible before the room appears
+	memcpy(SCREENBUFFER, ega_fond_clean, EGA_SCREEN_SIZE);
+	g_vm->_renderer->blitToScreen(0, 0, EGA_WIDTH, EGA_HEIGHT);
+	for (int i = 0; i < 8; i++)
+		waitVBlank();
+
+	// now show the new room (already composited in the backbuffer)
+	memcpy(SCREENBUFFER, ega_backbuffer, EGA_SCREEN_SIZE);
+	g_vm->_renderer->blitToScreen(0, 0, EGA_WIDTH, EGA_HEIGHT);
+}
+
 Graphics::Surface *ega_loadFond(const char *filename) {
 	Common::File fd;
 	if (!fd.open(filename)) {
@@ -452,20 +511,83 @@ void EGARenderer::animLiftToRight(uint16 n, byte *pixels, uint16 pw, uint16 w, u
 	}
 }
 
+/* EGA port of the CGA lift transitions: shift the block one line/column per
+   step, fill the freed edge from source (the new image), then blit+vblank so
+   the move is animated. ofs is a linear EGA offset; w is in CGA bytes, so a
+   block column is 4 EGA pixels wide. */
+
+/*Shift block n lines down, filling the freed top line from source*/
 void EGARenderer::hideScreenBlockLiftToDown(uint16 n, byte *screen, byte *source, uint16 w, uint16 h, byte *target, uint16 ofs) {
-	ega_CopyScreenBlock(source, w * 4, h + n, target, ofs);
+	uint16 ew = w * 4;
+	while (n--) {
+		uint16 sofs = ofs;
+		uint16 tofs = ofs + EGA_BYTES_PER_LINE;
+		for (uint16 i = 0; i < h; i++) {
+			memcpy(target + tofs, screen + sofs, ew);
+			tofs = sofs;
+			sofs -= EGA_BYTES_PER_LINE;
+		}
+		memcpy(target + tofs, source + tofs, ew);
+		if (screen == SCREENBUFFER)
+			blitToScreen(0, 0, EGA_WIDTH, EGA_HEIGHT);
+		waitVBlank();
+		ofs += EGA_BYTES_PER_LINE;
+	}
 }
 
+/*Shift block n lines up, filling the freed bottom line from source*/
 void EGARenderer::hideScreenBlockLiftToUp(uint16 n, byte *screen, byte *source, uint16 w, uint16 h, byte *target, uint16 ofs) {
-	ega_CopyScreenBlock(source, w * 4, h + n, target, ofs);
+	uint16 ew = w * 4;
+	while (n--) {
+		uint16 sofs = ofs;
+		uint16 tofs = ofs - EGA_BYTES_PER_LINE;
+		for (uint16 i = 0; i < h; i++) {
+			memcpy(target + tofs, screen + sofs, ew);
+			tofs = sofs;
+			sofs += EGA_BYTES_PER_LINE;
+		}
+		memcpy(target + tofs, source + tofs, ew);
+		if (screen == SCREENBUFFER)
+			blitToScreen(0, 0, EGA_WIDTH, EGA_HEIGHT);
+		waitVBlank();
+		ofs -= EGA_BYTES_PER_LINE;
+	}
 }
 
+/*Shift block n columns left, filling the freed right column from source*/
 void EGARenderer::hideScreenBlockLiftToLeft(uint16 n, byte *screen, byte *source, uint16 w, uint16 h, byte *target, uint16 ofs) {
-	ega_CopyScreenBlock(source, (w + n) * 4, h, target, ofs - n * 4);
+	uint16 ew = w * 4;
+	while (n--) {
+		uint16 sofs = ofs;
+		for (uint16 i = 0; i < h; i++) {
+			uint16 tofs = sofs - 4;
+			memmove(target + tofs, screen + sofs, ew);
+			memcpy(target + tofs + ew, source + tofs + ew, 4);
+			sofs += EGA_BYTES_PER_LINE;
+		}
+		if (screen == SCREENBUFFER)
+			blitToScreen(0, 0, EGA_WIDTH, EGA_HEIGHT);
+		waitVBlank();
+		ofs -= 4;
+	}
 }
 
+/*Shift block n columns right, filling the freed left column from source*/
 void EGARenderer::hideScreenBlockLiftToRight(uint16 n, byte *screen, byte *source, uint16 w, uint16 h, byte *target, uint16 ofs) {
-	ega_CopyScreenBlock(source, (w + n) * 4, h, target, ofs - w * 4);
+	uint16 ew = w * 4;
+	while (n--) {
+		uint16 sofs = ofs;
+		for (uint16 i = 0; i < h; i++) {
+			uint16 tofs = sofs + 4;
+			memmove(target + tofs - ew, screen + sofs - ew, ew);
+			memcpy(target + tofs - ew, source + tofs - ew, 4);
+			sofs += EGA_BYTES_PER_LINE;
+		}
+		if (screen == SCREENBUFFER)
+			blitToScreen(0, 0, EGA_WIDTH, EGA_HEIGHT);
+		waitVBlank();
+		ofs += 4;
+	}
 }
 
 void EGARenderer::hideShatterFall(byte *screen, byte *source, uint16 w, uint16 h, byte *target, uint16 ofs) {
@@ -492,16 +614,106 @@ void EGARenderer::traceLine(uint16 sx, uint16 ex, uint16 sy, uint16 ey, byte *so
 	  flushing the whole screen here turned each line into an updateScreen.*/
 }
 
-void EGARenderer::zoomImage(byte *pixels, byte w, byte h, byte /*nw*/, byte /*nh*/, byte *target, uint16 ofs) {
-	blitAndWait(pixels, w, w, h, target, ofs);
+// Nearest-neighbour scale an 8-bpp source (srcW x srcH pixels) into a
+// dstW x dstH pixel rect at (dstX, dstY). This is the 8-bpp equivalent of the
+// CGA cga_ZoomInplace math; the CGA partial-pixel/xbase packing logic collapses
+// to a plain sample-and-copy here since every EGA pixel is one byte. Every write
+// is clipped to the 320x200 screen so the saucer animation can never bleed past
+// the framebuffer bounds.
+static void ega_scaleImage(const byte *pixels, uint16 srcW, uint16 srcH,
+                           int16 dstX, int16 dstY, uint16 dstW, uint16 dstH, byte *target) {
+	if (dstW == 0 || dstH == 0 || srcW == 0 || srcH == 0)
+		return;
+
+	// 8.8 fixed-point source advance per target pixel. Use srcW/dstW (not
+	// (srcW-1)/dstW): at a 1:1 ratio that yields the identity map so the final
+	// source column/row is preserved -- the -1 form dropped it, which clipped the
+	// last pixel column (visible as the missing stroke of the "D" in THE END).
+	uint32 xstep = ((uint32)srcW << 8) / dstW;
+	uint32 ystep = ((uint32)srcH << 8) / dstH;
+
+	uint32 yval = 0;
+	for (uint16 ty = 0; ty < dstH; ty++, yval += ystep) {
+		int16 py = dstY + ty;
+		if (py < 0 || py >= EGA_HEIGHT)
+			continue;
+		uint16 sy = yval >> 8;
+		if (sy >= srcH)
+			sy = srcH - 1;
+		const byte *srcRow = pixels + sy * srcW;
+		byte *dstRow = target + py * EGA_BYTES_PER_LINE;
+		uint32 xval = 0;
+		for (uint16 tx = 0; tx < dstW; tx++, xval += xstep) {
+			int16 px = dstX + tx;
+			if (px < 0 || px >= EGA_WIDTH)
+				continue;
+			uint16 sx = xval >> 8;
+			if (sx >= srcW)
+				sx = srcW - 1;
+			dstRow[px] = srcRow[sx];
+		}
+	}
+
+	if (target == SCREENBUFFER) {
+		// flush the clipped destination rect
+		int16 x0 = dstX < 0 ? 0 : dstX;
+		int16 y0 = dstY < 0 ? 0 : dstY;
+		int16 x1 = dstX + (int16)dstW;
+		int16 y1 = dstY + (int16)dstH;
+		if (x1 > EGA_WIDTH)  x1 = EGA_WIDTH;
+		if (y1 > EGA_HEIGHT) y1 = EGA_HEIGHT;
+		if (x1 > x0 && y1 > y0)
+			g_vm->_renderer->blitToScreen(x0, y0, x1 - x0, y1 - y0);
+	}
+}
+
+void EGARenderer::zoomImage(byte *pixels, byte w, byte h, byte nw, byte nh, byte *target, uint16 ofs) {
+	// nw is the target width in 4-pixel bytes, nh the height in rows (see CGA zoomImage).
+	ega_scaleImage(pixels, w * 4, h, ofs % EGA_BYTES_PER_LINE, ofs / EGA_BYTES_PER_LINE, nw * 4, nh, target);
 }
 
 void EGARenderer::animZoomIn(byte *pixels, byte w, byte h, byte *target, uint16 ofs) {
+	/* Progressive zoom-in reveal (CGA animZoomIn equivalent for EGA): draw the
+	   image scaled from a small size up to full, growing out of its centre.
+	   Each larger frame is centred and covers the previous one, so no per-step
+	   restore is needed. zoomImage() draws and flushes the scaled rect. */
+	uint16 fw = (uint16)w * 4;          /* final width in pixels */
+	uint16 fh = h;                      /* final height in rows */
+	uint16 ox = ofs % EGA_BYTES_PER_LINE;
+	uint16 oy = ofs / EGA_BYTES_PER_LINE;
+	uint16 cx = ox + fw / 2;            /* zoom centre */
+	uint16 cy = oy + fh / 2;
+
+	uint16 maxside = (fw > fh) ? fw : fh;
+	uint16 nsteps = maxside / 2;
+	if (nsteps < 8)
+		nsteps = 8;
+	if (nsteps > 64)
+		nsteps = 64;
+
+	for (uint16 s = 1; s < nsteps; s++) {
+		byte nw = (byte)((uint16)w * s / nsteps);
+		byte nh = (byte)((uint16)h * s / nsteps);
+		if (nw < 1)
+			nw = 1;
+		if (nh < 1)
+			nh = 1;
+		uint16 tx = cx - (uint16)nw * 4 / 2;
+		uint16 ty = cy - (uint16)nh / 2;
+		zoomImage(pixels, w, h, nw, nh, target, ty * EGA_BYTES_PER_LINE + tx);
+		waitVBlank();
+	}
+
+	/* final full-size image */
 	blitAndWait(pixels, w, w, h, target, ofs);
 }
 
-void EGARenderer::zoomInplaceXY(byte *pixels, byte w, byte h, byte /*nw*/, byte /*nh*/, uint16 x, uint16 y, byte *target) {
-	blit(pixels, w, w, h, target, calcXY_p(x, y));
+void EGARenderer::zoomInplaceXY(byte *pixels, byte w, byte h, byte nw, byte nh, uint16 x, uint16 y, byte *target) {
+	// AnimSaucer's only caller passes the saucer path data from SOUCO.BIN, whose
+	// x/y/nw/nh are raw pixel coordinates (0..319), not 4-pixel-byte columns. So x
+	// is already a pixel column here -- pass it straight through (no *4), otherwise
+	// every frame after the first lands far off-screen to the right.
+	ega_scaleImage(pixels, w * 4, h, x, y, nw, nh, target);
 }
 
 void EGARenderer::drawSprite(byte *sprite, byte *screen, uint16 ofs) {

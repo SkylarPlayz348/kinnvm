@@ -19,8 +19,6 @@
  *
  */
 
-// Rebel Assault 1 SMUSH video codecs
-
 #include "scumm/smush/rebel/codec_ra1.h"
 
 #include "common/endian.h"
@@ -29,12 +27,9 @@
 
 namespace Scumm {
 
-/**
- * RA1 codec 1: RLE with transparency on pixel 0.
- * Same BOMP encoding as smushDecodeRLE but pixel value 0 is not written,
- * allowing the background (restored via FTCH) to show through.
- */
-void smushDecodeRA1Transparent(byte *dst, const byte *src, int left, int top, int width, int height, int pitch, int dataSize) {
+// RLE with transparency on pixel 0.
+void smushDecodeRA1Transparent(byte *dst, const byte *src, int left, int top, int width, int height,
+		int pitch, int dataSize, int sourceSkipX) {
 	if (dst == nullptr || src == nullptr || width <= 0 || height <= 0 || pitch <= 0 || dataSize <= 0)
 		return;
 
@@ -45,33 +40,53 @@ void smushDecodeRA1Transparent(byte *dst, const byte *src, int left, int top, in
 		const byte *lineData = src + 2;
 		const byte *lineEnd = lineData + MIN<int>(lineSize, srcEnd - lineData);
 		byte *rowDst = dst + left;
+		int skip = sourceSkipX;
 		int remaining = width;
 
-		while (remaining > 0 && lineData < lineEnd) {
+		while ((skip > 0 || remaining > 0) && lineData < lineEnd) {
 			byte code = *lineData++;
 			int num = (code >> 1) + 1;
-			if (num > remaining)
-				num = remaining;
 
 			if (code & 1) {
 				if (lineData >= lineEnd)
 					break;
 				byte color = *lineData++;
+
+				const int skipped = MIN(num, skip);
+				skip -= skipped;
+				num -= skipped;
+				if (num == 0)
+					continue;
+
+				const int count = MIN(num, remaining);
 				if (color != 0)
-					memset(rowDst, color, num);
+					memset(rowDst, color, count);
+				rowDst += count;
+				remaining -= count;
 			} else {
 				const int readable = MIN<int>(num, lineEnd - lineData);
-				for (int j = 0; j < readable; j++) {
+				const int skipped = MIN(num, skip);
+				const int skippedBytes = MIN(readable, skipped);
+				lineData += skippedBytes;
+				skip -= skipped;
+				if (skipped == num) {
+					if (readable < num)
+						break;
+					continue;
+				}
+
+				const int count = MIN<int>(readable - skippedBytes, remaining);
+				for (int j = 0; j < count; j++) {
 					byte c = lineData[j];
 					if (c != 0)
 						rowDst[j] = c;
 				}
-				lineData += readable;
+				lineData += count;
 				if (readable < num)
 					break;
+				rowDst += count;
+				remaining -= count;
 			}
-			rowDst += num;
-			remaining -= num;
 		}
 
 		const int rowSize = 2 + lineSize;
@@ -82,10 +97,7 @@ void smushDecodeRA1Transparent(byte *dst, const byte *src, int left, int top, in
 	}
 }
 
-/**
- * RA1 codec 21: Skip/copy line codec (FUN_10D41). Clip copy runs without
- * changing source X; stored cockpit patches can legitimately start offscreen.
- */
+// Codec 21 clips copy runs without changing source X.
 void smushDecodeRA1SkipCopy(byte *dst, const byte *src, int left, int top, int width, int height,
 		int pitch, int bufWidth, int bufHeight, int dataSize) {
 	if (dst == nullptr || src == nullptr || width <= 0 || height <= 0 || pitch <= 0 || dataSize <= 0)
@@ -139,9 +151,7 @@ void smushDecodeRA1SkipCopy(byte *dst, const byte *src, int left, int top, int w
 	}
 }
 
-/**
- * RA1 codec 23: Additive line-update overlay (FUN_10B40).
- */
+// Codec 23 applies additive palette deltas to existing pixels.
 void smushDecodeRA1AdditiveLineUpdate(byte *dst, const byte *src, int left, int top, int width, int height,
 		int pitch, int bufWidth, int bufHeight, uint8 paletteBase, int dataSize) {
 	if (dst == nullptr || src == nullptr || width <= 0 || height <= 0 || pitch <= 0 || dataSize <= 0)
@@ -182,9 +192,7 @@ void smushDecodeRA1AdditiveLineUpdate(byte *dst, const byte *src, int left, int 
 	}
 }
 
-/**
- * RA1 codec 2: Scatter/point draw (FUN_110D7).
- */
+// Codec 2 scatter/point draw.
 void smushDecodeRA1Scatter(byte *dst, const byte *src, int left, int top, int bufWidth, int bufHeight, int pitch, int dataSize) {
 	if (dst == nullptr || src == nullptr || pitch <= 0 || dataSize <= 0)
 		return;
@@ -204,7 +212,7 @@ void smushDecodeRA1Scatter(byte *dst, const byte *src, int left, int top, int bu
 	}
 }
 
-// RA1 codec 4/5: block-based dithered codec with 4x4 tile lookup tables
+// Codecs 4/5 use 4x4 tile lookup tables.
 static uint8 s_ra1C4Tbl[2][256][16];
 static uint16 s_ra1C4Param = 0xFFFF;
 
@@ -318,11 +326,9 @@ void smushDecodeRA1Block(byte *dst, const byte *src, int left, int top, int widt
 					}
 			}
 
-			/* post processing of the hiquality implementations of codec4/5,
-			 * see e.g. ASSAULT.EXE 121e8 - 12242
-			 */
+			// High-quality block modes blend tile edges after each 4x4 block.
 			if (x <= 0 || y <= 0 || (x + 4) >= mx || (y + 4) >= my)
-				continue;		/* skip unreachable edges */
+				continue;
 			const uint32 dstoff = y * pitch + x;
 			if (s_ra1C4Param & 0x80) {
 				for (int k = 0; k < 4; k++)

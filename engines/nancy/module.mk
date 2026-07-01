@@ -22,6 +22,7 @@ MODULE_OBJS = \
   action/puzzle/beadpuzzle.o \
   action/puzzle/bulpuzzle.o \
   action/puzzle/bombpuzzle.o \
+  action/puzzle/cardgamepuzzle.o \
   action/puzzle/collisionpuzzle.o \
   action/puzzle/cubepuzzle.o \
   action/puzzle/cuttingpuzzle.o \
@@ -33,6 +34,7 @@ MODULE_OBJS = \
   action/puzzle/mazechasepuzzle.o \
   action/puzzle/matchpuzzle.o \
   action/puzzle/memorypuzzle.o \
+  action/puzzle/mindpuzzle.o \
   action/puzzle/mouselightpuzzle.o \
   action/puzzle/multibuildpuzzle.o \
   action/puzzle/onebuildpuzzle.o \
@@ -57,6 +59,7 @@ MODULE_OBJS = \
   action/puzzle/towerpuzzle.o \
   action/puzzle/turningpuzzle.o \
   action/puzzle/twodialpuzzle.o \
+  action/puzzle/typingquizpuzzle.o \
   action/puzzle/whalesurvivorpuzzle.o \
   ui/fullscreenimage.o \
   ui/animatedbutton.o \
@@ -69,6 +72,7 @@ MODULE_OBJS = \
   ui/notebookpopup.o \
   ui/ornaments.o \
   ui/scrollbar.o \
+  ui/scrolltextbox.o \
   ui/taskbar.o \
   ui/textbox.o \
   ui/viewport.o \

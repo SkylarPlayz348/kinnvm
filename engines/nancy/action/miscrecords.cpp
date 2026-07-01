@@ -102,11 +102,14 @@ void LightningOn::execute() {
 	_isDone = true;
 }
 
-void TextBoxWrite::readData(Common::SeekableReadStream &stream) {
-	int16 size = stream.readSint16LE();
+// Reads a textbox caption: an int16 length, then either a CVTX (AUTOTEXT) key
+// to resolve (length == -1) or that many bytes of inline text. Shared by the
+// textbox-writing action records.
+static void readTextboxText(Common::SeekableReadStream &stream, Common::String &out) {
+	const int16 size = stream.readSint16LE();
 
 	if (size > 10000) {
-		error("Action Record atTextboxWrite has too many text box chars: %d", size);
+		error("Textbox write action record has too many text box chars: %d", size);
 	}
 
 	if (size == -1) {
@@ -116,24 +119,84 @@ void TextBoxWrite::readData(Common::SeekableReadStream &stream) {
 		const CVTX *autotext = (const CVTX *)g_nancy->getEngineData("AUTOTEXT");
 		assert(autotext);
 
-		_text = getTextFromCaseInsensitiveKey(autotext->texts, stringID);
-	} else {
+		out = getTextFromCaseInsensitiveKey(autotext->texts, stringID);
+	} else if (size > 0) {
 		char *buf = new char[size];
 		stream.read(buf, size);
 		buf[size - 1] = '\0';
 
-		assembleTextLine(buf, _text, size);
+		assembleTextLine(buf, out, size);
 
 		delete[] buf;
 	}
 }
 
+void TextBoxWrite::readData(Common::SeekableReadStream &stream) {
+	if (_isAutotext) {
+		// AR 81 prefixes the body with a wait header (runtime state at 0x00 is
+		// always 0 in the data, so skip it)
+		stream.skip(2);
+		_waitMode = stream.readSint16LE();
+		_soundChannel = stream.readUint16LE();
+		_waitTimeMs = stream.readUint32LE();
+	}
+
+	readTextboxText(stream, _text);
+
+	if (_isAutotext) {
+		// The original terminates the body with the "<e>" end-of-line hypertext tag
+		_text += "<e>";
+	}
+}
+
 void TextBoxWrite::execute() {
-	auto &tb = NancySceneState.getTextbox();
-	tb.clear();
-	tb.addTextLine(_text);
-	tb.setVisible(true);
-	finishExecution();
+	if (_state == kBegin) {
+		auto &tb = NancySceneState.getTextbox();
+		tb.clear();
+		if (!_text.empty()) {
+			tb.addTextLine(_text);
+		}
+		tb.setVisible(true);
+
+		if (!_isAutotext) {
+			// Plain TextBoxWrite completes immediately
+			finishExecution();
+			return;
+		}
+
+		if (_waitMode == kWaitForTimer) {
+			_endTime = g_nancy->getTotalPlayTime() + _waitTimeMs;
+		}
+
+		_state = kRun;
+		return;
+	}
+
+	// Nancy 11+ AR 81 waits for a sound or a timer before completing
+	switch (_state) {
+	case kRun:
+		switch (_waitMode) {
+		case kWaitForSound:
+			if (!g_nancy->_sound->isSoundPlaying(_soundChannel)) {
+				_state = kActionTrigger;
+			}
+			break;
+		case kWaitForTimer:
+			if (g_nancy->getTotalPlayTime() >= _endTime) {
+				_state = kActionTrigger;
+			}
+			break;
+		default:
+			_state = kActionTrigger;
+			break;
+		}
+		break;
+	case kActionTrigger:
+		finishExecution();
+		break;
+	default:
+		break;
+	}
 }
 
 void TextboxClear::readData(Common::SeekableReadStream &stream) {
@@ -146,29 +209,7 @@ void TextboxClear::execute() {
 }
 
 void FrameTextBox::readData(Common::SeekableReadStream &stream) {
-	const int16 size = stream.readSint16LE();
-
-	if (size > 10000)
-		error("FrameTextBox: too many text characters: %d", size);
-
-	if (size == -1) {
-		// CVTX-keyed lookup, same as the Nancy 6+ TextBoxWrite path.
-		Common::String stringID;
-		readFilename(stream, stringID);
-
-		const CVTX *autotext = (const CVTX *)g_nancy->getEngineData("AUTOTEXT");
-		assert(autotext);
-
-		_text = getTextFromCaseInsensitiveKey(autotext->texts, stringID);
-	} else if (size > 0) {
-		char *buf = new char[size];
-		stream.read(buf, size);
-		buf[size - 1] = '\0';
-
-		assembleTextLine(buf, _text, size);
-
-		delete[] buf;
-	}
+	readTextboxText(stream, _text);
 
 	// Trailing two int16 fields: meaning differs slightly between the
 	// three opcodes that reuse this layout, but are safe to capture as a
@@ -184,13 +225,10 @@ void FrameTextBox::execute() {
 		tb.addTextLine(_text);
 	}
 
-	// Variant 74 (case 0x4a in ProcessActionRecords) opens the full-width
-	// textbox overlay that covers the taskbar buttons; the original arms a
-	// 15-second timer (DAT_005a7a7d = GetTickCount + 15000) that drops it
-	// back to the closed strip. Variant 75 (case 0x4b) is the legacy
-	// closed/strip path. Variant 81 first appears in Nancy 11; tentatively
-	// route it like 74 until its real semantics are confirmed.
-	if (_variant == kVariant74 || _variant == kVariant81) {
+	// Variant 74 opens the full-width textbox overlay that covers the taskbar
+	// buttons; the original arms a 15-second timer that drops it back to the
+	// closed strip. Variant 75 is the legacy closed/strip path.
+	if (_variant == kVariant74) {
 		tb.setFullMode(true);
 	} else {
 		tb.setFullMode(false);
@@ -244,8 +282,9 @@ void ControlUIItems::execute() {
 		// player is in scene range [_startScene, _endScene]. _flagB != 0 sets
 		// the toggle (a _startScene of 9997 means "from scene 0", with the
 		// range capped at 9997); _flagB == 0 clears it once a bound is 9999
-		// (kNoScene). The _autoOpenOrBadgeSound value selects the button's
-		// click sound in the original (not yet implemented).
+		// (kNoScene). _flagB != 0 also sets the disabled button's rejection-sound
+		// mode from _autoOpenOrBadgeSound (which clickSoundName line plays when
+		// the button is clicked while its popup is unavailable).
 		UI::Taskbar *taskbar = NancySceneState.getTaskbar();
 		if (taskbar) {
 			if (_flagB != 0) {
@@ -256,6 +295,7 @@ void ControlUIItems::execute() {
 					end = 9997;
 				}
 				taskbar->setDisabledRange(_uiButton, start, end);
+				taskbar->setClickSoundMode(_uiButton, _autoOpenOrBadgeSound);
 			} else if (_startScene == (int16)kNoScene || _endScene == (int16)kNoScene) {
 				taskbar->clearButtonOverride(_uiButton);
 			}
@@ -395,21 +435,168 @@ void TurnOnMainRendering::readData(Common::SeekableReadStream &stream) {
 	stream.skip(1);
 }
 
+// Returns the Nancy 11+ software-timer slot at the given index, lazily creating
+// the TimerData puzzle-data chunk. nullptr if the index is out of range.
+static TimerData::Timer *getSoftwareTimer(int16 index) {
+	if (index < 0 || (uint)index >= TimerData::kNumTimers) {
+		return nullptr;
+	}
+
+	TimerData *timerData = (TimerData *)NancySceneState.getPuzzleData(TimerData::getTag());
+	return timerData ? &timerData->timers[index] : nullptr;
+}
+
 void ResetAndStartTimer::readData(Common::SeekableReadStream &stream) {
-	stream.skip(1);
+	_timerIndex = stream.readByte();
 }
 
 void ResetAndStartTimer::execute() {
 	NancySceneState.resetAndStartTimer();
+
+	// Nancy 11 also resets and starts one of the software-timer slots
+	if (g_nancy->getGameType() >= kGameTypeNancy11) {
+		TimerData::Timer *timer = getSoftwareTimer(_timerIndex);
+		if (timer) {
+			timer->reset();
+			timer->state = TimerData::Timer::kRunning;
+		}
+	}
+
 	_isDone = true;
 }
 
 void StopTimer::readData(Common::SeekableReadStream &stream) {
-	stream.skip(1);
+	_timerIndex = stream.readByte();
 }
 
 void StopTimer::execute() {
 	NancySceneState.stopTimer();
+
+	if (g_nancy->getGameType() >= kGameTypeNancy11) {
+		TimerData::Timer *timer = getSoftwareTimer(_timerIndex);
+		if (timer) {
+			timer->reset();
+		}
+	}
+
+	_isDone = true;
+}
+
+// Reads exactly size bytes from the stream, returning the text up to the first
+// null byte. Used for the fixed-size string fields inside a TimerControl chunk.
+static Common::String readFixedSizeString(Common::SeekableReadStream &stream, uint size) {
+	Common::String result;
+	bool ended = false;
+	for (uint i = 0; i < size; ++i) {
+		byte b = stream.readByte();
+		if (b == 0) {
+			ended = true;
+		}
+		if (!ended) {
+			result += (char)b;
+		}
+	}
+
+	return result;
+}
+
+void TimerControl::readData(Common::SeekableReadStream &stream) {
+	const int64 startPos = stream.pos();
+
+	_timerIndex = stream.readSint16LE();    // 0x00
+	_command = stream.readSint16LE();       // 0x02
+	_hours = stream.readSint16LE();         // 0x04
+	_minutes = stream.readSint16LE();       // 0x06
+	_seconds = stream.readSint16LE();       // 0x08
+	stream.skip(2);                         // 0x0a, unused
+
+	// Sound to play on expiry (0x0c)
+	_sound.readDIGI(stream);
+
+	// Autotext key for the caption (0x3d, 33 bytes)
+	stream.skip((startPos + 0x3d) - stream.pos());
+	_autotextKey = readFixedSizeString(stream, 0x21);
+
+	// Inline caption text (0x5e, 100 bytes)
+	_caption = readFixedSizeString(stream, 0x64);
+
+	// Event flags to fire on expiry (count at 0xc2, then count*4 bytes)
+	uint16 numFlags = stream.readUint16LE();
+	_flags.resize(numFlags);
+	for (uint i = 0; i < numFlags; ++i) {
+		_flags[i].label = stream.readSint16LE();
+		_flags[i].flag = (byte)stream.readSint16LE();
+	}
+}
+
+void TimerControl::execute() {
+	TimerData::Timer *timer = getSoftwareTimer(_timerIndex);
+	if (!timer) {
+		_isDone = true;
+		return;
+	}
+
+	const uint32 durationMs = ((uint32)_hours * 3600 + (uint32)_minutes * 60 + (uint32)_seconds) * 1000;
+
+	switch (_command) {
+	case kReset:
+		timer->reset();
+		break;
+	case kStart:
+		timer->state = TimerData::Timer::kRunning;
+		break;
+	case kPause:
+		timer->state = TimerData::Timer::kPaused;
+		break;
+	case kAddTime:
+		if (timer->state != TimerData::Timer::kIdle) {
+			timer->currentTimeMs += durationMs;
+		}
+		break;
+	case kSubtractTime:
+		if (timer->state != TimerData::Timer::kIdle) {
+			timer->currentTimeMs = timer->currentTimeMs > durationMs ? timer->currentTimeMs - durationMs : 0;
+		}
+		break;
+	case kConfigOneShot:
+	case kConfigRepeating:
+		// A timer can only be configured once it has been started
+		if (timer->state == TimerData::Timer::kRunning) {
+			timer->durationMs = durationMs;
+			timer->hasFired = false;
+			timer->sound = _sound;
+			timer->autotextKey = _autotextKey;
+			timer->caption = _caption;
+
+			for (uint i = 0; i < ARRAYSIZE(timer->flags); ++i) {
+				timer->flags[i] = i < _flags.size() ? _flags[i] : FlagDescription();
+			}
+
+			timer->state = _command;
+		}
+		break;
+	default:
+		break;
+	}
+
+	_isDone = true;
+}
+
+void StopPlayerScrolling::readData(Common::SeekableReadStream &stream) {
+	stream.skip(1);
+}
+
+void StopPlayerScrolling::execute() {
+	NancySceneState.setPlayerScrolling(false);
+	_isDone = true;
+}
+
+void StartPlayerScrolling::readData(Common::SeekableReadStream &stream) {
+	stream.skip(1);
+}
+
+void StartPlayerScrolling::execute() {
+	NancySceneState.setPlayerScrolling(true);
 	_isDone = true;
 }
 
@@ -562,6 +749,36 @@ void HintSystem::selectHint() {
 			break;
 		}
 	}
+}
+
+void ResourceUse::readData(Common::SeekableReadStream &stream) {
+	_resourceIndex = stream.readSint16LE();   // which UIRC resource to change
+	_amount = stream.readSint16LE();           // value / delta
+	_mode = stream.readByte();                 // 0 = set, non-zero = add
+	_flag.label = stream.readSint16LE();       // event flag set on success
+	_flag.flag = stream.readByte();
+	// The rest of the 113-byte block (success/fail sounds, an optional scene
+	// change at +0x5b, and a transient "UIResource_Overlay" sprite) isn't
+	// handled yet.
+	stream.skip(0x71 - 8);
+}
+
+void ResourceUse::execute() {
+	if (_mode == 0) {
+		// Set the resource outright.
+		NancySceneState.setUIResource(_resourceIndex, _amount);
+		NancySceneState.setEventFlag(_flag);
+	} else {
+		// Add the (signed) amount, but never let the resource go negative —
+		// the original skips the change (e.g. when Nancy can't afford it).
+		const int32 result = NancySceneState.getUIResource(_resourceIndex) + _amount;
+		if (result >= 0) {
+			NancySceneState.setUIResource(_resourceIndex, result);
+			NancySceneState.setEventFlag(_flag);
+		}
+	}
+
+	_isDone = true;
 }
 
 } // End of namespace Action

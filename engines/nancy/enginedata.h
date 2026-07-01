@@ -506,13 +506,13 @@ struct SHUI : public EngineData {
 	Common::Array<Common::Rect> _sliderRects;	// Slider rects
 };
 
-// ScrollTextBox - introduced in Nancy 11. Configuration for the scrollable
-// text-box UI used for long textbox content (e.g. journal / scheduled-talk
-// panels) that needs to scroll within a fixed frame.
+// ScrollTextBox - introduced in Nancy 11. Standard UI popup header,
+// followed by the rect to restore when the text box is closed.
 struct SCTB : public EngineData {
 	SCTB(Common::SeekableReadStream *chunkStream);
 
-	Common::Path imageName;
+	UIPopupHeader header;
+	Common::Rect restoreSrcRect;
 };
 
 enum TaskButton {
@@ -520,7 +520,11 @@ enum TaskButton {
 	kTaskButtonInventory = 1,
 	kTaskButtonNotebook = 2,
 	kTaskButtonCellphone = 3,
-	kTaskButtonHelp = 4
+	// Nancy12 only: a non-clickable coin purse that shows Nancy's money on
+	// hover, inserted before HELP. HELP is therefore always the last taskbar
+	// button (index 4 in games without the coin purse, index 5 in Nancy12) and
+	// has no fixed constant.
+	kTaskButtonCoinPurse = 4
 };
 
 // Taskbar (the always-on strip at the bottom of the screen with MENU /
@@ -537,7 +541,9 @@ struct TASK : public EngineData {
 
 	TASK(Common::SeekableReadStream *chunkStream);
 
-	static const uint kNumButtons = 5;
+	// Maximum taskbar button slots: menu / inventory / notebook / cell phone /
+	// help, plus Nancy12's extra coin purse. Earlier games fill only the first 5.
+	static const uint kNumButtons = 6;
 	static const uint kButtonRecordSize = 354;
 	static const uint kNumAltSounds = 3;
 
@@ -732,6 +738,41 @@ struct UINB : public EngineData {
 	Common::Path noActionClickSounds[kNumPageSoundsPerSet];
 	Common::Array<Common::Rect> tabCaptionSrcRects;             // 2 entries
 	Common::Rect tabCaptionDestRect;                            // on-screen target
+};
+
+// Named-event table. Introduced in Nancy 12. Empty in Secret of the Old Clock
+// (the engine registers several built-in event categories at runtime on top of
+// whatever this chunk provides). Each record is a name followed by an id.
+struct EVNT : public EngineData {
+	EVNT(Common::SeekableReadStream *chunkStream);
+
+	static const uint kEventRecordSize = 35;
+
+	Common::Array<Common::String> eventFlagNames;
+};
+
+// UI overlay element table. Introduced in Nancy 12. Each record describes one UI
+// element: the shared overlay image it belongs to, its on-screen rect and up to
+// six associated sound cues. Unused slots use the name "NO_UI_ITEM", and slots
+// without a given sound use "NO SOUND".
+struct UIRC : public EngineData {
+	struct ItemRecord {
+		uint16 id = 0;
+		Common::Path overlayName;
+		Common::Rect rect;
+		int16 unknown1 = 0;
+		int16 unknown2 = 0;
+		int16 soundChannel = 0;
+		int16 soundVolume = 0;
+		Common::String soundNames[6];
+	};
+
+	UIRC(Common::SeekableReadStream *chunkStream);
+
+	static const uint kNumSounds = 6;
+	static const uint kItemRecordSize = 257;
+
+	Common::Array<ItemRecord> items;
 };
 } // End of namespace Nancy
 

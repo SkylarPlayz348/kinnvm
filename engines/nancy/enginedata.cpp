@@ -253,9 +253,10 @@ TBOX::TBOX(Common::SeekableReadStream *chunkStream) : EngineData(chunkStream) {
 	scrollbarDefaultPos.y = chunkStream->readUint16LE();
 	scrollbarMaxScroll = chunkStream->readUint16LE();
 
-	upOffset = chunkStream->readUint16LE() + 1;
+	uint16 legacyOffsetAdjust = g_nancy->getGameType() < kGameTypeNancy10 ? 1 : 0;
+	upOffset = chunkStream->readUint16LE() + legacyOffsetAdjust;
 	downOffset = chunkStream->readUint16LE();
-	leftOffset = chunkStream->readUint16LE() - 1;
+	leftOffset = chunkStream->readUint16LE() - legacyOffsetAdjust;
 	rightOffset = chunkStream->readUint16LE();
 
 	if (g_nancy->getGameType() <= kGameTypeNancy9) {
@@ -872,8 +873,8 @@ MARK::MARK(Common::SeekableReadStream *chunkStream) : EngineData(chunkStream) {
 }
 
 SCTB::SCTB(Common::SeekableReadStream *chunkStream) : EngineData(chunkStream) {
-	readFilename(*chunkStream, imageName);
-	// TODO
+	readUIPopupHeader(*chunkStream, header);
+	readRect(*chunkStream, restoreSrcRect);
 }
 
 SHUI::SHUI(Common::SeekableReadStream *chunkStream) : EngineData(chunkStream) {
@@ -889,8 +890,14 @@ TASK::TASK(Common::SeekableReadStream *chunkStream) : EngineData(chunkStream) {
 	readRect(*chunkStream, unkRect1);
 	readRect(*chunkStream, unkRect2);
 
+	// The button count varies by game (Nancy12 adds a 6th slot for the coin
+	// purse), so derive it from the chunk size. A slot marked "NO_UI_ITEM" (e.g.
+	// the cell phone Nancy12 removed) is read but skipped by the taskbar.
+	const uint numButtons = MIN<uint>(kNumButtons,
+		(uint)(chunkStream->size() - chunkStream->pos()) / kButtonRecordSize);
+
 	char nameBuf[34];
-	for (uint i = 0; i < kNumButtons; ++i) {
+	for (uint i = 0; i < numButtons; ++i) {
 		readUIButton(*chunkStream, buttons[i].button);
 		readRect(*chunkStream, buttons[i].notificationSrcRect);
 		for (uint s = 0; s < kNumAltSounds; ++s) {
@@ -994,6 +1001,13 @@ UICL::UICL(Common::SeekableReadStream *chunkStream) : EngineData(chunkStream) {
 	readRect(*chunkStream, connectingSpriteSrc);
 	readRect(*chunkStream, connectingSpriteSrcAlt);
 	readRect(*chunkStream, connectingSpriteDest);
+
+	if (g_nancy->getGameType() >= kGameTypeNancy11) {
+		// TODO: Looks to be a new coordinate - values (548, 50)
+		chunkStream->skip(4);
+		chunkStream->skip(4);
+	}
+
 	readRect(*chunkStream, onlineHeading.srcRect);
 	readRect(*chunkStream, onlineHeading.destRect);
 	readRect(*chunkStream, fullEmptyScreenSrc);
@@ -1104,6 +1118,36 @@ UINB::UINB(Common::SeekableReadStream *chunkStream) : EngineData(chunkStream) {
 
 	readRectArray(*chunkStream, tabCaptionSrcRects, kNumTabs);
 	readRect(*chunkStream, tabCaptionDestRect);
+}
+
+EVNT::EVNT(Common::SeekableReadStream *chunkStream) : EngineData(chunkStream) {
+	Common::String name;
+	const uint16 count = (uint16)(chunkStream->size() / (int64)kEventRecordSize);
+
+	eventFlagNames.resize(count);
+
+	for (uint16 i = 0; i < count; ++i) {
+		readFilename(*chunkStream, name);
+		chunkStream->skip(2);	// flag ID (starting from 2000)
+		eventFlagNames[i] = name;
+	}
+}
+
+UIRC::UIRC(Common::SeekableReadStream *chunkStream) : EngineData(chunkStream) {
+	while (chunkStream->size() - chunkStream->pos() >= (int64)kItemRecordSize) {
+		ItemRecord rec;
+		rec.id = chunkStream->readUint16LE();
+		readFilename(*chunkStream, rec.overlayName);
+		readRect(*chunkStream, rec.rect);
+		rec.unknown1 = chunkStream->readSint16LE();
+		rec.unknown2 = chunkStream->readSint16LE();
+		rec.soundChannel = chunkStream->readSint16LE();
+		rec.soundVolume = chunkStream->readSint16LE();
+		for (uint i = 0; i < kNumSounds; ++i) {
+			readFilename(*chunkStream, rec.soundNames[i]);
+		}
+		items.push_back(rec);
+	}
 }
 
 } // End of namespace Nancy

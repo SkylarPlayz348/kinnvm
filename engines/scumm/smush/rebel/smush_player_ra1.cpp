@@ -19,11 +19,6 @@
  *
  */
 
-// Rebel Assault 1 specific SmushPlayer methods.
-//
-// Keep these in a dedicated file so the shared smush_player.cpp stays close
-// to upstream while RA1 behavior is isolated in one place.
-
 #include "common/config-manager.h"
 #include "common/endian.h"
 #include "common/memstream.h"
@@ -48,6 +43,8 @@ enum {
 	kRA1PresentationScreenHeight = 200,
 	kRA1PresentationWidth = kRA1PresentationScreenWidth - kRA1PresentationBorder * 2,
 	kRA1PresentationHeight = kRA1PresentationScreenHeight - kRA1PresentationBorder * 2,
+	// Original RA1 keeps SAUD streams this large on the dedicated long audio buffer.
+	kRA1LargeAudioTrackThreshold = 45000,
 	kRebel1LongAudioTrackSize = 500000
 };
 
@@ -60,9 +57,8 @@ static void ra1ApplyCenteredFetchPlacement(InsaneRebel1 *rebel1, int width, int 
 	const int projectedLeft = (int)centerX - (width >> 1);
 	const int projectedTop = (int)centerY - (height >> 1);
 
-	// RestoreStoredFramePatch routes FTCH through DispatchFobjCodec with flag 0x800.
-	// That path applies ProjectPointToScreen() to the center point, then only moves
-	// a quarter of the projected delta before decoding the stored FOBJ.
+	// FTCH placement projects the stored object's center, then applies only a
+	// quarter of the delta.
 	left -= ((projectedLeft - left) >> 2);
 	top -= ((projectedTop - top) >> 2);
 }
@@ -150,6 +146,7 @@ void SmushPlayerRebel1::initGamePlayerFields() {
 	_ra1ObjOverlayHeight = 0;
 	_ra1ViewportOffsetX = 0;
 	_ra1ViewportOffsetY = 0;
+	_ra1FrameSourceSkipX = 0;
 	_ra1FrameSourceSkipY = 0;
 	_ra1LastFrameObjectVisible = true;
 	_ra1FadeFrame = nullptr;
@@ -204,14 +201,13 @@ void SmushPlayerRebel1::resetGameVideoState() {
 	_ra1ObjOverlayHeight = 0;
 	_ra1ViewportOffsetX = 0;
 	_ra1ViewportOffsetY = 0;
+	_ra1FrameSourceSkipX = 0;
 	_ra1LastFrameObjectVisible = true;
 	_ra1UseFadeFrame = false;
 }
 
 void SmushPlayerRebel1::initGameVideoState() {
-	// Some RA1 ANMs inherit the current SMUSH palette. SmushPlayer::play()
-	// clears the dirty range before init(), so re-push the palette that was
-	// restored or inherited before this video starts.
+	// Some RA1 ANMs inherit the active SMUSH palette.
 	setDirtyColors(0, 255);
 }
 
@@ -274,22 +270,15 @@ bool SmushPlayerRebel1::handleGameFetch(int32 subSize, Common::SeekableReadStrea
 				const bool projectedCockpitPatch = (gameOp == 0x0B &&
 					((rebel1->getCurrentLevel() == 4 && rebel1->getLevelGameplayPhase() == 2) ||
 						rebel1->getCurrentLevel() == 7));
-				// Keep the direct viewport placement used by the existing 0x0B
-				// compatibility path, except for the Level 5 part 2 and Level 8
-				// cockpit patches.
-				// DOS FTCH goes through FUN_28D0A, which sets DispatchFobjCodec
-				// flag 0x800; these cockpit patches depend on that quarter-projection
-				// so the cockpit and flow-script indicators move together.
+				// Most interactive patches follow the viewport directly; selected
+				// cockpit patches need projected center placement to keep indicators aligned.
 				if (fullWidthStoredPatch || (gameOp == 0x0B && !projectedCockpitPatch) ||
 						gameOp == 0x19 || gameOp == 0x1A) {
 					left += _ra1ViewportOffsetX;
 					top += _ra1ViewportOffsetY;
 				} else {
 					ra1ApplyCenteredFetchPlacement(rebel1, _storedFobjWidth, _storedFobjHeight, left, top);
-					// RA1 camera emulation currently uses a source-window crop
-					// for interactive scenes. FTCH placement from the original executable
-					// is computed in fixed presentation space, so convert it back into the
-					// cropped buffer space used by the current renderer.
+					// Convert projected presentation-space placement into the cropped buffer.
 					left += _ra1ViewportOffsetX;
 					top += _ra1ViewportOffsetY;
 				}
@@ -345,9 +334,7 @@ void SmushPlayerRebel1::ra1HandleGost(int32 subSize, Common::SeekableReadStream 
 		_frame, ghostType, priorityFlags, ghostX, ghostY,
 		_lastFobjWidth, _lastFobjHeight, _lastFobjCodec);
 
-	// DOS reuses the most recent FOBJ payload for RA1 GOST and places it at the
-	// absolute BE32 coordinates stored in the chunk. Priority bits are identified
-	// here but not yet modeled in the generic decode path.
+	// GOST reuses the latest FOBJ payload at absolute BE32 coordinates.
 	decodeFrameObject(_lastFobjCodec, _lastFobjData, ghostX, ghostY,
 		_lastFobjWidth, _lastFobjHeight, _lastFobjDataSize);
 }
@@ -364,8 +351,7 @@ bool SmushPlayerRebel1::handleGameTextResource(uint32 subType, int32 subSize, Co
 		b.seek(textStart, SEEK_SET);
 	}
 
-	// Original FUN_1FDBC draws RA1 TEXT when the text starts with '.' regardless
-	// of the DIALOGUE TEXT option. O1OPEN uses that path for the opening lines.
+	// TEXT chunks starting with '.' are forced even when subtitles are disabled.
 	if (forceText || ConfMan.getBool("subtitles"))
 		ra1HandleText(subSize, b);
 	return true;
@@ -396,8 +382,7 @@ void SmushPlayerRebel1::ra1HandleDeltaPalette(int32 subSize, Common::SeekableRea
 		_shiftedDeltaPal[0] = 0;
 		int32 remaining = payloadBytes;
 		if (remaining >= 2) {
-			// The original loop starts at palette component 1, leaving component
-			// 0 black and ignoring the first delta word in the XPAL payload.
+			// XPAL delta tables start at component 1, leaving palette entry 0 black.
 			b.skip(2);
 			remaining -= 2;
 		}
@@ -415,9 +400,7 @@ void SmushPlayerRebel1::ra1HandleDeltaPalette(int32 subSize, Common::SeekableRea
 		if (remaining > 0)
 			b.skip(remaining);
 
-		// Command 2 in the DOS dispatcher first restores the palette state before
-		// loading a new delta table. The active palette lives in _pal, so
-		// marking it dirty is the corresponding visible-side effect.
+		// Command 2 reloads delta data after restoring the visible palette.
 		if (command == 2)
 			setDirtyColors(0, 255);
 		return;
@@ -533,7 +516,7 @@ void SmushPlayerRebel1::handleGameParseNextFrame() {
 }
 
 bool SmushPlayerRebel1::handleGameFrameBufferSelect(int codec, int width, int height) {
-	// RA1 sub-fullscreen frames render into _specialBuffer at their (left, top) offset position.
+	// RA1 decodes into the fixed 384x242 buffer.
 	int bufSize = kRA1DecodeWidth * kRA1DecodeHeight;
 	if (_specialBuffer == nullptr || bufSize > _specialBufferSize) {
 		free(_specialBuffer);
@@ -546,7 +529,6 @@ bool SmushPlayerRebel1::handleGameFrameBufferSelect(int codec, int width, int he
 
 bool SmushPlayerRebel1::handleGameDimensionOverride(int codec, int width, int height) {
 	if (_dst == _specialBuffer) {
-		// RA1: sub-fullscreen FOBJs should not override the 384x242 dimensions.
 		_width = kRA1DecodeWidth;
 		_height = kRA1DecodeHeight;
 		return true;
@@ -555,25 +537,21 @@ bool SmushPlayerRebel1::handleGameDimensionOverride(int codec, int width, int he
 }
 
 bool SmushPlayerRebel1::handleGameAdjustCoords(int codec, int &left, int &top, int &width, int &height, int pitch, int *srcSkipY) {
+	_ra1FrameSourceSkipX = 0;
 	_ra1FrameSourceSkipY = 0;
 
-	// RA1 additive codec (SKIP_RLE) and scatter (RA1_SCATTER) use absolute
-	// positions — they must NOT be clipped/adjusted.
+	// Additive and scatter codecs use absolute positions.
 	if (codec == SMUSH_CODEC_SKIP_RLE || codec == SMUSH_CODEC_RA1_SCATTER)
 		return false;
 
-	// RA1 block codecs are column-major tile streams, not row-prefixed RLE
-	// streams. Preserve the source data and let smushDecodeRA1Block() consume
-	// offscreen tiles while clipping destination pixels.
+	// Block codecs consume column-major tiles while clipping destination pixels.
 	if (codec == SMUSH_CODEC_RA1_DELTA || codec == SMUSH_CODEC_RA1_BLOCK) {
 		left += _fobjOffsetX;
 		top += _fobjOffsetY;
 		return false;
 	}
 
-	// RA1 codec 21 is source-X sensitive: generic left clipping would reduce
-	// the destination width without skipping the corresponding source columns.
-	// Keep only the global FOBJ offset here and let the codec clip each run.
+	// Codec 21 clips each run itself to preserve source X.
 	if (codec == SMUSH_CODEC_LINE_UPDATE) {
 		left += _fobjOffsetX;
 		top += _fobjOffsetY;
@@ -581,7 +559,10 @@ bool SmushPlayerRebel1::handleGameAdjustCoords(int codec, int &left, int &top, i
 	}
 
 	int sourceSkipY = 0;
+	const int sourceSkipX = MAX(0, -(left + _fobjOffsetX));
 	adjustFrameCoords(left, top, width, height, pitch, &sourceSkipY);
+	if (codec == SMUSH_CODEC_RLE)
+		_ra1FrameSourceSkipX = sourceSkipX;
 	if (codec == SMUSH_CODEC_RLE_ALT) {
 		_ra1FrameSourceSkipY = sourceSkipY;
 		if (srcSkipY)
@@ -595,7 +576,7 @@ bool SmushPlayerRebel1::handleGameAdjustCoords(int codec, int &left, int &top, i
 bool SmushPlayerRebel1::handleGameCodecDecode(int codec, const uint8 *src, int left, int top, int width, int height, int pitch, int dataSize, uint8 param, uint16 parm2) {
 	switch (codec) {
 	case SMUSH_CODEC_RLE:
-		smushDecodeRA1Transparent(_dst, src, left, top, width, height, pitch, dataSize);
+		smushDecodeRA1Transparent(_dst, src, left, top, width, height, pitch, dataSize, _ra1FrameSourceSkipX);
 		return true;
 	case SMUSH_CODEC_RLE_ALT:
 		src = smushSkipRLELines(src, dataSize, _ra1FrameSourceSkipY);
@@ -617,10 +598,7 @@ bool SmushPlayerRebel1::handleGameCodecDecode(int codec, const uint8 *src, int l
 	case SMUSH_CODEC_SKIP_RLE: {
 		const int bufWidth = pitch;
 		const int bufHeight = (_dst == _specialBuffer) ? _height : _vm->_screenHeight;
-		// Codec 23 uses the high byte of the FOBJ codec word as the palette
-		// band for its additive delta. The event-mask path may subtract 0x10
-		// from this value before decoding, which Level 8 uses for the walker
-		// armor layers.
+		// Codec 23 uses the FOBJ high byte as the additive palette band.
 		smushDecodeRA1AdditiveLineUpdate(_dst, src, left, top, width, height,
 			pitch, bufWidth, bufHeight, param, dataSize);
 		return true;
@@ -633,7 +611,7 @@ bool SmushPlayerRebel1::handleGameCodecDecode(int codec, const uint8 *src, int l
 }
 
 bool SmushPlayerRebel1::handleGameStoreFrame() {
-	// RA1 handles STOR via handleGameFrameObjectPost
+	// STOR is handled after the RA1 FOBJ fields are parsed.
 	return true;
 }
 
@@ -644,7 +622,7 @@ void SmushPlayerRebel1::handleGameFrameObjectPre(int codec, int left, int top, i
 
 void SmushPlayerRebel1::handleGameFrameObjectPost(int codec, const byte *data, int32 dataSize, int left, int top, int width, int height) {
 	rememberLastFobj(codec, data, dataSize, left, top, width, height);
-	// RA1 STOR handling remains in handleFrameObject (needs ra1Param/rawLeft/rawTop)
+	// STOR needs the RA1-specific FOBJ fields parsed by handleFrameObject().
 }
 
 void SmushPlayerRebel1::handleGameFrameStart() {
@@ -661,10 +639,6 @@ void SmushPlayerRebel1::handleGameProcessAudio(int16 feedSize) {
 		rebel1->processAudioFrame(feedSize);
 	}
 }
-
-// ---------------------------------------------------------------------------
-// handleFrameObject override — RA1 FOBJ has extra fields in the codec word
-// ---------------------------------------------------------------------------
 
 void SmushPlayerRebel1::handleFrameObject(int32 subSize, Common::SeekableReadStream &b) {
 	assert(subSize >= 14);
@@ -697,7 +671,7 @@ void SmushPlayerRebel1::handleFrameObject(int32 subSize, Common::SeekableReadStr
 
 	handleGameFrameObjectPost(codec, chunk_buffer, chunk_size, left, top, width, height);
 
-	// RA1 STOR: save raw FOBJ with original (pre-clipped) coords and full codec byte
+	// Store the raw FOBJ coordinates and full RA1 codec word.
 	if (_storeFrame) {
 		free(_storedFobjData);
 		_storedFobjData = (byte *)malloc(chunk_size);
@@ -716,7 +690,7 @@ void SmushPlayerRebel1::handleFrameObject(int32 subSize, Common::SeekableReadStr
 		_storeFrame = false;
 	}
 
-	// RA1 target check — Insane can reject certain FOBJs
+	// Insane can reject specific target FOBJs.
 	if (_insane) {
 		InsaneRebel1 *rebel1 = static_cast<InsaneRebel1 *>(_insane);
 		if (!rebel1->handleFrameObjectTarget((int16)ra1ObjectId, (int16)rawLeft, (int16)rawTop,
@@ -731,10 +705,6 @@ void SmushPlayerRebel1::handleFrameObject(int32 subSize, Common::SeekableReadStr
 	decodeFrameObject(codec, chunk_buffer, left, top, width, height, chunk_size, ra1Param, ra1Parm2);
 	free(chunk_buffer);
 }
-
-// ---------------------------------------------------------------------------
-// handleFrame override — RA1 frame parsing with alignment, OBJ chunks, clean frame
-// ---------------------------------------------------------------------------
 
 static bool ra1ScanFrameGameChunks(Common::SeekableReadStream &b, int32 frameSize, uint32 &opcodeMask) {
 	opcodeMask = 0;
@@ -765,12 +735,16 @@ static bool ra1ScanFrameGameChunks(Common::SeekableReadStream &b, int32 frameSiz
 	return hasGameChunk;
 }
 
-static int16 getRA1AudioChunkTypeFlags(uint32 subType) {
+static int16 getRA1AudioChunkTypeFlags(uint32 subType, const uint8 *payload, uint32 payloadSize, uint16 index) {
 	switch (subType) {
 	case MKTAG('P','V','O','C'):
 		return IS_SPEECH;
 	case MKTAG('P','S','A','D'):
-		return IS_BKG_MUSIC;
+		if (index == 0 && payload && payloadSize >= 8 && READ_BE_UINT32(payload) == MKTAG('S','A','U','D') &&
+				READ_BE_UINT32(payload + 4) >= kRA1LargeAudioTrackThreshold) {
+			return IS_BKG_MUSIC;
+		}
+		return IS_SFX;
 	case MKTAG('P','S','D','2'):
 	case MKTAG('S','A','U','D'):
 	default:
@@ -800,7 +774,6 @@ void SmushPlayerRebel1::ra1FeedAudio(uint32 subType, uint8 *srcBuf, int groupId,
 		return;
 
 	const uint32 chunkSize = READ_BE_UINT32(&srcBuf[4]);
-	const int16 typeFlags = getRA1AudioChunkTypeFlags(subType);
 
 	if (chunkSize >= 12 &&
 			srcBuf[8] == 0 && srcBuf[9] == 0 && srcBuf[12] == 0 &&
@@ -808,6 +781,7 @@ void SmushPlayerRebel1::ra1FeedAudio(uint32 subType, uint8 *srcBuf, int groupId,
 		const uint16 trkId = READ_BE_INT16(&srcBuf[10]);
 		const uint16 index = READ_BE_INT16(&srcBuf[14]);
 		const int32 maxFrames = READ_BE_INT16(&srcBuf[18]);
+		const int16 typeFlags = getRA1AudioChunkTypeFlags(subType, srcBuf + 20, chunkSize - 12, index);
 		flags = (flags & ~TRK_TYPE_MASK) | typeFlags;
 
 		handleSAUDChunk(
@@ -825,6 +799,7 @@ void SmushPlayerRebel1::ra1FeedAudio(uint32 subType, uint8 *srcBuf, int groupId,
 		const uint16 index = READ_LE_INT16(&srcBuf[10]);
 		const int32 maxFrames = READ_LE_INT16(&srcBuf[12]);
 		flags |= READ_LE_INT16(&srcBuf[14]);
+		const int16 typeFlags = getRA1AudioChunkTypeFlags(subType, srcBuf + 18, chunkSize - 10, index);
 		flags = (flags & ~TRK_TYPE_MASK) | typeFlags;
 		volume = (volume * srcBuf[16]) >> 7;
 
@@ -916,7 +891,7 @@ void SmushPlayerRebel1::ra1HandleObjOverlayFrameChunk(int32 objDataSize, Common:
 }
 
 bool SmushPlayerRebel1::ra1HandleUnknownFrameChunk(uint32 subType, int32 subSize) {
-	// Original FUN_1FDBC: unknown uppercase tag -> silently stop
+	// Unknown uppercase frame tags silently end the frame.
 	byte tb0 = (subType >> 24) & 0xFF, tb1 = (subType >> 16) & 0xFF;
 	byte tb2 = (subType >> 8) & 0xFF, tb3 = subType & 0xFF;
 	if (tb0 > 0x40 && tb0 < 0x5B && tb1 > 0x40 && tb1 < 0x5B &&
@@ -1025,7 +1000,6 @@ void SmushPlayerRebel1::handleFrame(int32 frameSize, Common::SeekableReadStream 
 		preserveFrameHistory = interactive && !forceClear && frameHasGameChunk;
 	}
 
-	// Restore clean frame for delta source
 	if (preserveFrameHistory &&
 		_ra1HasCleanFrame && _ra1CleanFrame &&
 		_dst && _width > 0 && _height > 0) {
@@ -1037,7 +1011,6 @@ void SmushPlayerRebel1::handleFrame(int32 frameSize, Common::SeekableReadStream 
 	if (_insanity)
 		_insane->procPreRendering(_dst);
 
-	// Clear buffer for non-interactive frames to avoid trails
 	if (_dst && _width > 0 && _height > 0) {
 		if (!preserveFrameHistory)
 			memset(_dst, 0, _width * _height);
@@ -1048,7 +1021,6 @@ void SmushPlayerRebel1::handleFrame(int32 frameSize, Common::SeekableReadStream 
 	while (chunks.next(chunk)) {
 		const int32 subSize = (int32)chunk.size;
 
-		// Guard against consuming next frame marker
 		if (chunk.tag == MKTAG('F','R','M','E')) {
 			b.seek(chunk.offset, SEEK_SET);
 			break;
@@ -1058,16 +1030,13 @@ void SmushPlayerRebel1::handleFrame(int32 frameSize, Common::SeekableReadStream 
 			continue;
 
 		chunks.skip(chunk);
-		// RA1 uses top-of-loop alignment, not bottom-of-loop padding
 	}
 
-	// Re-render cockpit overlay
 	if (_ra1ObjOverlayData != nullptr && _frame > 0) {
 		Common::MemoryReadStream overlayStream(_ra1ObjOverlayData, _ra1ObjOverlayDataSize);
 		handleFrameObject(_ra1ObjOverlayDataSize, overlayStream);
 	}
 
-	// Save clean frame for next delta
 	if (preserveFrameHistory && _dst && _width > 0 && _height > 0) {
 		const int frameBytes = _width * _height;
 		byte *newClean = (byte *)realloc(_ra1CleanFrame, frameBytes);
@@ -1091,10 +1060,6 @@ void SmushPlayerRebel1::handleFrame(int32 frameSize, Common::SeekableReadStream 
 
 	_frame++;
 }
-
-// ---------------------------------------------------------------------------
-// handleGameUpdateScreen — RA1 viewport-aware screen blit
-// ---------------------------------------------------------------------------
 
 void SmushPlayerRebel1::handleGameUpdateScreen(const byte *src, int srcPitch, int width, int height) {
 	if (_dst == nullptr || _width <= 0 || _height <= 0)
@@ -1144,8 +1109,7 @@ void SmushPlayerRebel1::handleGameUpdateScreen(const byte *src, int srcPitch, in
 	}
 	memset(_ra1PresentationBuffer, 0, presentationSize);
 
-	// ResetPlaybackViewport() (0x20A53) initializes the interactive draw window
-	// to (4,4,312,192), leaving a black presentation frame around cockpit scenes.
+	// Interactive gameplay draws a 312x192 viewport inside a black 320x200 frame.
 	const byte *dst = sourceBase + srcY * sourcePitch + srcX;
 	byte *presentationDst = _ra1PresentationBuffer +
 		kRA1PresentationBorder * kRA1PresentationScreenWidth + kRA1PresentationBorder;

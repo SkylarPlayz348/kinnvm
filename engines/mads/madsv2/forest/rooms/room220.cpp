@@ -20,6 +20,7 @@
  */
 
 #include "mads/madsv2/forest/rooms/section1.h"
+#include "mads/madsv2/forest/mads/words.h"
 #include "mads/madsv2/forest/digi.h"
 #include "mads/madsv2/forest/global.h"
 #include "mads/madsv2/forest/midi.h"
@@ -64,8 +65,8 @@ static void room_220_init() {
 	global[g009] = -1;
 	global_midi_play(10);
 	viewing_at_y = 22;
-	player.walker_visible = 0;
-	player.commands_allowed = 0;
+	player.walker_visible = false;
+	player.commands_allowed = false;
 
 	for (int i = 0; i < 10; i++) {
 		aainfo[i]._active = 0;
@@ -145,27 +146,32 @@ static void room_220_anim2() {
 	aainfo[1]._frame = kernel_anim[aa[1]].frame;
 	int16 f = aainfo[1]._frame;
 
-	if (f == 55) {
+	switch (f) {
+	case 4:
+		digi_play_build(220, '_', 2, 2);
+		break;
+	case 9:
+		digi_play_build(103, '_', 3, 2);
+		break;
+	case 15:
+		digi_play_build(220, '_', 3, 2);
+		break;
+	case 28:
+		digi_play_build(220, '_', 1, 2);
+		break;
+	case 30:
+		digi_play_build(220, 'R', 2, 1);
+		scratch._9e = 2;
+		break;
+	case 46:
+	case 54:
+		digi_play_build(220, '_', 1, 2);
+		break;
+	case 55:
 		new_room = 221;
-	} else if (f < 55) {
-		if (f == 28) {
-			digi_play_build(220, '_', 1, 2);
-		} else if (f > 28) {
-			if (f == 30) {
-				digi_play_build(220, 'R', 1, 2);
-				scratch._9e = 2;
-			} else if (f == 46 || f == 54) {
-				digi_play_build(220, '_', 1, 2);
-			}
-		} else {
-			if (f == 4) {
-				digi_play_build(220, '_', 2, 2);
-			} else if (f == 9) {
-				digi_play_build(103, '_', 3, 2);
-			} else if (f == 15) {
-				digi_play_build(220, '_', 3, 2);
-			}
-		}
+		break;
+	default:
+		break;
 	}
 
 	if (result >= 0) {

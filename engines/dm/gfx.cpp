@@ -752,13 +752,13 @@ void DisplayMan::initializeGraphicData() {
 
 			for (int16 projectileScaleIndex = 0; projectileScaleIndex < 6; projectileScaleIndex++) {
 				int16 bitmapByteCount = getScaledBitmapByteCount(projectileAspect->_byteWidth, projectileAspect->_height, _projectileScales[projectileScaleIndex]);
-				_derivedBitmapByteCount[derivedBitmapIndex] = bitmapByteCount;
+				_derivedBitmapByteCount[derivedBitmapIndex + projectileScaleIndex] = bitmapByteCount;
 
 				if (getFlag(projectileAspect->_graphicInfo, k0x0003_ProjectileAspectTypeMask) != k3_ProjectileAspectHasNone) {
-					_derivedBitmapByteCount[derivedBitmapIndex + 6] = bitmapByteCount;
+					_derivedBitmapByteCount[derivedBitmapIndex + 6 + projectileScaleIndex] = bitmapByteCount;
 
 					if (getFlag(projectileAspect->_graphicInfo, k0x0003_ProjectileAspectTypeMask) != k2_ProjectileAspectHasRotation)
-						_derivedBitmapByteCount[derivedBitmapIndex + 12] = bitmapByteCount;
+						_derivedBitmapByteCount[derivedBitmapIndex + 12 + projectileScaleIndex] = bitmapByteCount;
 				}
 			}
 		}
@@ -948,7 +948,7 @@ void DisplayMan::drawDoorButton(int16 doorButtonOrdinal, DoorButton doorButton) 
 			dungeon._dungeonViewClickableBoxes[kDMViewCellDoorButtonOrWallOrn]._rect.top = coordSetRedEagle[2];
 			dungeon._dungeonViewClickableBoxes[kDMViewCellDoorButtonOrWallOrn]._rect.bottom = coordSetRedEagle[3];
 		} else {
-			doorButtonOrdinal = kDMDerivedBitmapFirstDoorButton + (doorButtonOrdinal * 2) + ((doorButton != kDMDoorButtonD3R) ? 0 : (int16)doorButton - 1);
+			doorButtonOrdinal = kDMDerivedBitmapFirstDoorButton + (doorButtonOrdinal * 2) + ((!doorButton) ? 0 : doorButton - 1);
 			if (!isDerivedBitmapInCache(doorButtonOrdinal)) {
 				uint16 *coordSetBlueGoat = _doorButtonCoordSets[coordSet][kDMDoorButtonD1C];
 				byte *bitmapNative = getNativeBitmapOrGraphic(nativeBitmapIndex);
@@ -2870,11 +2870,12 @@ void DisplayMan::blitToBitmapShrinkWithPalChange(byte *srcBitmap, byte *destBitm
 
 	uint32 scaleX = (kScaleThreshold * srcPixelWidth) / destPixelWidth;
 	uint32 scaleY = (kScaleThreshold * srcHeight) / destHeight;
+	uint32 destStride = getNormalizedByteWidth(destPixelWidth / 2) * 2;
 
 	// Loop through drawing output lines
 	for (uint32 destY = 0, scaleYCtr = 0; destY < (uint32)destHeight; ++destY, scaleYCtr += scaleY) {
 		const byte *srcLine = &srcBitmap[(scaleYCtr / kScaleThreshold) * srcPixelWidth];
-		byte *destLine = &destBitmap[destY * destPixelWidth];
+		byte *destLine = &destBitmap[destY * destStride];
 
 		// Loop through drawing the pixels of the row
 		for (uint32 destX = 0, xCtr = 0, scaleXCtr = 0; destX < (uint32)destPixelWidth; ++destX, ++xCtr, scaleXCtr += scaleX)
@@ -2990,6 +2991,9 @@ void DisplayMan::drawObjectsCreaturesProjectilesExplosions(Thing thingParam, Dir
 	bool drawProjectileAsObject; /* When true, the code section to draw an object is called (with a goto) to draw the projectile, then the code section goes back to projectile processing with another goto */
 	uint16 currentViewCellToDraw = 0;
 	bool projectileFlipVertical = false;
+	uint16 infoIndex;
+	uint16 aspectIndex;
+
 
 	/* This is the full dungeon view */
 	static Box boxExplosionPatternD0C = Box(0, 223, 0, 135); // @ G0105_s_Graphic558_Box_ExplosionPattern_D0C
@@ -3233,7 +3237,13 @@ void DisplayMan::drawObjectsCreaturesProjectilesExplosions(Thing thingParam, Dir
 			}
 
 			if ((viewSquareIndex >= kDMViewSquareD3C) && (viewSquareIndex <= kDMViewSquareD0C) && (thingParam.getCell() == cellYellowBear)) { /* Square where objects are visible and object is located on cell being processed */
-				objectAspect = &(_objectAspects209[dungeon._objectInfos[dungeon.getObjectInfoIndex(thingParam)]._objectAspectIndex]);
+				infoIndex = dungeon.getObjectInfoIndex(thingParam);
+				if (infoIndex >= 180)
+					continue;
+				aspectIndex = dungeon._objectInfos[infoIndex]._objectAspectIndex;
+				if (aspectIndex >= k85_ObjAspectCount)
+					continue;
+				objectAspect = &(_objectAspects209[aspectIndex]);
 				AL_4_nativeBitmapIndex = kDMGraphicIdxFirstObject + objectAspect->_firstNativeBitmapRelativeIndex;
 				useAlcoveObjectImage = (L0135_B_DrawAlcoveObjects && getFlag(objectAspect->_graphicInfo, k0x0010_ObjectAlcoveMask) && (viewLane == kDMViewLaneCenter));
 				if (useAlcoveObjectImage)

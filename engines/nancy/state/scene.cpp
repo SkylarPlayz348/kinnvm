@@ -36,6 +36,8 @@
 #include "engines/nancy/state/scene.h"
 #include "engines/nancy/state/map.h"
 
+#include "engines/nancy/action/secondarymovie.h"
+
 #include "engines/nancy/ui/button.h"
 #include "engines/nancy/ui/ornaments.h"
 #include "engines/nancy/ui/clock.h"
@@ -539,11 +541,22 @@ void Scene::playItemCantSound(int16 itemID, bool notHoldingSound) {
 	}
 }
 
-void Scene::setEventFlag(int16 label, byte flag) {
+int16 Scene::eventFlagToIndex(int16 label) const {
+	// Nancy3+ number their event flags from 1000. Nancy12 then split the flags
+	// into two ranges: the generic engine flags kept the 1xxx numbering, while
+	// the game-specific flags were renumbered from 2000. Subtracting a flat 1000
+	// from any 1xxx/2xxx label keeps the two ranges in separate, non-overlapping
+	// regions of the flags array (generic flags in [0, 1000), game-specific flags
+	// in [1000, ...)).
 	if (label >= 1000) {
-		// In nancy3 and onwards flags begin from 1000
 		label -= 1000;
 	}
+
+	return label;
+}
+
+void Scene::setEventFlag(int16 label, byte flag) {
+	label = eventFlagToIndex(label);
 
 	if (label > kEvNoEvent && (uint)label < g_nancy->getStaticData().numEventFlags) {
 		_flags.eventFlags[label] = flag;
@@ -555,10 +568,7 @@ void Scene::setEventFlag(FlagDescription eventFlag) {
 }
 
 bool Scene::getEventFlag(int16 label, byte flag) const {
-	if (label >= 1000) {
-		// In nancy3 and onwards flags begin from 1000
-		label -= 1000;
-	}
+	label = eventFlagToIndex(label);
 
 	if (label > kEvNoEvent && (uint)label < g_nancy->getStaticData().numEventFlags) {
 		return _flags.eventFlags[label] == flag;
@@ -569,6 +579,64 @@ bool Scene::getEventFlag(int16 label, byte flag) const {
 
 bool Scene::getEventFlag(FlagDescription eventFlag) const {
 	return getEventFlag(eventFlag.label, eventFlag.flag);
+}
+
+// On first use, seed each resource value from the UIRC boot chunk (record id =
+// initial value). After a save is loaded `seeded` is already true, so the
+// restored values are kept.
+static void seedUIResourceData(UIResourceData *data) {
+	if (!data || data->seeded) {
+		return;
+	}
+
+	const UIRC *uirc = GetEngineData(UIRC)
+
+	data->seeded = true;
+	if (uirc) {
+		data->values.resize(uirc->items.size());
+		for (uint i = 0; i < uirc->items.size(); ++i) {
+			data->values[i] = uirc->items[i].id;
+		}
+	}
+}
+
+int32 Scene::getUIResource(uint index) {
+	UIResourceData *data = (UIResourceData *)getPuzzleData(UIResourceData::getTag());
+	seedUIResourceData(data);
+	if (!data || index >= data->values.size()) {
+		return 0;
+	}
+	return data->values[index];
+}
+
+void Scene::setUIResource(uint index, int32 value) {
+	UIResourceData *data = (UIResourceData *)getPuzzleData(UIResourceData::getTag());
+	seedUIResourceData(data);
+	if (data && index < data->values.size()) {
+		data->values[index] = value;
+	}
+}
+
+// Nancy 11+ AR 30/31 store the "player scrolling disabled" state in an event
+// flag (eventData[0x21] in the original). It persists across scenes and is
+// saved/restored together with the rest of the event flags. Nancy12 shifted the
+// engine's generic flag numbering up by 10, moving this flag from 1033 to 1043.
+static int16 playerScrollingDisabledFlag() {
+	return g_nancy->getGameType() >= kGameTypeNancy12 ? 1043 : 1033;
+}
+
+void Scene::setPlayerScrolling(bool enabled) {
+	setEventFlag(playerScrollingDisabledFlag(), enabled ? g_nancy->_false : g_nancy->_true);
+}
+
+bool Scene::getPlayerScrolling() const {
+	// Player-scrolling control only exists from Nancy 11; older games must not
+	// consult this flag, since they may use that event-flag index for something else
+	if (g_nancy->getGameType() < kGameTypeNancy11) {
+		return true;
+	}
+
+	return !getEventFlag(playerScrollingDisabledFlag(), g_nancy->_true);
 }
 
 void Scene::setLogicCondition(int16 label, byte flag) {
@@ -783,6 +851,9 @@ void Scene::synchronize(Common::Serializer &ser) {
 	ser.syncAsUint16LE(_difficulty);
 	ser.syncArray<uint16>(_hintsRemaining.data(), _hintsRemaining.size(), Common::Serializer::Uint16LE);
 
+	// NOTE: These two variables are only used by the hint system in
+	// Nancy 1, so they can be freely repurposed by newer games to
+	// store new data, if needed, to avoid bumping the save version.
 	ser.syncAsSint16LE(_lastHintCharacter);
 	ser.syncAsSint16LE(_lastHintID);
 
@@ -836,8 +907,8 @@ UI::Clock *Scene::getClock() {
 }
 
 void Scene::init() {
-	auto *bootSummary = GetEngineData(BSUM);
-	auto *hintData = GetEngineData(HINT);
+	auto *bootSummary = GetEngineData(BSUM)
+	auto *hintData = GetEngineData(HINT)
 	assert(bootSummary);
 
 	_flags.eventFlags.resize(g_nancy->getStaticData().numEventFlags, g_nancy->_false);
@@ -1060,6 +1131,7 @@ void Scene::load(bool fromSaveFile) {
 	_inventorySoundOverrides.clear();
 
 	_timers.sceneTime = 0;
+	g_nancy->_sound->clearListenerPositionOverride();
 	g_nancy->_sound->recalculateSoundEffects();
 
 	// Increment the number of times we've visited this scene, unless we're
@@ -1093,6 +1165,10 @@ void Scene::run() {
 	}
 
 	_timers.sceneTime += deltaTime;
+
+	// Advance the Nancy 11+ software timers before processing action records,
+	// so any flags they fire this frame are visible to record dependencies
+	tickSoftwareTimers((uint32)deltaTime);
 
 	// Calculate the in-game time (playerTime)
 	if (currentPlayTime > _timers.playerTimeNextMinute) {
@@ -1132,6 +1208,95 @@ void Scene::run() {
 
 	if (_state == kLoad) {
 		g_nancy->_graphics->suppressNextDraw();
+	}
+}
+
+void Scene::tickSoftwareTimers(uint32 deltaMs) {
+	if (g_nancy->getGameType() < kGameTypeNancy11 || deltaMs == 0) {
+		return;
+	}
+
+	// getPuzzleData() below lazily creates (and thereafter persists) the TimerData
+	// chunk. This runs every frame, so without this guard every Nancy 11 save
+	// would carry an empty TimerData chunk even if no timer is ever used. The
+	// chunk only exists once a timer AR has configured a slot.
+	if (!_puzzleData.contains(TimerData::getTag())) {
+		return;
+	}
+
+	TimerData *timerData = (TimerData *)getPuzzleData(TimerData::getTag());
+
+	for (uint i = 0; i < TimerData::kNumTimers; ++i) {
+		TimerData::Timer &timer = timerData->timers[i];
+
+		if (timer.state != TimerData::Timer::kRunning &&
+			timer.state != TimerData::Timer::kOneShot &&
+			timer.state != TimerData::Timer::kRepeating) {
+			continue;
+		}
+
+		timer.currentTimeMs += deltaMs;
+
+		if ((timer.state == TimerData::Timer::kOneShot || timer.state == TimerData::Timer::kRepeating) &&
+			timer.durationMs > 0 && !timer.hasFired && timer.currentTimeMs >= timer.durationMs) {
+			fireSoftwareTimer(timer);
+
+			if (timer.state == TimerData::Timer::kOneShot) {
+				// One-shot timers clear themselves once they fire
+				timer.reset();
+			} else {
+				// Repeating timers keep counting up but will not fire again
+				timer.state = TimerData::Timer::kRunning;
+			}
+		}
+	}
+}
+
+bool Scene::isSoftwareTimerActive(uint16 index) const {
+	if (index >= TimerData::kNumTimers || !_puzzleData.contains(TimerData::getTag())) {
+		return false;
+	}
+
+	const TimerData::Timer &timer = ((const TimerData *)_puzzleData.getVal(TimerData::getTag()))->timers[index];
+	return timer.state == TimerData::Timer::kRunning ||
+		timer.state == TimerData::Timer::kOneShot ||
+		timer.state == TimerData::Timer::kRepeating;
+}
+
+uint32 Scene::getSoftwareTimerElapsed(uint16 index) const {
+	if (index >= TimerData::kNumTimers || !_puzzleData.contains(TimerData::getTag())) {
+		return 0;
+	}
+
+	return ((const TimerData *)_puzzleData.getVal(TimerData::getTag()))->timers[index].currentTimeMs;
+}
+
+void Scene::fireSoftwareTimer(TimerData::Timer &timer) {
+	timer.hasFired = true;
+
+	// Set the configured event flags
+	for (uint i = 0; i < ARRAYSIZE(timer.flags); ++i) {
+		if (timer.flags[i].label != kFlagNoLabel) {
+			setEventFlag(timer.flags[i]);
+		}
+	}
+
+	// Play the optional expiry sound
+	if (timer.sound.name != "NO SOUND") {
+		g_nancy->_sound->loadSound(timer.sound);
+		g_nancy->_sound->playSound(timer.sound);
+	}
+
+	// Show the optional caption, if captions are enabled
+	if (ConfMan.getBool("subtitles", ConfMan.getActiveDomainName())) {
+		if (!timer.autotextKey.empty()) {
+			const CVTX *autotext = (const CVTX *)g_nancy->getEngineData("AUTOTEXT");
+			if (autotext && autotext->texts.contains(timer.autotextKey)) {
+				_textbox.addTextLine(autotext->texts[timer.autotextKey]);
+			}
+		} else if (!timer.caption.empty()) {
+			_textbox.addTextLine(timer.caption);
+		}
 	}
 }
 
@@ -1263,10 +1428,13 @@ void Scene::handleInput() {
 			case kTaskButtonCellphone:
 				_cellPhonePopup.toggle();
 				break;
-			case kTaskButtonHelp:
-				requestStateChange(NancyState::kHelp);
+			case -1:
 				break;
 			default:
+				// HELP is always the last taskbar button. Its index shifts from
+				// 4 to 5 in Nancy12, where a non-clickable coin purse occupies slot
+				// 4 (and never reports a click), so match it as the fall-through.
+				requestStateChange(NancyState::kHelp);
 				break;
 			}
 		}
@@ -1398,6 +1566,16 @@ void Scene::clearSceneData() {
 	}
 
 	clearLogicConditions();
+
+	// Stop a leftover random movie if the outgoing scene didn't include
+	// its own PSM(isRandom) AR (so it doesn't bleed into the next scene).
+	if (_activeMovie && _activeMovie->isPersistentAcrossScenes() && !_hadRandomMovieARThisScene) {
+		_activeMovie->stopRandom();
+	}
+	_hadRandomMovieARThisScene = false;
+
+	bool clearActiveMovie = _activeMovie && !_activeMovie->isPersistentAcrossScenes();
+
 	_actionManager.clearActionRecords();
 
 	if (_lightning) {
@@ -1413,7 +1591,10 @@ void Scene::clearSceneData() {
 	}
 
 	_activeConversation = nullptr;
-	_activeMovie = nullptr;
+
+	if (clearActiveMovie) {
+		_activeMovie = nullptr;
+	}
 }
 
 void Scene::clearPuzzleData() {

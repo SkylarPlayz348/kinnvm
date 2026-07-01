@@ -20,6 +20,7 @@
  */
 
 #include "common/system.h"
+#include "graphics/cursorman.h"
 
 #include "chamber/chamber.h"
 #include "chamber/common.h"
@@ -114,6 +115,10 @@ void drawPersonBubble(byte x, byte y, byte flags, byte *msg) {
 	byte w, h;
 	uint16 ww, nw;
 
+	// Hide the mouse pointer before the bubble is drawn, so it is gone from the
+	// moment the text appears. selectCursor() re-shows it when play resumes.
+	CursorMan.showMouse(false);
+
 	char_draw_max_width = flags & 0x1F;
 	char_xlat_table = chars_color_bonw;
 
@@ -188,7 +193,7 @@ void showPromptAnim(void) {
 }
 
 void promptWait(void) {
-	if (g_vm->_videoMode == Common::kRenderEGA)
+	if (isEgaLikeRenderer())
 		g_vm->_renderer->blitToScreen(0, 0, 320, 200);
 	cursor_anim_phase = 0;
 

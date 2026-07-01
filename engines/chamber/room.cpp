@@ -27,6 +27,7 @@
 #include "chamber/cga.h"
 #include "chamber/ega.h"
 #include "chamber/ega_resource.h"
+#include "chamber/amiga.h"
 #include "chamber/print.h"
 #include "chamber/anim.h"
 #include "chamber/cursor.h"
@@ -40,13 +41,21 @@
 
 namespace Chamber {
 
-// 1500-byte spot-backup region, then the lutin/anim scratch (scratch_mem2).
+// Spot-backup region, then the lutin/anim scratch (scratch_mem2).
+// backupSpotsImages() fills the spot-backup region from scratch_mem1 upward.
+// The original CGA budget for it is 1500 bytes, but EGA stores each backup as
+// CLUT8 (4 bytes per CGA byte), so it needs up to 4*1500 = 6000 bytes. With the
+// old 1500-byte gap the EGA backups spilled past scratch_mem2 and were then
+// clobbered by the next lutin load, corrupting the backup headers (garbage
+// stamped into the backbuffer's top rows). Use the EGA worst case for the gap.
+//
 // The scratch holds up to four simultaneous lutin slots (see getScratchBuffer).
-// CGA needs 4*1600 = 6400 there; EGA decodes lutins to CLUT8 (4 bytes per CGA
-// byte) so it needs 4*3200 = 12800. Sized for the EGA worst case so a big lutin
-// can't overrun into the adjacent sprites_list[].
-byte scratch_mem1[14400];
-byte *scratch_mem2 = scratch_mem1 + 1500;
+// CGA needs 4*1600 = 6400 there; EGA decodes lutins to CLUT8 so it needs
+// 4*3200 = 12800. Size scratch_mem1 for gap + EGA lutin worst case so neither a
+// big backup nor a big lutin can overrun into the adjacent sprites_list[].
+#define SCRATCH_SPOT_GAP 6000
+byte scratch_mem1[SCRATCH_SPOT_GAP + 12800];
+byte *scratch_mem2 = scratch_mem1 + SCRATCH_SPOT_GAP;
 
 rect_t room_bounds_rect = {0, 0, 0, 0};
 byte last_object_hint = 0;
@@ -150,12 +159,19 @@ static const byte cga_color_sels[] = {
 };
 
 void selectSpecificPalette(byte index) {
-	g_vm->_renderer->colorSelect(cga_color_sels[index]);
+	// Amiga composes the room palette from the zone palette_index
+	if (g_vm->getPlatform() == Common::kPlatformAmiga)
+		amigaApplyRoomPalette(index);
+	else
+		g_vm->_renderer->colorSelect(cga_color_sels[index]);
 }
 
 
 void selectPalette(void) {
-	g_vm->_renderer->colorSelect(cga_color_sels[script_byte_vars.palette_index]);
+	if (g_vm->getPlatform() == Common::kPlatformAmiga)
+		amigaApplyRoomPalette(script_byte_vars.palette_index);
+	else
+		g_vm->_renderer->colorSelect(cga_color_sels[script_byte_vars.palette_index]);
 }
 
 /*
@@ -252,7 +268,7 @@ void selectSpotCursor(void) {
 				curs = CURSOR_CROSSHAIR;
 		}
 	}
-	if (g_vm->_videoMode == Common::kRenderEGA)
+	if (isEgaLikeRenderer())
 		cursor_shape = souri_data + curs * (CURSOR_WIDTH * CURSOR_HEIGHT / 4);
 	else
 		cursor_shape = souri_data + curs * CURSOR_WIDTH * CURSOR_HEIGHT * 2 / 4;
@@ -298,7 +314,7 @@ static const int16 background_draw_steps_hga[] = {
 Draw main backgound pattern, in spiral-like order
 */
 void drawBackground(byte *target, byte vblank) {
-	if (g_vm->_videoMode == Common::kRenderEGA) {
+	if (isEgaLikeRenderer()) {
 		ega_drawBackground(target);
 		return;
 	}
@@ -384,6 +400,10 @@ void loadZone(void) {
 	next_turkey_cmd = 0;
 	next_vorts_cmd = 0;
 	script_byte_vars.used_commands = 0;
+
+	// Apply the zone palette at load time for screens that skip refreshZone()
+	if (g_vm->getPlatform() == Common::kPlatformAmiga)
+		selectPalette();
 }
 
 void resetZone(void) {
@@ -457,7 +477,7 @@ void initRoomDoorInfo(byte index) {
 	aptr = doors_list[index - 1];
 	info->flipped = (aptr[1] & 0x80) ? ~0 : 0;
 
-	if (g_vm->_videoMode == Common::kRenderEGA) {
+	if (isEgaLikeRenderer()) {
 		for (i = 0; i < kNumDoorSprites; i++) {
 			byte x, y, w, h, ox;
 			Graphics::Surface *surf = ega_puzzl_res->getSprite(aptr[0]);
@@ -539,7 +559,7 @@ Draw sliding door
 void drawRoomDoor(void) {
 	int16 i;
 	doorinfo_t *info = (doorinfo_t *)scratch_mem2;
-	bool isEGA = (g_vm->_videoMode == Common::kRenderEGA);
+	bool isEGA = (isEgaLikeRenderer());
 	for (i = 0; i < kNumDoorSprites; i++) {
 		byte w = info->layer[i].width;
 		byte h = info->layer[i].height;
@@ -575,7 +595,7 @@ void animRoomDoorOpen(byte index) {
 		drawRoomDoor();
 		waitVBlank();
 		info->layer[1].height -= 2;
-		if (g_vm->_videoMode == Common::kRenderEGA)
+		if (isEgaLikeRenderer())
 			info->layer[1].pixels += info->layer[1].width * 4 * 2;
 		else
 			info->layer[1].pixels += info->layer[1].width * 2 * 2;
@@ -601,7 +621,7 @@ void animRoomDoorClose(byte index) {
 	oldheight = info->layer[1].height;
 	oldpixels = info->layer[1].pixels;
 
-	if (g_vm->_videoMode == Common::kRenderEGA) {
+	if (isEgaLikeRenderer()) {
 		info->layer[1].pixels += info->layer[1].width * 4 * (info->layer[1].height - 1);
 	} else {
 		info->layer[1].pixels += info->layer[1].width * 2 * (info->layer[1].height - 1);
@@ -614,7 +634,7 @@ void animRoomDoorClose(byte index) {
 		waitVBlank();
 #endif
 		info->layer[1].height += 2;
-		if (g_vm->_videoMode == Common::kRenderEGA)
+		if (isEgaLikeRenderer())
 			info->layer[1].pixels -= info->layer[1].width * 4 * 2;
 		else
 			info->layer[1].pixels -= info->layer[1].width * 2 * 2;
@@ -822,7 +842,7 @@ void drawPersons(void) {
 Draw room's static object to backbuffer
 */
 void drawRoomStaticObject(byte *aptr, byte *rx, byte *ry, byte *rw, byte *rh) {
-	if (g_vm->_videoMode == Common::kRenderEGA) {
+	if (isEgaLikeRenderer()) {
 		Graphics::Surface *surf = ega_puzzl_res->getSprite(aptr[0]);
 		byte x = aptr[1];
 		byte y = aptr[2];
@@ -1039,12 +1059,43 @@ void drawZoneSpots(void) {
 	drawPersons();
 }
 
+/*
+The line-wipe zone transition only plays while moving through the corridor-like
+areas: The Ring and the Passages. Normal room entries stay instant (or use their
+own scripted drawIcone effect).
+*/
+static bool zoneHasWalkTransition(byte area) {
+	switch (area) {
+	case kAreaTheRing1: case kAreaTheRing2: case kAreaTheRing3:
+	case kAreaTheRing4: case kAreaTheRing5: case kAreaTheRing6:
+	case kAreaPassage1: case kAreaPassage2: case kAreaPassage3:
+	case kAreaPassage4: case kAreaPassage5: case kAreaPassage6: case kAreaPassage7:
+		return true;
+	default:
+		return false;
+	}
+}
+
 void refreshZone(void) {
+	// Hide the mouse pointer while the new room is drawn and its entry
+	// animation plays. The game loop's selectCursor() re-shows it once it is
+	// waiting for player input again.
+	hideMouseCursor();
+
 	popDirtyRects(DirtyRectSprite);
 	popDirtyRects(DirtyRectBubble);
 	popDirtyRects(DirtyRectText);
 
-	g_vm->_renderer->backBufferToRealFull();
+	// Reveal the new room with an animated transition unless this change asked to
+	// skip it (e.g. entering through an already-animated door). skip_zone_transition
+	// is set by SCR_42_LoadZone; plain zone changes (walking around The Ring / through
+	// passages via SCR_36_ChangeZone) leave it 0 and so get the dot-dissolve reveal.
+	if (!skip_zone_transition && isEgaLikeRenderer()
+	        && zoneHasWalkTransition(script_byte_vars.zone_area)) {
+		ega_zoneRevealWipe();
+	} else {
+		g_vm->_renderer->backBufferToRealFull();
+	}
 
 	in_de_profundis = 0;
 	IFGM_StopSample();
@@ -1118,7 +1169,7 @@ void loadLutinSprite(uint16 lutidx) {
 	lutW = *lutin_entry++; /* composite width in CGA bytes */
 	lutH = *lutin_entry++; /* composite height in pixels */
 
-	if (g_vm->_videoMode == Common::kRenderEGA) {
+	if (isEgaLikeRenderer()) {
 		/*EGA: build CLUT8 flat buffer in lutin_mem: [0]=lutW, [1]=lutH, then lutW*4 bytes/row*/
 		uint16 pw = (uint16)lutW * 4;
 		lutin_mem[0] = lutW;
@@ -1221,7 +1272,7 @@ static void egaDrawLutinComposite(uint16 lutidx, byte *target, uint16 baseOfs) {
 Draw specific room's person idle sprite
 */
 void drawCharacterSprite(byte spridx, byte x, byte y, byte *target) {
-	if (g_vm->_videoMode == Common::kRenderEGA) {
+	if (isEgaLikeRenderer()) {
 		egaDrawLutinComposite(spridx, target, g_vm->_renderer->calcXY_p(x, y));
 		return;
 	}
@@ -1248,7 +1299,7 @@ char drawZoneAniSprite(rect_t *rect, uint16 index, byte *target) {
 
 			zsprite_draw_ofs = g_vm->_renderer->calcXY_p(rect->sx, rect->sy);
 
-			if (g_vm->_videoMode == Common::kRenderEGA) {
+			if (isEgaLikeRenderer()) {
 				byte *entry, *entry_end;
 				entry = seekToEntry(lutin_data, spridx, &entry_end);
 				zsprite_w = entry[0]; /* CGA byte width */
@@ -1477,7 +1528,7 @@ void prepareTurkey(void) {
 Load puzzl sprite to scratch and init draw params
 */
 uint16 getPuzzlSprite(byte index, byte x, byte y, uint16 *w, uint16 *h, uint16 *ofs) {
-	if (g_vm->_videoMode == Common::kRenderEGA) {
+	if (isEgaLikeRenderer()) {
 		Graphics::Surface *surf = ega_puzzl_res->getSprite(index);
 		*w = surf->w / 4;
 		*h = surf->h;
@@ -1564,7 +1615,7 @@ byte *loadMursmSprite(byte index) {
 	byte *pinfo, *end;
 	pinfo = seekToEntry(mursm_data, index, &end);
 
-	if (g_vm->_videoMode == Common::kRenderEGA) {
+	if (isEgaLikeRenderer()) {
 		/* EGA: build a CLUT8 buffer (80 px wide × 59 rows = 4720 bytes) */
 		const uint16 egaPitch = 80; /* 20 CGA bytes × 4 px/byte */
 		memset(sprit_load_buffer, 0, egaPitch * 59);
@@ -1573,11 +1624,13 @@ byte *loadMursmSprite(byte index) {
 			byte sprIdx = *pinfo++;
 			uint16 flags = *pinfo++;
 			flags |= (*pinfo++) << 8;
-			uint16 cgaOfs = flags & 0x3FFF; /* offset in CGA flat buffer (pitch=20, 2 bytes/unit) */
+			uint16 cgaOfs = flags & 0x3FFF; /* byte offset into the CGA flat buffer (pitch = 20 bytes = 80 px) */
 
-			/* Convert CGA flat offset → EGA flat offset */
-			uint16 row   = cgaOfs / (20 * 2);       /* 20 CGA bytes × 2 bytes/unit = 40 bytes/row */
-			uint16 colCga = (cgaOfs % (20 * 2)) / 2; /* column in CGA bytes */
+			/* Convert CGA flat offset → EGA flat offset. Mirror the CGA path,
+			   which places the sub-sprite at byte cgaOfs in a 20-byte-pitch
+			   buffer: row = cgaOfs / 20, column = cgaOfs % 20 CGA bytes (× 4 px). */
+			uint16 row    = cgaOfs / 20;
+			uint16 colCga = cgaOfs % 20;
 			uint16 egaBufOfs = row * egaPitch + colCga * 4;
 
 			Graphics::Surface *surf = ega_puzzl_res->getSprite(sprIdx & 0x7F);
@@ -1748,7 +1801,7 @@ void theWallPhase1_DoorClose1(void) {
 	loadZone();
 
 	spr = loadMursmSprite(0);
-	if (g_vm->_videoMode == Common::kRenderEGA)
+	if (isEgaLikeRenderer())
 		spr += cur_frame_width * 4 - 4;
 	else
 		spr += cur_frame_width - 1;
@@ -1775,19 +1828,19 @@ void theWallPhase2_DoorClose2(void) {
 	loadZone();
 
 	spr = loadMursmSprite(0);
-	if (g_vm->_videoMode == Common::kRenderEGA)
+	if (isEgaLikeRenderer())
 		spr += cur_frame_width * 4 - 4;
 	else
 		spr += cur_frame_width - 1;
 	cur_image_coords_x = 64 / 4;
-	if (g_vm->_videoMode == Common::kRenderEGA)
+	if (isEgaLikeRenderer())
 		g_vm->_renderer->animLiftToRight(10, spr - 40, cur_frame_width, 1 + 10, cur_image_size_h, frontbuffer, g_vm->_renderer->calcXY_p(cur_image_coords_x, cur_image_coords_y));
 	else
 		g_vm->_renderer->animLiftToRight(10, spr - 10, cur_frame_width, 1 + 10, cur_image_size_h, frontbuffer, g_vm->_renderer->calcXY_p(cur_image_coords_x, cur_image_coords_y));
 
 	spr = loadMursmSprite(1);
 	cur_image_coords_x = 220 / 4;
-	if (g_vm->_videoMode == Common::kRenderEGA)
+	if (isEgaLikeRenderer())
 		g_vm->_renderer->animLiftToLeft(10, spr, cur_frame_width, 1 + 10, cur_image_size_h, frontbuffer, g_vm->_renderer->calcXY_p(cur_image_coords_x, cur_image_coords_y) - 40);
 	else
 		g_vm->_renderer->animLiftToLeft(10, spr, cur_frame_width, 1 + 10, cur_image_size_h, frontbuffer, g_vm->_renderer->calcXY_p(cur_image_coords_x, cur_image_coords_y) - 10);
@@ -1804,7 +1857,7 @@ void drawTheWallDoors(void) {
 	switch (script_byte_vars.zone_index) {
 	case 9:
 	case 102:
-		if (g_vm->_videoMode == Common::kRenderEGA) {
+		if (isEgaLikeRenderer()) {
 			/* EGA buffer is 80 px wide; CGA +10 bytes = 40 EGA pixels */
 			g_vm->_renderer->blit(loadMursmSprite(0) + 40, 20, 10, 59, SCREENBUFFER, g_vm->_renderer->calcXY_p(64 / 4, 32));
 			if (g_vm->getLanguage() == Common::EN_USA) {

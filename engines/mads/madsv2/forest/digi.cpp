@@ -20,9 +20,11 @@
  */
 
 #include "audio/decoders/adpcm.h"
+#include "audio/decoders/raw.h"
 #include "mads/madsv2/forest/digi.h"
 #include "mads/madsv2/forest/forest.h"
 #include "mads/madsv2/core/env.h"
+#include "mads/madsv2/core/kernel.h"
 
 namespace MADS {
 namespace MADSV2 {
@@ -32,40 +34,80 @@ int digi_val2;
 int digi_timing_index;
 bool digi_flag1, digi_flag2;
 
+DigiPlayer::DigiPlayer(Audio::Mixer *mixer) : _mixer(mixer) {
+	_channels[0]._triggerId = 7;
+	_channels[1]._triggerId = 8;
+	_channels[2]._triggerId = 9;
+
+	digi_val2 = 0;
+	digi_timing_index = 0;
+	digi_flag1 = digi_flag2 = false;
+}
+
 void DigiPlayer::play(const char *name, int slot) {
-	assert(slot >= 0 && slot < 8);
-	_mixer->stopHandle(_slots[slot]);
-
+	stop(slot);
+	DigiChannel &c = _channels[slot - 1];
+	Audio::AudioStream *audioStream;
 	Common::SeekableReadStream *src;
-	src = env_open(Common::String::format("*%s.rac", name).c_str());
-	if (!src)
-		src = env_open(Common::String::format("*%s.raw", name).c_str());
 
-	if (!src) {
-		warning("Could not open digi sound - %s", name);
-		return;
+	src = env_open(Common::String::format("*%s.rac", name).c_str());
+	if (src) {
+		// Skip past the HMI header
+		src->seek(0x20);
+
+		audioStream = Audio::makeADPCMStream(src, DisposeAfterUse::YES,
+			src->size() - 0x20, Audio::kADPCMApple, 11025, 1);
+
+	} else {
+		src = env_open(Common::String::format("*%s.raw", name).c_str());
+		if (src) {
+			// Raw audio
+			audioStream = Audio::makeRawStream(src, 11025, Audio::FLAG_UNSIGNED);
+		} else {
+			warning("Could not open digi sound - %s", name);
+			return;
+		}
 	}
 
-	// Skip past the HMI header
-	src->seek(0x20);
+	int vol = (_initialVolume == MAX_DIGI_VOLUME) ? 255 : _initialVolume * 255 / 327 / 100;
+	_initialVolume = MAX_DIGI_VOLUME;
 
-	Audio::AudioStream *audioStream = Audio::makeADPCMStream(src, DisposeAfterUse::YES,
-		src->size() - 0x20, Audio::kADPCMDVI, 11025, 1);
-	_mixer->playStream(Audio::Mixer::kSFXSoundType, &_slots[slot], audioStream);
+	_mixer->playStream(Audio::Mixer::kSpeechSoundType, &c._soundHandle, audioStream, -1, vol);
+	c._isPlaying = true;
 }
 
 void DigiPlayer::stop(int slot) {
-	assert(slot >= 0 && slot < 8);
-	_mixer->stopHandle(_slots[slot]);
+	assert(slot >= 1 && slot <= MAX_DIGI_CHANNELS);
+	DigiChannel &c = _channels[slot - 1];
+
+	if (c._isPlaying) {
+		_mixer->stopHandle(c._soundHandle);
+		c._isPlaying = false;
+
+		if (c._endTrigger) {
+			kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+			kernel_timing_trigger(1, c._triggerId);
+		}
+
+		c._endTrigger = true;
+	}
 }
 
+void DigiPlayer::poll() {
+	for (int slot = 1; slot <= MAX_DIGI_CHANNELS; ++slot) {
+		DigiChannel &c = _channels[slot - 1];
 
-void digi_install() {
-	digi_val2 = 0;
-	digi_timing_index = 0;
+		if (c._isPlaying && !_mixer->isSoundHandleActive(c._soundHandle))
+			digi_stop(slot);
+	}
 }
 
-void digi_uninstall() {
+void DigiPlayer::setInitialVolume(int vol) {
+	_initialVolume = (vol < 0 || vol > 100) ? MAX_DIGI_VOLUME : vol * 327;
+}
+
+void DigiPlayer::setVolume(int slot, int vol) {
+	_mixer->setChannelVolume(_channels[slot]._soundHandle, (vol == MAX_DIGI_VOLUME) ? 255 : vol * 255 / 327);
 }
 
 void digi_play_build_ii(char thing, int num, int slot) {
@@ -74,9 +116,9 @@ void digi_play_build_ii(char thing, int num, int slot) {
 	digi_play(name.c_str(), slot);
 }
 
-void digi_play_build(int room, char thing, int num, int slot) {
+void digi_play_build(int roomNum, char thing, int num, int slot) {
 	Common::String name = Common::String::format("%c%d%c%03d",
-		(thing == '_') ? 's' : 'd', room, thing, num);
+		(thing == '_') ? 's' : 'd', roomNum, thing, num);
 	digi_play(name.c_str(), slot);
 }
 
@@ -88,10 +130,16 @@ void digi_stop(int which_one) {
 	g_engine->_digiPlayer.stop(which_one);
 }
 
+void digi_read_another_chunk() {
+	g_engine->_digiPlayer.poll();
+}
+
 void digi_initial_volume(int vol) {
+	g_engine->_digiPlayer.setInitialVolume(vol);
 }
 
 void digi_set_volume(int vol, int slot) {
+	g_engine->_digiPlayer.setVolume(vol, slot);
 }
 
 } // namespace Forest

@@ -19,12 +19,11 @@
  *
  */
 
-// Rebel Assault 2 SMUSH video codecs
-
 #include "scumm/smush/rebel/codec_ra2.h"
 
 #include "common/endian.h"
 #include "common/textconsole.h"
+#include "common/util.h"
 
 namespace Scumm {
 
@@ -77,14 +76,116 @@ const byte *smushSkipRLELines(const byte *src, int &dataSize, int lines) {
 	return src;
 }
 
-/**
- * Codec 3 RLE decoder that writes ALL colors including color 0 (black).
- * Use this for background images where color 0 should NOT be treated as transparent.
- * The standard smushDecodeRLE() treats color 0 as transparent, which is correct
- * for overlay sprites but wrong for background images.
- *
- * Used by: Rebel Assault 2 Level 2 background loading (IACT opcode 8, par4=5)
- */
+void copyRA2Handler7PerspectiveViewport(byte *dst, int dstPitch, int dstWidth, int dstHeight,
+		const byte *src, int srcPitch, int srcWidth, int srcHeight,
+		int perspectiveX, int perspectiveY, int viewShift) {
+	if (!dst || !src || dstPitch <= 0 || srcPitch <= 0 || dstWidth <= 0 || dstHeight <= 0 || srcWidth <= 0 || srcHeight <= 0)
+		return;
+
+	const int viewportWidth = MIN(320, MIN(dstWidth, dstPitch));
+	const int viewportHeight = MIN(170, dstHeight);
+	if (viewportWidth <= 0 || viewportHeight <= 0)
+		return;
+
+	int tilt = (viewShift * 5) / 128;
+	int xSkew = (tilt * 9) / 4;
+	int ySkew = tilt * 5;
+	int srcBaseX = 0x34 + perspectiveX + xSkew;
+	int srcBaseY = 0x2d + perspectiveY - ySkew;
+
+	const int tempPitch = viewportWidth;
+	byte *temp = new byte[viewportWidth * viewportHeight];
+	memset(temp, 0, viewportWidth * viewportHeight);
+
+	const int absTilt = ABS(tilt);
+	static const int chunkPatterns[6][7] = {
+		{16, 16, 0, 0, 0, 0, 0},
+		{8, 16, 8, 0, 0, 0, 0},
+		{4, 12, 12, 4, 0, 0, 0},
+		{4, 8, 8, 8, 4, 0, 0},
+		{4, 8, 4, 8, 4, 4, 0},
+		{4, 4, 4, 8, 4, 4, 4}
+	};
+
+	if (absTilt > 6)
+		tilt = 0;
+
+	if (tilt == 0) {
+		for (int dy = 0; dy < viewportHeight; ++dy) {
+			const int srcY = srcBaseY + dy;
+			byte *dstRow = temp + dy * tempPitch;
+			if (srcY < 0 || srcY >= srcHeight)
+				continue;
+
+			int copyX = srcBaseX;
+			int dstX = 0;
+			int copyWidth = viewportWidth;
+			if (copyX < 0) {
+				dstX = -copyX;
+				copyWidth -= dstX;
+				copyX = 0;
+			}
+			if (copyX + copyWidth > srcWidth)
+				copyWidth = srcWidth - copyX;
+			if (copyWidth > 0)
+				memcpy(dstRow + dstX, src + srcY * srcPitch + copyX, copyWidth);
+		}
+	} else {
+		const int yStep = (tilt > 0) ? 1 : -1;
+		const int xStep = (tilt > 0) ? -1 : 1;
+		const int rowShiftStep = ABS(xSkew) * 2;
+		int rowX = srcBaseX;
+		int rowY = srcBaseY;
+		int rowError = 0;
+		const int *pattern = chunkPatterns[absTilt - 1];
+		const int patternCount = absTilt + 1;
+
+		for (int dy = 0; dy < viewportHeight; ++dy) {
+			byte *dstRow = temp + dy * tempPitch;
+			int srcX = rowX;
+			int srcY = rowY;
+			int dstX = 0;
+			while (dstX < viewportWidth) {
+				for (int i = 0; i < patternCount && dstX < viewportWidth; ++i) {
+					const int chunkWidth = MIN(pattern[i], viewportWidth - dstX);
+					if (srcY >= 0 && srcY < srcHeight) {
+						int copyX = srcX;
+						int copyDstX = dstX;
+						int copyWidth = chunkWidth;
+						if (copyX < 0) {
+							copyDstX -= copyX;
+							copyWidth += copyX;
+							copyX = 0;
+						}
+						if (copyX + copyWidth > srcWidth)
+							copyWidth = srcWidth - copyX;
+						if (copyWidth > 0)
+							memcpy(dstRow + copyDstX, src + srcY * srcPitch + copyX, copyWidth);
+					}
+
+					srcX += chunkWidth;
+					dstX += chunkWidth;
+					if (i != patternCount - 1)
+						srcY += yStep;
+				}
+			}
+
+			rowY++;
+			rowError += rowShiftStep;
+			if (rowError > 0) {
+				rowError -= viewportHeight;
+				rowX += xStep;
+			}
+		}
+	}
+
+	for (int y = 0; y < viewportHeight; ++y)
+		memcpy(dst + y * dstPitch, temp + y * tempPitch, viewportWidth);
+
+	delete[] temp;
+}
+
+// RLE decoder for opaque backgrounds, including color 0.
 void smushDecodeRLEOpaque(byte *dst, const byte *src, int left, int top, int width, int height, int pitch, int dataSize) {
 	if (dataSize <= 0)
 		return;
@@ -105,13 +206,7 @@ void smushDecodeRLEOpaque(byte *dst, const byte *src, int left, int top, int wid
 	}
 }
 
-/**
- * Codec 21/44: Line Update codec
- * Used for fonts (NUT files) and some embedded HUD frames.
- * Format: Each line has a 2-byte size header, then 2-byte skip, 2-byte count pairs with literal pixels.
- * The count value needs +1 to get the actual number of pixels to copy.
- * Note: Skip regions preserve previous frame content (delta compression).
- */
+// Codec 21/44 line update.
 void smushDecodeLineUpdate(byte *dst, const byte *src, int left, int top, int width, int height, int pitch, int dataSize) {
 	if (dataSize <= 0)
 		return;
@@ -130,7 +225,6 @@ void smushDecodeLineUpdate(byte *dst, const byte *src, int left, int top, int wi
 		byte *lineDst = dst;
 
 		while (len > 0 && lineEnd - src >= 2) {
-			// Read 2-byte LE skip value
 			int skip = READ_LE_UINT16(src);
 			src += 2;
 			if (skip >= len)
@@ -138,7 +232,6 @@ void smushDecodeLineUpdate(byte *dst, const byte *src, int left, int top, int wi
 			lineDst += skip;
 			len -= skip;
 
-			// Read 2-byte LE copy count (+1 for actual count)
 			if (lineEnd - src < 2)
 				break;
 			int count = READ_LE_UINT16(src) + 1;
@@ -146,7 +239,6 @@ void smushDecodeLineUpdate(byte *dst, const byte *src, int left, int top, int wi
 			if (count > len)
 				count = len;
 
-			// Copy literal pixels
 			int toCopy = count;
 			if (toCopy > (int)(lineEnd - src))
 				toCopy = (int)(lineEnd - src);
@@ -162,12 +254,7 @@ void smushDecodeLineUpdate(byte *dst, const byte *src, int left, int top, int wi
 	}
 }
 
-/**
- * Codec 23: Skip/Copy with embedded RLE
- * Used for video frames with skip regions.
- * Format: Each line has 2-byte size, then (skip, runSize, RLE_data) triplets.
- * Note: Skip regions preserve previous frame content (delta compression).
- */
+// Codec 23 skip/copy with embedded RLE.
 void smushDecodeSkipRLE(byte *dst, const byte *src, int left, int top, int width, int height, int pitch, int dataSize) {
 	dst += top * pitch + left;
 	const byte *srcEnd = src + dataSize;
@@ -186,7 +273,7 @@ void smushDecodeSkipRLE(byte *dst, const byte *src, int left, int top, int width
 		while (src + 2 <= lineEnd && x < width) {
 			int skip = READ_LE_UINT16(src);
 			src += 2;
-			x += skip;  // Skip preserves previous frame content
+			x += skip;
 			if (src + 2 > lineEnd || x >= width)
 				break;
 
@@ -196,7 +283,6 @@ void smushDecodeSkipRLE(byte *dst, const byte *src, int left, int top, int width
 			if (runEnd > lineEnd)
 				runEnd = lineEnd;
 
-			// Decode RLE within this run - write ALL colors including 0
 			while (src < runEnd && x < width) {
 				byte code = *src++;
 				int num = (code >> 1) + 1;
@@ -204,12 +290,10 @@ void smushDecodeSkipRLE(byte *dst, const byte *src, int left, int top, int width
 					num = width - x;
 
 				if (code & 1) {
-					// RLE run - repeat color
 					byte color = (src < runEnd) ? *src++ : 0;
 					memset(lineDst + x, color, num);
 					x += num;
 				} else {
-					// Literal run - copy bytes
 					int toCopy = num;
 					if (toCopy > (int)(runEnd - src))
 						toCopy = (int)(runEnd - src);
@@ -225,9 +309,7 @@ void smushDecodeSkipRLE(byte *dst, const byte *src, int left, int top, int width
 	}
 }
 
-// Codec 23: a skip/run RLE that tints the background in place (no pixel data). Per line,
-// lineDataSize(2) then [skip(1), run(1)] pairs; each run pixel becomes remap[background]
-// (translucency) or background+addColor.
+// Codec 23 skip/run remap that tints the background in place.
 void smushDecodeRA2SkipRemap(byte *dst, const byte *src, int left, int top, int width, int height, int pitch, int dataSize, const byte *remap, byte addColor) {
 	dst += top * pitch + left;
 	const byte *srcEnd = src + dataSize;
@@ -270,7 +352,7 @@ bool smushPrepareRA2BlurData(const byte *src, int dataSize, byte *palette, byte 
 	if (src == nullptr || dataSize < 6 || palette == nullptr || lookup == nullptr)
 		return false;
 
-	// FUN_0042B530 only processes this codec body when byte +4 is 1.
+	// Byte 4 gates whether this codec body is valid.
 	if (src[4] != 1)
 		return false;
 
@@ -307,15 +389,20 @@ bool smushPrepareRA2BlurData(const byte *src, int dataSize, byte *palette, byte 
 	return maskSize > 3;
 }
 
-/**
- * Codec 45: RA2 blur/wipe mask.
- * Original path: FUN_0042B460 -> FUN_0042B530 -> FUN_0042DDF0.
- */
-void smushDecodeRA2Blur(byte *dst, const byte *src, int left, int top, int dstWidth, int dstHeight, int pitch, int dataSize, byte *palette, byte *lookup) {
+static void smushDecodeRA2BlurImpl(byte *dst, const byte *src, int left, int top,
+		int clipLeft, int clipTop, int clipRight, int clipBottom,
+		int dstWidth, int dstHeight, int pitch, int dataSize, byte *palette, byte *lookup) {
 	const byte *maskData = nullptr;
 	int maskSize = 0;
 	if (dst == nullptr || dstWidth <= 2 || dstHeight <= 2 || pitch <= 0 ||
 			!smushPrepareRA2BlurData(src, dataSize, palette, lookup, maskData, maskSize))
+		return;
+
+	clipLeft = CLIP<int>(clipLeft + 1, 1, dstWidth - 1);
+	clipTop = CLIP<int>(clipTop + 1, 1, dstHeight - 1);
+	clipRight = CLIP<int>(clipRight - 1, 1, dstWidth - 1);
+	clipBottom = CLIP<int>(clipBottom - 1, 1, dstHeight - 1);
+	if (clipLeft >= clipRight || clipTop >= clipBottom)
 		return;
 
 	int x = left;
@@ -332,8 +419,8 @@ void smushDecodeRA2Blur(byte *dst, const byte *src, int left, int top, int dstWi
 		y += dy;
 
 		for (int i = 0; i <= count; ++i) {
-			if (x > 0 && y > 0 && x < dstWidth - 1) {
-				if (y >= dstHeight - 1)
+			if (x >= clipLeft && y >= clipTop && x < clipRight) {
+				if (y >= clipBottom)
 					return;
 
 				byte *pixel = dst + y * pitch + x;
@@ -357,6 +444,18 @@ void smushDecodeRA2Blur(byte *dst, const byte *src, int left, int top, int dstWi
 		}
 		--x;
 	}
+}
+
+void smushDecodeRA2Blur(byte *dst, const byte *src, int left, int top, int dstWidth, int dstHeight, int pitch, int dataSize, byte *palette, byte *lookup) {
+	smushDecodeRA2BlurImpl(dst, src, left, top, 0, 0, dstWidth, dstHeight,
+		dstWidth, dstHeight, pitch, dataSize, palette, lookup);
+}
+
+void smushDecodeRA2BlurClip(byte *dst, const byte *src, int left, int top,
+		int clipLeft, int clipTop, int clipRight, int clipBottom,
+		int dstWidth, int dstHeight, int pitch, int dataSize, byte *palette, byte *lookup) {
+	smushDecodeRA2BlurImpl(dst, src, left, top, clipLeft, clipTop, clipRight, clipBottom,
+		dstWidth, dstHeight, pitch, dataSize, palette, lookup);
 }
 
 } // End of namespace Scumm

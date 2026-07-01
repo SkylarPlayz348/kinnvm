@@ -376,8 +376,15 @@ int MixerImpl::mixCallback(byte *samples, uint len) {
 			}
 		}
 
-	// optimisation: let the caller know that there's nothing to clamp
-	return (!_clamp && !zeroed) ? 0 : res;
+	if (!zeroed) {
+		if (_clamp) {
+			memset(samples, 0, len);
+		} else {
+			// optimization: let the caller know that there's nothing to clamp
+			res = 0;
+		}
+	}
+	return res;
 }
 
 void MixerImpl::stopAll() {

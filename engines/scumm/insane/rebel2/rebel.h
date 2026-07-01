@@ -217,7 +217,7 @@ public:
 	void deletePilot(int index);
 	void copyPilot(int srcIndex);
 
-	void updatePilotProgress(int levelIndex, int32 score, int32 lives, int32 damage);
+	void updatePilotProgress(int levelIndex, int32 score, int32 lives, int32 damage, int32 rating);
 
 	enum LevelSelectResult {
 		kLevelSelectBack = 0,
@@ -260,6 +260,7 @@ public:
 	int runLevel(int levelId);
 	void playLevelBegin(int levelId);
 	void playLevelEnd(int levelId);
+	void playLevelEnd(int levelId, int accuracy, int flightErrors, bool skillBonus);
 	void playLevelRetry(int levelId);
 	void playLevelGameOver(int levelId);
 	void playEndingSequence();
@@ -330,6 +331,29 @@ public:
 	int _textOverlayFadeOut;
 
 	void renderTextOverlay(byte *renderBitmap, int pitch, int width, int height, int curFrame);
+	void renderLevelEndStatsOverlay(byte *renderBitmap, int pitch, int width, int height, int32 curFrame, int32 maxFrame);
+	void drawLevelEndTextBlock(byte *renderBitmap, const char *text, int centerX, int y);
+	void prepareLevelEndStats(int levelId, int accuracy, int flightErrors, bool skillBonus);
+	int calculateLevelEndRating(int accuracy, int accLow, int accHigh, int flightErrors, int errLow, int errHigh, bool skillBonus) const;
+
+	struct LevelEndStatsOverlay {
+		bool active;
+		int levelId;
+		int textX;
+		int textY;
+		int titleStartBeforeEnd;
+		int titleEndBeforeEnd;
+		bool hasAccuracy;
+		bool hasFlightErrors;
+		bool skillBonus;
+		int accuracy;
+		int flightErrors;
+		int bonus;
+		int finalScore;
+		int oldRating;
+		int newRating;
+	};
+	LevelEndStatsOverlay _levelEndStats;
 	void playLevelDeathVariant(int levelId, int phase, int frame);
 	void playLevelRetryVariant(int levelId, int phase);
 
@@ -420,7 +444,6 @@ public:
 					  int32 setupsan13, Common::SeekableReadStream &b, int32 size, int32 flags,
 					  int16 par1, int16 par2, int16 par3, int16 par4) override;
 
-	// Rendering helpers.
 	void renderStatusBarBackground(byte *renderBitmap, int pitch, int width, int height,
 								   int videoWidth, int videoHeight, int statusBarY);
 
@@ -428,7 +451,8 @@ public:
 	void updatePostRenderDeath();
 	void renderPostRenderMenuCursor(byte *renderBitmap, int pitch, int width, int height);
 	bool handlePostRenderMenuModes(byte *renderBitmap, int pitch, int width, int height, bool introPlaying);
-	bool handlePostRenderIntro(byte *renderBitmap, int pitch, int width, int height, int32 curFrame);
+	bool handlePostRenderIntro(byte *renderBitmap, int pitch, int width, int height, int32 curFrame, int32 maxFrame);
+	void prepareHandler7Viewport(byte *renderBitmap, int pitch, int width, int height);
 	void renderGameplayPostFrame(byte *renderBitmap, int pitch, int width, int height,
 								 int videoWidth, int videoHeight, int statusBarY, int32 curFrame);
 	void updateGameplayDamageEffects(byte *renderBitmap, int pitch, int width, int height);
@@ -455,7 +479,6 @@ public:
 	void renderCrosshair(byte *renderBitmap, int pitch, int width, int height);
 	void renderHandler8MonitorEffect(byte *renderBitmap, int pitch, int width, int height);
 	void renderHandler8PovOverlay(byte *renderBitmap, int pitch, int width, int height);
-	Common::Point getHandler7ShipDrawPoint();
 	Common::Point getHandler7ProjectedPointFor(int16 x, int16 y);
 	Common::Point getHandler7ProjectedPoint();
 	Common::Point getHandler7ShotTargetPoint();
@@ -616,11 +639,13 @@ public:
 	void checkHandler7RightBoundary(const CollisionZone &zone, int16 hMargin, int wallDamage);
 	void checkHandler7BoundaryZones(uint16 &warningMask);
 	void renderHandler7WarningCues(byte *renderBitmap, int pitch, int width, int height, int32 curFrame, uint16 warningMask);
+	void updateLevel7Fork(int32 curFrame);
 
 	int16 _playerDamage;
 	int16 _playerShield;
 	int16 _playerLives;
 	int32 _playerScore;
+	int32 _playerRating;
 
 	int _viewX;
 	int _viewY;
@@ -791,6 +816,10 @@ public:
 
 	int16 _flyShipScreenX;
 	int16 _flyShipScreenY;
+
+	// Level 7 (handler-7 flight) corridor fork: 07PLAY -> 07PLAYB right branch.
+	bool _level7ForkActive;     // armed only while 07PLAY is playing
+	bool _level7TookRightFork;  // sampled at frame 0x638: ship on the right half
 
 	int16 _smoothedVelocity;
 	int16 _verticalInput;

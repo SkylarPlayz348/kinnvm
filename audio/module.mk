@@ -72,6 +72,21 @@ MODULE_OBJS := \
 	softsynth/pcspk.o \
 	softsynth/ay8912.o
 
+ifdef USE_HMI_AUDIO
+MODULE_OBJS += \
+	effects/hmi/interfaces/envelope.o \
+	effects/hmi/interfaces/filter1.o \
+	effects/hmi/hmifxfp.o \
+	effects/hmi/hmifxlib.o \
+	effects/hmi/interfaces/mono_delay.o \
+	effects/hmi/interfaces/phasor.o \
+	effects/hmi/interfaces/resonator.o \
+	effects/hmi/interfaces/reverb1.o \
+	effects/hmi/interfaces/reverb2.o \
+	effects/hmi/interfaces/ring_modulator.o \
+	effects/hmi/interfaces/stereo_delay.o
+endif
+
 ifndef DISABLE_NUKED_OPL
 MODULE_OBJS += \
 	softsynth/opl/nuked.o

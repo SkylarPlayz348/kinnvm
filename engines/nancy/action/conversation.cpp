@@ -32,6 +32,7 @@
 #include "engines/nancy/resource.h"
 
 #include "engines/nancy/action/conversation.h"
+#include "engines/nancy/action/secondarymovie.h"
 
 #include "engines/nancy/state/scene.h"
 
@@ -381,6 +382,13 @@ void ConversationSound::execute() {
 
 					if (!ConfMan.getBool("speech_mute") && ConfMan.getBool("player_speech")) {
 						g_nancy->_sound->playSound(_responseGenericSound);
+					}
+
+					// Nancy 11+: play a fresh random sequence as the character's response anim.
+					if (PlaySecondaryMovie *active = NancySceneState.getActiveMovie()) {
+						if (active->_isRandom) {
+							active->playRandomSequence();
+						}
 					}
 
 					_state = kActionTrigger;
@@ -845,8 +853,9 @@ void ConversationCel::readXSheet(Common::SeekableReadStream &stream, const Commo
 	// Read the xsheet and load all images into the arrays
 	// Completely unoptimized, the original engine uses a buffer
 	xsheet->seek(0);
-	Common::String signature = xsheet->readString('\0', 18);
-	if (signature != "XSHEET WayneSikes") {
+	const uint16 sigLength = g_nancy->getGameType() <= kGameTypeNancy11 ? 18 : 22;
+	Common::String signature = xsheet->readString('\0', sigLength);
+	if (signature != "XSHEET WayneSikes" && signature != "XSHEET HerInteractive") {
 		warning("XSHEET signature doesn't match!");
 		return;
 	}

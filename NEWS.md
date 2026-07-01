@@ -1,13 +1,42 @@
 For a more comprehensive changelog of the latest experimental code, see:
         https://github.com/scummvm/scummvm/commits/
 
-#### 2026.4.0 "Carousels & Killer Whales" (2026-10-XX)
+#### 2026.4.0 (2026-10-XX)
+
  General:
    - Optimised mixing and rate converters, for better performance.
+   - Implemented ImGui-based interface for the Event Recorder.
+   - Fixed bug with inability to specify game overrides for MIDI and MT-32
+     devices.
+   - Switched Nuked-OPL3 AdLib emulator to Nuked-OPL3-fast fork.
+
+ GLK:
+   - Fixed saved font selections not being applied correctly in some games.
+   - Added support for loading ZX Spectrum games directly from TAP/TZX tape images.
+
+ Freescape:
+   - Added support for loading ZX Spectrum games directly from TAP/TZX tape images.
+
+ MM:
+   - Fix multiple M&M1 classic combat crashes.
+   - Implement M&M1 classic PC speaker sound.
+   - Fix stale view close handling causing crash.
+   - Fix M&M1 spelling mistakes.
+   - Improved M&M1 Enhanced mouse support, character generation, and general in-game UI.
+
+ NANCY:
+   - Generic flags are no longer cleared when saving or auto-saving. Clearing
+     them introduced issues when auto-saving was done in some scenes.
+   - Loading from the GMM is now possible before starting a new scene.
+
+ SCUMM:
+   - Improved cursor scale in early Windows HE games.
+
+ SLUDGE:
+   - Added detection for Shape-Shift Escape.
 
  Atari port:
    - Added integration with nFM library.
-
 
 #### 2026.3.0 "Carousels & Killer Whales" (2026-06-20)
 

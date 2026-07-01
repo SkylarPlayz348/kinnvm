@@ -25,6 +25,7 @@
 #define FORBIDDEN_SYMBOL_EXCEPTION_time_h
 
 #include "backends/base-backend.h"
+#include "common/frac.h"
 #include "graphics/blit.h"
 #include "graphics/dirtyrects.h"
 #include "graphics/paletteman.h"
@@ -184,8 +185,9 @@ public:
 	bool showMouse(bool visible);
 	void warpMouse(int x, int y);
 	void setMouseCursor(const void *buf, uint w, uint h, int hotspotX,
-	                    int hotspotY, uint32 keycolor, bool dontScale = false,
-	                    const Graphics::PixelFormat *format = NULL, const byte *mask = NULL);
+	                    int hotspotY, uint32 keycolor,
+	                    const Graphics::PixelFormat *format, const byte *mask,
+	                    frac_t scaleX, frac_t scaleY);
 	void setCursorPalette(const byte *colors, uint start, uint num);
 
 	// Transform point from touchscreen coords into gamescreen coords
@@ -292,7 +294,6 @@ private:
 	Sprite _cursorTexture;
 	bool _cursorPaletteEnabled;
 	bool _cursorVisible;
-	bool _cursorScalable;
 	float _cursorScreenX, _cursorScreenY;
 	float _cursorOverlayX, _cursorOverlayY;
 	float _cursorDeltaX, _cursorDeltaY;

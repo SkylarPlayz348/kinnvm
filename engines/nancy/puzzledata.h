@@ -254,6 +254,53 @@ private:
 	void syncLinkArray(Common::Serializer &ser, Common::Array<LinkEntry> &arr);
 };
 
+// Nancy 11+ AR 69 (TimerControl). 10 software timers, each counting up from
+// zero. A "configured" timer (state 5/6) fires a set of event flags, plays an
+// optional sound and shows an optional caption once its target duration
+// elapses. Started/stopped via ResetAndStartTimer (104) and StopTimer (105),
+// which in Nancy 11 carry a timer-slot index.
+struct TimerData : public PuzzleData {
+	struct Timer {
+		enum State { kIdle = 0, kRunning = 1, kPaused = 2, kOneShot = 5, kRepeating = 6 };
+
+		int32 state = kIdle;
+		uint32 currentTimeMs = 0;
+		uint32 durationMs = 0;
+		bool hasFired = false;
+		SoundDescription sound;
+		Common::String autotextKey;
+		Common::String caption;
+		FlagDescription flags[10];
+
+		void reset() { *this = Timer(); }
+	};
+
+	static const uint kNumTimers = 10;
+
+	TimerData() {}
+	virtual ~TimerData() {}
+
+	static constexpr uint32 getTag() { return MKTAG('T', 'M', 'R', 'S'); }
+	virtual void synchronize(Common::Serializer &ser);
+
+	Timer timers[kNumTimers];
+};
+
+// Nancy 12+ UI resource values (from the UIRC boot chunk), e.g. resource 0 is
+// the coin purse amount in cents. Seeded from UIRC on first use, mutated by AR
+// 132 (ResourceUse), and persisted between saves.
+struct UIResourceData : public PuzzleData {
+	UIResourceData() {}
+	virtual ~UIResourceData() {}
+
+	static constexpr uint32 getTag() { return MKTAG('U', 'R', 'E', 'S'); }
+	virtual void synchronize(Common::Serializer &ser);
+
+	// Set true once seeded from UIRC, so a loaded save isn't re-seeded.
+	bool seeded = false;
+	Common::Array<int32> values;
+};
+
 PuzzleData *makePuzzleData(const uint32 tag);
 
 } // End of namespace Nancy

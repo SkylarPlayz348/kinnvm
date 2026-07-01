@@ -165,6 +165,7 @@ uint CursorManager::resolveNancy10CursorID(CursorType type, int16 itemID, bool s
 	case kHotspotTalk:          return kNewHotspotTalk;
 	case kDragHand:             return kNewDragHand;
 	case kDropHand:             return kNewDropHand;
+	case kPuzzleArrow:          return kNewPuzzleArrow;
 	case kNormalArrow:          return kNewNormalArrow;
 	case kHotspotArrow:         return kNewHotspotArrow;
 	case kExit:                 return kNewExit;
@@ -338,7 +339,7 @@ void CursorManager::applyCursor() {
 
 		Graphics::ManagedSurface temp(*surf, bounds);
 
-		CursorMan.replaceCursor(temp, hotspot.x, hotspot.y, g_nancy->_graphics->getTransColor(), false);
+		CursorMan.replaceCursor(temp, hotspot.x, hotspot.y, g_nancy->_graphics->getTransColor());
 		if (g_nancy->getGameType() == kGameTypeVampire) {
 			byte palette[3 * 256];
 			surf->grabPalette(palette, 0, 256);

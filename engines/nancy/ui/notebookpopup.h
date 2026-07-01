@@ -22,6 +22,7 @@
 #ifndef NANCY_UI_NOTEBOOKPOPUP_H
 #define NANCY_UI_NOTEBOOKPOPUP_H
 
+#include "engines/nancy/commontypes.h"
 #include "engines/nancy/renderobject.h"
 #include "engines/nancy/misc/hypertext.h"
 
@@ -69,8 +70,8 @@ private:
 	// Paint foreground widgets (close button, scrollbar) on top of the
 	// already-drawn background + content layers.
 	void drawForeground();
-	void drawCloseButton(WidgetState state);
-	void drawScrollbar(WidgetState state);
+	void drawCloseButton(bool hovered);
+	void drawScrollbar(UIButtonState state);
 
 	// Returns the on-popup-surface bounding rect of the slider thumb at
 	// the current scroll position (in popup-local coords).
@@ -83,8 +84,6 @@ private:
 	// Populate HypertextParser's text-line list with the active tab's
 	// entries.
 	void buildTextLines();
-
-	void paintPaperIntoFullSurface();
 
 	const UINB *_uinbData;
 
@@ -101,9 +100,11 @@ private:
 	bool _scrollbarHovered = false;
 	int _scrollbarGrabOffset = 0;
 
+	// journalEntries HashMap keys: _surfaceID = 3 holds task entries,
+	// _surfaceID = 4 holds journal entries.
 	enum NotebookTab {
-		kNotebookTabJournal = 3,
-		kNotebookTabTasks = 4
+		kNotebookTabTasks   = 3,
+		kNotebookTabJournal = 4
 	};
 };
 

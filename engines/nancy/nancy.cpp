@@ -220,6 +220,58 @@ const EngineData *NancyEngine::getEngineData(const Common::String &name) const {
 	return nullptr;
 }
 
+// From Nancy12 the event flags are split into two ranges: 1000 generic engine
+// flags (labels 1000-1999) followed by the game-specific flags (labels from 2000),
+// whose names are listed in the EVNT chunk.
+static const uint kNumGenericEventFlags = 1000;
+
+// Nancy12 keeps no names for its engine-internal flags in the 1xxx range; it
+// builds them at runtime by joining a category name with the flag's position
+// inside the category. These are the label ranges it assigns to each category.
+struct GenericEventFlagCategory {
+	uint16 firstLabel;
+	uint16 lastLabel;
+	const char *name;
+};
+
+static const GenericEventFlagCategory kGenericEventFlagCategories[] = {
+	{ 1010, 1040, "Generic" },
+	{ 1100, 1110, "Timer" },
+	{ 1512, 1532, "Meta_Award" },
+	{ 1533, 1558, "Said_Comment" },
+	{ 1559, 1658, "Empty" }
+};
+
+const Common::String NancyEngine::getEventFlagName(uint flagID) const {
+	if (getGameType() <= kGameTypeNancy11) {
+		// All flag names are stored in the executable
+		if (flagID >= 1000) {
+			// In nancy3 and onwards flags begin from 1000
+			flagID -= 1000;
+		}
+		return (flagID < _staticData.eventFlagNames.size()) ? _staticData.eventFlagNames[flagID] : "";
+	}
+
+	// Nancy12 split the flags in two: the game-specific flags were moved to the
+	// EVNT chunk and renumbered from 2000, while the engine's generic flags kept
+	// their 1xxx numbering
+	if (flagID >= 2000) {
+		flagID -= 2000;
+
+		const Common::Array<Common::String> &flagNames = ((EVNT *)getEngineData("EVNT"))->eventFlagNames;
+		return (flagID < flagNames.size()) ? flagNames[flagID] : "";
+	}
+
+	for (uint i = 0; i < ARRAYSIZE(kGenericEventFlagCategories); ++i) {
+		const GenericEventFlagCategory &category = kGenericEventFlagCategories[i];
+		if (flagID >= category.firstLabel && flagID <= category.lastLabel) {
+			return Common::String::format("%s%u", category.name, flagID - category.firstLabel);
+		}
+	}
+
+	return "";
+}
+
 void NancyEngine::setState(NancyState::NancyState state, NancyState::NancyState overridePrevious) {
 	// Handle special cases first
 	switch (state) {
@@ -429,8 +481,14 @@ void NancyEngine::bootGameEngine() {
 	_resource->readCifTree("ciftree", "dat", 1);
 	_resource->readCifTree("promotree", "dat", 1);
 
-	// Read nancy.dat
-	readDatFile();
+	// Read the static data. Up to Nancy11 it lives in nancy.dat; from Nancy12
+	// onwards the game ships it in its own data files, so the engine only needs
+	// to provide the few remaining hardcoded values itself.
+	if (getGameType() <= kGameTypeNancy11) {
+		readDatFile();
+	} else {
+		populateStaticData();
+	}
 
 	// Setup mixer
 	syncSoundSettings();
@@ -441,11 +499,20 @@ void NancyEngine::bootGameEngine() {
 
 	// Load BOOT chunks data
 	Common::SeekableReadStream *chunkStream = nullptr;
-	#define LOAD_BOOT_L(t, s) if (chunkStream = iff->getChunkStream(s), chunkStream) {	\
-								_engineData.setVal(s, new t(chunkStream));				\
-								delete chunkStream;										\
-							}
+	#define LOAD_BOOT_L(t, s)	if (chunkStream = iff->getChunkStream(s), chunkStream) {	\
+									_engineData.setVal(s, new t(chunkStream));				\
+									delete chunkStream;										\
+								}
 	#define LOAD_BOOT(t) LOAD_BOOT_L(t, #t)
+
+	#define LOAD_CHUNK(n, t, s, k)	iff = _resource->loadIFF(n);								\
+									if (!iff)													\
+										error("Failed to load %s", n);							\
+									if (chunkStream = iff->getChunkStream(s), chunkStream) {	\
+										_engineData.setVal(k, new t(chunkStream));				\
+										delete chunkStream;										\
+									}															\
+									delete iff;
 
 	LOAD_BOOT_L(ImageChunk, "OB0")
 	LOAD_BOOT_L(ImageChunk, "FR0")
@@ -487,23 +554,23 @@ void NancyEngine::bootGameEngine() {
 	LOAD_BOOT(TASK)	// Task bar (main UI)
 	LOAD_BOOT(UIIV)	// Inventory UI
 	LOAD_BOOT(UICO)	// Conversation UI
-	LOAD_BOOT(UICL) // Cell phone UI
-	LOAD_BOOT(UIBW) // Web browser UI
-	LOAD_BOOT(UINB) // Notebook UI
+	LOAD_BOOT(UICL)	// Cell phone UI
+	LOAD_BOOT(UIBW)	// Web browser UI
+	LOAD_BOOT(UINB)	// Notebook UI
 
 	// Nancy 11+
-	LOAD_BOOT(SCTB)	// Scheduled talk (?) UI
+	LOAD_BOOT(SCTB)	// Scrollable text box UI
 
 	// Nancy 12+
-	// HINT chunk has been removed
-	// LOAD_BOOT(EVNT)
-	// LOAD_BOOT(UIRC)
+	// HINT chunk has been removed (the hint system and its action record were dropped in Nancy12)
+	// EVNT chunk added, which contains event flag names (loaded below)
+	LOAD_BOOT(UIRC)	// UI overlay element table
 
 	// Nancy 13+
 	// RCPR and RCLB chunks have been removed
 	// LOAD_BOOT(MMIX)
 
-	// Nancy 14+
+	// Nancy 14
 	// LOAD_BOOT(UICM)
 
 	// Nancy 15+
@@ -535,32 +602,23 @@ void NancyEngine::bootGameEngine() {
 
 	delete iff;
 
+	if (getGameType() >= kGameTypeNancy12) {
+		LOAD_CHUNK("FLAGS", EVNT, "EVNT", "EVNT")
+
+		// The total number of event flags is the 1000 generic flags plus the
+		// game-specific flags listed in the EVNT chunk, so compute it from the
+		// game data instead of relying on the hardcoded value
+		auto *evnt = (const EVNT *)getEngineData("EVNT");
+		if (evnt) {
+			_staticData.numEventFlags = (uint16)(kNumGenericEventFlags + evnt->eventFlagNames.size());
+		}
+	}
+
 	// Load convo texts and autotext
 	auto *bsum = GetEngineData(BSUM);
 	if (bsum && !bsum->conversationTextsFilename.empty() && !bsum->autotextFilename.empty()) {
-		iff = _resource->loadIFF(bsum->conversationTextsFilename);
-		if (!iff) {
-			error("Could not load CONVO IFF");
-		}
-
-		if (chunkStream = iff->getChunkStream("CVTX"), chunkStream) {
-			_engineData.setVal("CONVO", new CVTX(chunkStream));
-			delete chunkStream;
-		}
-
-		delete iff;
-
-		iff = _resource->loadIFF(bsum->autotextFilename);
-		if (!iff) {
-			error("Could not load AUTOTEXT IFF");
-		}
-
-		if (chunkStream = iff->getChunkStream("CVTX"), chunkStream) {
-			_engineData.setVal("AUTOTEXT", new CVTX(chunkStream));
-			delete chunkStream;
-		}
-
-		delete iff;
+		LOAD_CHUNK(bsum->conversationTextsFilename.toString().c_str(), CVTX, "CVTX", "CONVO")
+		LOAD_CHUNK(bsum->autotextFilename.toString().c_str(), CVTX, "CVTX", "AUTOTEXT")
 	}
 
 	#undef LOAD_BOOT_L
@@ -698,6 +756,50 @@ void NancyEngine::readDatFile() {
 	_staticData.readData(*datFile, _gameDescription->desc.language, nextGameOffset, major, minor);
 
 	delete datFile;
+}
+
+void NancyEngine::populateStaticData() {
+	// The number of inventory items and cursor types is the only per-game data
+	// that still has to be hardcoded: both are needed to parse the INV and CURS
+	// chunks, which consume the counts rather than publishing them.
+	switch (getGameType()) {
+	case kGameTypeNancy12:
+		_staticData.numItems = 70;
+		_staticData.numCursorTypes = 37;
+		break;
+	case kGameTypeNancy13:
+		_staticData.numItems = 50;
+		_staticData.numCursorTypes = 37;
+		break;
+	case kGameTypeNancy14:
+	case kGameTypeNancy15:
+		_staticData.numItems = 50;
+		_staticData.numCursorTypes = 44;
+		break;
+	default:
+		_staticData.numItems = 50;
+		_staticData.numCursorTypes = 37;
+		break;
+	}
+
+	// Generic event flags occupy labels 1010-1040 (indices 10-40), and the
+	// won-game flag is label 1042 (index 42). numEventFlags is computed from the
+	// EVNT chunk later in bootGameEngine; this is just a fallback if it is absent.
+	_staticData.numEventFlags = kNumGenericEventFlags;
+	_staticData.genericEventFlags.resize(31);
+	for (uint i = 0; i < _staticData.genericEventFlags.size(); ++i) {
+		_staticData.genericEventFlags[i] = 10 + i;
+	}
+	_staticData.wonGameFlagID = 42;
+	_staticData.logoEndAfter = 4000;
+
+	// Sound channel layout, unchanged since Nancy3
+	SoundChannelInfo &sci = _staticData.soundChannelInfo;
+	sci.numChannels = 32;
+	sci.numSceneSpecificChannels = 14;
+	sci.speechChannels = { 12, 13, 30 };
+	sci.musicChannels = { 0, 1, 2, 3, 19, 26, 27, 29 };
+	sci.sfxChannels = { 4, 5, 6, 7, 8, 9, 10, 11, 17, 18, 20, 21, 22, 23, 24, 25, 31 };
 }
 
 Common::Error NancyEngine::synchronize(Common::Serializer &ser) {

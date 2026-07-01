@@ -30,7 +30,6 @@ MODULE_OBJS := \
 ifdef USE_HTTP
 MODULE_OBJS += \
 	networking/http/connectionmanager.o \
-	networking/http/networkreadstream.o \
 	networking/http/httpjsonrequest.o \
 	networking/http/httprequest.o \
 	networking/http/postrequest.o \
@@ -104,7 +103,9 @@ MODULE_OBJS += \
 	fs/emscripten/emscripten-fs-factory.o \
 	fs/emscripten/emscripten-posix-fs.o \
 	fs/emscripten/http-fs.o \
-	midi/webmidi.o
+	midi/webmidi.o \
+	mixer/emscriptensdl/emscriptensdl-mixer.o \
+	timer/emscripten/emscripten-timer.o
 ifdef USE_CLOUD
 MODULE_OBJS += \
 	fs/emscripten/cloud-fs.o

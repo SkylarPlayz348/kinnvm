@@ -19,8 +19,8 @@
  *
  */
 
-#ifndef MADS_CORE_EXTRA_H
-#define MADS_CORE_EXTRA_H
+#ifndef MADS_FOREST_EXTRA_H
+#define MADS_FOREST_EXTRA_H
 
 #include "mads/madsv2/core/general.h"
 
@@ -28,10 +28,22 @@ namespace MADS {
 namespace MADSV2 {
 namespace Forest {
 
-#define JOURNAL_FLY            1 
-#define BP_FLY                 2
-#define CANDLE_FLY             3
-#define DOOR_FLY               4
+// Interface sprites
+enum {
+	fx_int_journal          = 0,
+	fx_int_backpack         = 1,
+	fx_int_candle           = 2,
+	fx_int_exit             = 3,
+	fx_int_dooropen         = 4,
+	fx_int_candle_on        = 5
+};
+
+enum InterfaceButton {
+	JOURNAL_FLY            = 1, 
+	BP_FLY                 = 2,
+	CANDLE_FLY             = 3,
+	DOOR_FLY               = 4
+};
 
 /**************               NOTE:                 *********************/
 /** IF following values are changed, then recompile EXTRA.C & GAME_3.C **/
@@ -45,23 +57,34 @@ namespace Forest {
 #define DOOR_X                 264   /* X for top left corner of DOOR    */
 #define DOOR_Y                 2     /* Y for top left corner of DOOR    */
 
-extern void fly_on_screen(int flying_object);
-extern void fly_off_screen(int flying_object);
+extern int int_sprite[6];
+extern bool knuthole_flag;
+extern int paul_object_showing;
 
-extern void display_interface();
-extern void display_inventory(void);
-extern void solve_me_selected(void);
-extern void door_selected(void);
+extern void init_extra();
 
-extern void do_interface_for_ouaf();
+inline void extra_blank_knothole() {
+	knuthole_flag = 0;
+}
 
-extern void extra_spinning_object(void);
-extern void extra_inven_preserve_palette(void);
+extern void clear_selected_item();
+extern void display_inventory();
+extern void solve_me_selected();
+extern void door_selected();
+
+extern void load_interface();
+extern void unload_interface();
+extern void draw_interface();
+extern void do_interface();
+
 extern void stamp_sprite_to_interface(int x, int y, int sprite, int series);
 extern void delete_sprite_in_interface(int series);
 extern void extra_change_animation(int handle, int x, int y, byte scale, byte depth);
 extern void extra_shift_animation(int handle, int x, int y, byte scale);
-extern void extra_blank_knothole(void);
+extern void extra_blank_knothole();
+extern void inter_update_series(int series_id);
+extern void open_interface(InterfaceButton button);
+extern void close_interface(InterfaceButton button);
 
 } // namespace Forest
 } // namespace MADSV2

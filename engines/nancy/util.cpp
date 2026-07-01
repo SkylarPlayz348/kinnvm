@@ -248,16 +248,6 @@ void readFilenameArray(Common::Serializer &stream, Common::Array<Common::Path> &
 	}
 }
 
-// Names with a leading '*' are CVTX (AUTOTEXT) keys for the real filename.
-void resolveSoundNameAutoText(Common::String &name) {
-	if (name.empty() || name.firstChar() != '*') {
-		return;
-	}
-	const CVTX *autotext = (const CVTX *)g_nancy->getEngineData("AUTOTEXT");
-	name.deleteChar(0);
-	name = getTextFromCaseInsensitiveKey(autotext->texts, name);
-}
-
 void readUIButton(Common::SeekableReadStream &stream, UIButtonRecord &dst) {
 	// Read common fields for both buttons and sliders
 	readFilename(stream, dst.primaryImageName);
@@ -369,7 +359,14 @@ Common::String getTextFromCaseInsensitiveKey(Common::HashMap<Common::String, Com
 		if (texts.contains(key))
 			return texts[key];
 
+		// Try all uppercase
 		key.toUppercase();
+
+		if (texts.contains(key))
+			return texts[key];
+
+		// Check for lowercase cases for the second to last character, for Nancy11+
+		key[key.size() - 2] = tolower(key[key.size() - 2]);
 
 		if (texts.contains(key))
 			return texts[key];

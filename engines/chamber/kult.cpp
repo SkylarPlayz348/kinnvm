@@ -19,7 +19,6 @@
  *
  */
 
-#include "common/config-manager.h"
 #include "common/error.h"
 #include "common/system.h"
 #include "engines/advancedDetector.h"
@@ -31,6 +30,7 @@
 #include "chamber/decompr.h"
 #include "chamber/cga.h"
 #include "chamber/ega.h"
+#include "chamber/amiga.h"
 #include "chamber/ega_resource.h"
 #include "chamber/anim.h"
 #include "chamber/cursor.h"
@@ -113,11 +113,12 @@ uint16 benchmarkCpu(void) {
 
 void randomize(void) {
 	// Original read the low byte of the BIOS timer-tick count (int 0x1A) into
-	// rand_seed. Use the host millisecond timer as an equivalent entropy source.
-	if (ConfMan.hasKey("random_seed"))
-		rand_seed = (byte)ConfMan.getInt("random_seed");
-	else
-		rand_seed = (byte)(g_system->getMillis());
+	// rand_seed, the starting offset into the fixed aleat_data[] table that
+	// getRand() walks. Keep that table (it reproduces the DOS game's exact
+	// random distribution) but derive the offset from ScummVM's RandomSource:
+	// its constructor already honors the "random_seed" config key for
+	// reproducible runs and otherwise seeds from the time/date.
+	rand_seed = (byte)g_vm->_rnd->getRandomNumber(255);
 	getRand();
 }
 
@@ -184,13 +185,19 @@ void gameLoop(byte *target) {
 				goto process;
 			}
 
-			if (Swap16(next_vorts_ticks) < script_word_vars.timer_ticks2) { /*TODO: is this ok? ticks2 is BE, ticks3 is LE*/
+			// next_vorts_ticks is a plain numeric value (always set as
+			// Swap16(timer_ticks2) + 5), but timer_ticks2 is stored big-endian.
+			// Byteswap the timer side so both operands are numeric; the old
+			// Swap16(next_vorts_ticks) compared two BE representations, so the
+			// vort command fired at the wrong times (vorts popping in/out of
+			// rooms and leaving artifacts from the interrupted walk anim).
+			if (next_vorts_ticks < Swap16(script_word_vars.timer_ticks2)) {
 				the_command = next_vorts_cmd;
 				if (the_command)
 					goto process;
 			}
 
-			if (Swap16(next_turkey_ticks) < script_word_vars.timer_ticks2) { /*TODO: is this ok? ticks2 is BE, ticks4 is LE*/
+			if (next_turkey_ticks < Swap16(script_word_vars.timer_ticks2)) {
 				the_command = next_turkey_cmd;
 				if (the_command)
 					goto process;
@@ -248,7 +255,8 @@ Common::Error ChamberEngine::init() {
 
 	// Initialize graphics using following:
 	bool isCustomHerc = false;
-	if (_videoMode == Common::RenderMode::kRenderEGA) {
+	if (isEgaLikeRenderer()) {
+		// EGA and Amiga use the chunky 8bpp pipeline (1 byte/pixel, linear lines)
 		_screenW = 320;
 		_screenH = 200;
 		_screenBits = 8;
@@ -293,7 +301,18 @@ Common::Error ChamberEngine::init() {
 
 	Graphics::Surface *splash = nullptr;
 
-	if (_videoMode == Common::RenderMode::kRenderEGA) {
+	if (getPlatform() == Common::kPlatformAmiga) {
+		// Amiga title: static resources (incl. palette) live in KULT, load them first
+		loadAmigaStaticData();
+		splash = ega_loadFond("PRES.BIN");
+		if (!splash) {
+			_shouldQuit = true;
+			return Common::kNoError;
+		}
+		// Last palette index is the full-brightness end of the title fade ramp
+		g_vm->_renderer->colorSelect(AMIGA_NUM_PALETTES - 1);
+		g_vm->_renderer->backBufferToRealFull();
+	} else if (_videoMode == Common::RenderMode::kRenderEGA) {
 		/* EGA title screen */
 		splash = ega_loadFond("PRESEGA.EGA");
 		if (!splash) {
@@ -348,7 +367,9 @@ Common::Error ChamberEngine::init() {
 	}
 
 	if (splash) {
-		if (g_vm->_videoMode != Common::RenderMode::kRenderEGA)
+		// EGA/Amiga splashes wrap ega_backbuffer; only CGA/Herc own their pixels
+		if (g_vm->_videoMode != Common::RenderMode::kRenderEGA &&
+		    g_vm->_videoMode != Common::kRenderAmiga)
 			splash->free();
 		delete splash;
 	}
@@ -432,6 +453,25 @@ Common::Error ChamberEngine::init() {
 			exitGame();
 		/* fond wraps ega_backbuffer via init() — surface does not own pixel data, safe to delete directly */
 		delete fond;
+	} else if (g_vm->getPlatform() == Common::kPlatformAmiga) {
+		// Amiga sprite banks (appendFromFileAmiga); PUZZL/perso banks are merged here
+		ega_sprit_res = new EgaSpriteResource();
+		ega_sprit_res->appendFromFileAmiga("SPRIT.BIN");
+
+		ega_puzzl_res = new EgaSpriteResource();
+		ega_puzzl_res->appendFromFileAmiga("PUZZL.BIN");
+
+		ega_perso_res = new EgaSpriteResource();
+		ega_perso_res->appendFromFileAmiga("A.BIN");
+		ega_perso_res->appendFromFileAmiga("B.BIN");
+
+		Graphics::Surface *fond = loadFond();
+		if (!fond)
+			exitGame();
+		delete fond;
+
+		// Early intro screens set no palette of their own; apply the room palette now
+		amigaApplyRoomPalette(0);
 	} else {
 		while (!loadFond() || !loadSpritesData() || !loadPersData())
 			askDisk2();

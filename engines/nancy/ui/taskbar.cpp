@@ -19,12 +19,17 @@
  *
  */
 
+#include "common/random.h"
+
 #include "engines/nancy/nancy.h"
 #include "engines/nancy/cursor.h"
+#include "engines/nancy/font.h"
 #include "engines/nancy/graphics.h"
 #include "engines/nancy/input.h"
 #include "engines/nancy/resource.h"
 #include "engines/nancy/sound.h"
+
+#include "engines/nancy/state/scene.h"
 
 #include "engines/nancy/ui/taskbar.h"
 
@@ -73,11 +78,23 @@ void Taskbar::registerGraphics() {
 	setVisible(true);
 }
 
+// "NO_UI_ITEM" marks an absent button slot — e.g. Nancy12's removed cell phone,
+// whose on-screen position the coin purse occupies instead. Such slots are neither
+// drawn nor hit-tested.
+static bool isButtonSlotUsed(const TASK::ButtonRecord &rec) {
+	return !rec.button.primaryImageName.empty() &&
+		!rec.button.primaryImageName.toString().equalsIgnoreCase("NO_UI_ITEM");
+}
+
 void Taskbar::drawButton(uint index, ButtonState state) {
 	auto *taskData = GetEngineData(TASK);
 	assert(taskData);
 
 	const TASK::ButtonRecord &rec = taskData->buttons[index];
+	if (!isButtonSlotUsed(rec)) {
+		return;
+	}
+
 	const UIButtonRecord &btn = rec.button;
 
 	// The notification sprite lives outside the standard sourceRects
@@ -114,7 +131,7 @@ Taskbar::ButtonState Taskbar::restingState(uint index) const {
 		return kButtonDisabled;
 	}
 	// Disable override (ControlUIItems) takes precedence over the badge —
-	// FUN_004d51c3 only draws the notify sprite when state != 3.
+	// the notify sprite is only drawn when the button is not disabled.
 	const ButtonOverride &o = _overrides[index];
 	if (o.active && _currentScene >= o.startScene && _currentScene <= o.endScene) {
 		return kButtonDisabled;
@@ -128,7 +145,51 @@ Taskbar::ButtonState Taskbar::restingState(uint index) const {
 }
 
 bool Taskbar::isButtonActive(uint index) const {
+	auto *taskData = GetEngineData(TASK);
+	if (!taskData || !isButtonSlotUsed(taskData->buttons[index])) {
+		return false;
+	}
 	return _enabled[index] && restingState(index) != kButtonDisabled;
+}
+
+bool Taskbar::isMoneyDisplay(uint index) const {
+	return g_nancy->getGameType() == kGameTypeNancy12 && index == kTaskButtonCoinPurse;
+}
+
+void Taskbar::drawMoney() {
+	auto *taskData = GetEngineData(TASK);
+	const UIRC *uirc = GetEngineData(UIRC);
+	if (!taskData || !uirc || uirc->items.empty()) {
+		return;
+	}
+
+	// The coin purse displays UI resource 0: its current value rendered with a
+	// '$' prefix and `unknown2` decimal places. Old Clock tracks cents
+	// (decimals 2), so a value of 350 shows as "$3.50". `unknown1` selects the
+	// font. The live value lives in the scene state (seeded from UIRC, changed
+	// by AR 132); UIRC only supplies the formatting config.
+	const UIRC::ItemRecord &res = uirc->items[0];
+	if (res.unknown2 < 1) {
+		return;
+	}
+	const int32 value = NancySceneState.getUIResource(0);
+	const Common::String text =
+		Common::String::format("$%d.%02d", value / 100, value % 100);
+
+	const Font *font = g_nancy->_graphics->getFont(res.unknown1);
+	if (!font) {
+		return;
+	}
+
+	Common::Rect dst = taskData->buttons[kTaskButtonCoinPurse].button.destRect;
+	dst.translate(-_screenPosition.left, -_screenPosition.top);
+
+	// Position matches the original: a small inset from the left, and a little
+	// below the button's vertical centre.
+	const int x = dst.left + 12;
+	const int y = dst.top + dst.height() / 2 + 10;
+	font->drawString(&_drawSurface, text, x, y, dst.right - x, 0, Graphics::kTextAlignLeft);
+	_needsRedraw = true;
 }
 
 void Taskbar::toggleButton(uint index, bool enabled) {
@@ -194,10 +255,18 @@ void Taskbar::clearButtonOverride(uint buttonIndex) {
 		return;
 	}
 	_overrides[buttonIndex].active = false;
+	_overrides[buttonIndex].clickSoundMode = kClickSoundDefault;
 
 	if ((int)buttonIndex != _hoveredButton) {
 		drawButton(buttonIndex, restingState(buttonIndex));
 	}
+}
+
+void Taskbar::setClickSoundMode(uint buttonIndex, uint mode) {
+	if (buttonIndex >= TASK::kNumButtons) {
+		return;
+	}
+	_overrides[buttonIndex].clickSoundMode = mode;
 }
 
 void Taskbar::updateNotificationStates(int16 currentSceneID) {
@@ -213,29 +282,95 @@ void Taskbar::updateNotificationStates(int16 currentSceneID) {
 	}
 }
 
+void Taskbar::playClickSound(uint index) {
+	auto *taskData = GetEngineData(TASK);
+	if (!taskData) {
+		return;
+	}
+	// A normal click plays the button's own click sound ("Click01").
+	const SoundDescription &clickSound = taskData->buttons[index].button.clickSound;
+	g_nancy->_sound->loadSound(clickSound);
+	g_nancy->_sound->playSound(clickSound);
+}
+
+void Taskbar::playRejectionSound(uint index) {
+	auto *taskData = GetEngineData(TASK);
+	if (!taskData) {
+		return;
+	}
+
+	const uint mode = _overrides[index].clickSoundMode;
+	if (mode == kClickSoundSilent) {
+		return;
+	}
+
+	// Clicking a disabled button plays a "popup unavailable" line from
+	// clickSoundName, over the clickSound's channel/volume. The mode forces a
+	// specific line (kClickSound0..2) or picks a random valid one; an empty /
+	// "NO SOUND" slot leaves the default click sound.
+	const TASK::ButtonRecord &rec = taskData->buttons[index];
+	SoundDescription sound = rec.button.clickSound;
+	Common::String chosen;
+
+	if (mode >= kClickSound0 && mode <= kClickSound2) {
+		const Common::String &n = rec.clickSoundName[mode - kClickSound0];
+		if (!n.empty() && !n.equalsIgnoreCase("NO SOUND")) {
+			chosen = n;
+		}
+	} else {
+		Common::String validAlts[TASK::kNumAltSounds];
+		uint numValid = 0;
+		for (uint s = 0; s < TASK::kNumAltSounds; ++s) {
+			const Common::String &n = rec.clickSoundName[s];
+			if (!n.empty() && !n.equalsIgnoreCase("NO SOUND")) {
+				validAlts[numValid++] = n;
+			}
+		}
+		if (numValid > 0) {
+			chosen = validAlts[g_nancy->_randomSource->getRandomNumber(numValid - 1)];
+		}
+	}
+
+	if (!chosen.empty()) {
+		sound.name = chosen;
+	}
+	g_nancy->_sound->loadSound(sound);
+	g_nancy->_sound->playSound(sound);
+}
+
 void Taskbar::handleInput(NancyInput &input) {
 	auto *taskData = GetEngineData(TASK);
 	assert(taskData);
 
 	_clickedButton = -1;
 
+	// Hit-test present slots. Enabled buttons get full hover/press/click;
+	// disabled buttons are still clickable, but only to play their "popup
+	// unavailable" rejection sound.
 	int newHovered = -1;
+	bool hoveredActive = false;
 	for (uint i = 0; i < TASK::kNumButtons; ++i) {
-		if (isButtonActive(i) && taskData->buttons[i].button.destRect.contains(input.mousePos)) {
+		if (!isButtonSlotUsed(taskData->buttons[i])) {
+			continue;
+		}
+		if (taskData->buttons[i].button.destRect.contains(input.mousePos)) {
 			newHovered = i;
+			hoveredActive = isButtonActive(i);
 			break;
 		}
 	}
 
-	// Update hover graphic on enter/exit. The previously-hovered button
-	// returns to its resting sprite (idle or notification) so it doesn't
-	// get stuck in hover/pressed after the cursor leaves.
+	// Update hover graphic on enter/exit. The previously-hovered button returns
+	// to its resting sprite; only enabled buttons swap to the hover sprite.
 	if (newHovered != _hoveredButton) {
 		if (_hoveredButton != -1) {
 			drawButton(_hoveredButton, restingState(_hoveredButton));
 		}
-		if (newHovered != -1) {
+		if (newHovered != -1 && hoveredActive) {
 			drawButton(newHovered, kButtonHover);
+			if (isMoneyDisplay(newHovered)) {
+				drawMoney();
+			}
 		}
 		_hoveredButton = newHovered;
 	}
@@ -245,6 +380,21 @@ void Taskbar::handleInput(NancyInput &input) {
 	}
 
 	g_nancy->_cursor->setCursorType(CursorManager::kHotspotArrow);
+
+	// The Nancy12 coin purse shows Nancy's money on hover but isn't clickable, so
+	// it skips the press/click handling below.
+	if (isMoneyDisplay(newHovered)) {
+		return;
+	}
+
+	// Disabled button: a click just plays the rejection sound, no popup.
+	if (!hoveredActive) {
+		if (input.input & NancyInput::kLeftMouseButtonUp) {
+			playRejectionSound(newHovered);
+			input.eatMouseInput();
+		}
+		return;
+	}
 
 	if (input.input & NancyInput::kLeftMouseButtonDown) {
 		// Mouse pressed: show the pressed sprite for the duration of the hold.
@@ -262,13 +412,7 @@ void Taskbar::handleInput(NancyInput &input) {
 		drawButton(newHovered, kButtonHover);
 		_clickedButton = newHovered;
 
-		// Play the first available click sound for this button. The TASK
-		// chunk stores up to three alternates per button; if the slot is
-		// empty we silently skip.
-		const Common::String &snd = taskData->buttons[newHovered].clickSoundName[0];
-		if (!snd.empty()) {
-			g_nancy->_sound->playSound(snd);
-		}
+		playClickSound(newHovered);
 
 		input.eatMouseInput();
 	}

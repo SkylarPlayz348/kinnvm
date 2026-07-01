@@ -60,6 +60,13 @@ void HypertextParser::setImageName(const Common::Path &name) {
 	_imageName = name;
 }
 
+static uint lineStep(const Graphics::Font *font) {
+	const uint h = font->getFontHeight();
+	if (g_nancy->getGameType() >= kGameTypeNancy10)
+		return h + h / 9;
+	return h;
+}
+
 void HypertextParser::drawAllText(const Common::Rect &textBounds, uint leftOffsetNonNewline, uint fontID, uint highlightFontID) {
 	using namespace Common;
 
@@ -235,7 +242,7 @@ void HypertextParser::drawAllText(const Common::Rect &textBounds, uint leftOffse
 		// Setup most of the hotspot; textbox
 		if (hasHotspot) {
 			hotspot.left = textBounds.left;
-			hotspot.top = textBounds.top + (_numDrawnLines * font->getFontHeight()) - 1;
+			hotspot.top = textBounds.top + (_numDrawnLines * lineStep(font)) - 1;
 			hotspot.setHeight(0);
 			hotspot.setWidth(0);
 		}
@@ -274,7 +281,7 @@ void HypertextParser::drawAllText(const Common::Rect &textBounds, uint leftOffse
 
 						_fullSurface.blitFrom(image, _imageSrcs[i],
 							Common::Point(	textBounds.left + horizontalOffset + 1,
-											textBounds.top + _numDrawnLines * highlightFont->getFontHeight() + _imageVerticalOffset));
+											textBounds.top + _numDrawnLines * lineStep(highlightFont) + _imageVerticalOffset));
 						_imageVerticalOffset += _imageSrcs[i].height() - 1;
 
 						if (lineNumber == 0) {
@@ -316,7 +323,9 @@ void HypertextParser::drawAllText(const Common::Rect &textBounds, uint leftOffse
 						auto *mark = GetEngineData(MARK);
 						assert(mark);
 
-						if (lineNumber == 0) {
+						const bool useLineAlignedMark = g_nancy->getGameType() >= kGameTypeNancy10;
+
+						if (!useLineAlignedMark && lineNumber == 0) {
 							// A mark on the first line pushes up all text
 							if (textBounds.top - _imageVerticalOffset > 3) {
 								_imageVerticalOffset -= 3;
@@ -327,10 +336,17 @@ void HypertextParser::drawAllText(const Common::Rect &textBounds, uint leftOffse
 
 						Common::Rect markSrc = mark->_markSrcs[change.index];
 						Common::Rect markDest = markSrc;
-						markDest.moveTo(textBounds.left + horizontalOffset + (newLineStart ? 0 : leftOffsetNonNewline) + 1,
-							lineNumber == 0 ?
-								textBounds.top - ((font->getFontHeight() + 1) / 2) + _imageVerticalOffset + 4 :
-								textBounds.top + _numDrawnLines * font->getFontHeight() + _imageVerticalOffset - 4);
+						if (useLineAlignedMark) {
+							// Nancy 10+: align the mark with the current
+							// line top, matching the original engine.
+							markDest.moveTo(textBounds.left + horizontalOffset + (newLineStart ? 0 : leftOffsetNonNewline) + 1,
+								textBounds.top + _numDrawnLines * lineStep(font) + _imageVerticalOffset);
+						} else {
+							markDest.moveTo(textBounds.left + horizontalOffset + (newLineStart ? 0 : leftOffsetNonNewline) + 1,
+								lineNumber == 0 ?
+									textBounds.top - ((font->getFontHeight() + 1) / 2) + _imageVerticalOffset + 4 :
+									textBounds.top + _numDrawnLines * lineStep(font) + _imageVerticalOffset - 4);
+						}
 
 						// For now we do not check if we need to go to new line; neither does the original
 						_fullSurface.blitFrom(g_nancy->_graphics->_object0, markSrc, markDest);
@@ -344,7 +360,7 @@ void HypertextParser::drawAllText(const Common::Rect &textBounds, uint leftOffse
 
 						if (hasHotspot) {
 							hotspot.left = textBounds.left + (newLineStart ? 0 : horizontalOffset + leftOffsetNonNewline);
-							hotspot.top = textBounds.top + _numDrawnLines * font->getFontHeight() + _imageVerticalOffset - 1;
+							hotspot.top = textBounds.top + _numDrawnLines * lineStep(font) + _imageVerticalOffset - 1;
 							hotspot.setHeight(0);
 							hotspot.setWidth(0);
 						} else {
@@ -382,7 +398,7 @@ void HypertextParser::drawAllText(const Common::Rect &textBounds, uint leftOffse
 				font->drawString(				&_fullSurface,
 												stringToDraw,
 												textBounds.left + horizontalOffset + (newLineStart ? 0 : leftOffsetNonNewline),
-												textBounds.top + _numDrawnLines * font->getFontHeight() + _imageVerticalOffset,
+												textBounds.top + _numDrawnLines * lineStep(font) + _imageVerticalOffset,
 												textBounds.width(),
 												colorID);
 
@@ -391,7 +407,7 @@ void HypertextParser::drawAllText(const Common::Rect &textBounds, uint leftOffse
 					highlightFont->drawString(	&_textHighlightSurface,
 												stringToDraw,
 												textBounds.left + horizontalOffset + (newLineStart ? leftOffsetNonNewline : 0),
-												textBounds.top + _numDrawnLines * highlightFont->getFontHeight() + _imageVerticalOffset,
+												textBounds.top + _numDrawnLines * lineStep(highlightFont) + _imageVerticalOffset,
 												textBounds.width(),
 												colorID);
 				}
@@ -409,7 +425,7 @@ void HypertextParser::drawAllText(const Common::Rect &textBounds, uint leftOffse
 					hotspot.setWidth(MAX<int16>(hotspot.width(), font->getStringWidth(stringToDraw)));
 
 					if (!stringToDraw.empty() && newWrappedLine) {
-						hotspot.setHeight(hotspot.height() + font->getFontHeight());
+						hotspot.setHeight(hotspot.height() + lineStep(font));
 					}
 				}
 
@@ -425,7 +441,7 @@ void HypertextParser::drawAllText(const Common::Rect &textBounds, uint leftOffse
 			++_numDrawnLines;
 
 			// Record the height of the text currently drawn. Used for textbox scrolling
-			_drawnTextHeight = (_numDrawnLines - 1) * font->getFontHeight() + _imageVerticalOffset;
+			_drawnTextHeight = (_numDrawnLines - 1) * lineStep(font) + _imageVerticalOffset;
 		}
 
 		// Draw the footer image(s)
@@ -435,14 +451,14 @@ void HypertextParser::drawAllText(const Common::Rect &textBounds, uint leftOffse
 
 				_fullSurface.blitFrom(image, _imageSrcs[i],
 					Common::Point(	textBounds.left + horizontalOffset + 1,
-									textBounds.top + _numDrawnLines * highlightFont->getFontHeight() + _imageVerticalOffset));
+									textBounds.top + _numDrawnLines * lineStep(highlightFont) + _imageVerticalOffset));
 				_imageVerticalOffset += _imageSrcs[i].height() - 1;
 
 				if (i < _imageLineIDs.size() - 1) {
 					_imageVerticalOffset += (font->getFontHeight() + 1) / 2 + 3;
 				}
 
-				_drawnTextHeight = (_numDrawnLines - 1) * font->getFontHeight() + _imageVerticalOffset;
+				_drawnTextHeight = (_numDrawnLines - 1) * lineStep(font) + _imageVerticalOffset;
 			}
 		}
 
@@ -466,12 +482,12 @@ void HypertextParser::drawAllText(const Common::Rect &textBounds, uint leftOffse
 
 		// Add a newline after every full piece of text
 		++_numDrawnLines;
-		_drawnTextHeight += font->getFontHeight();
+		_drawnTextHeight += lineStep(font);
 	}
 
 	// Add a line's height at end of text to replicate original behavior
 	if (font) {
-		_drawnTextHeight += font->getFontHeight();
+		_drawnTextHeight += lineStep(font);
 	}
 
 	_needsTextRedraw = false;

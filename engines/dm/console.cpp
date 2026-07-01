@@ -30,6 +30,7 @@
 #include "dm/dungeonman.h"
 #include "dm/movesens.h"
 #include "dm/objectman.h"
+#include "dm/group.h"
 
 
 namespace DM {
@@ -67,6 +68,7 @@ Console::Console(DM::DMEngine* vm) : _vm(vm) {
 	registerCmd("map", WRAP_METHOD(Console, Cmd_map));
 	registerCmd("listItems", WRAP_METHOD(Console, Cmd_listItems));
 	registerCmd("gimme", WRAP_METHOD(Console, Cmd_gimme));
+	registerCmd("nuke", WRAP_METHOD(Console, Cmd_nuke));
 }
 
 bool Console::Cmd_godmode(int argc, const char** argv) {
@@ -263,6 +265,9 @@ bool Console::Cmd_gimme(int argc, const char** argv) {
 		dummyThing.setType(thingType);
 		for (int16 thingIndex = 0; thingIndex < thingCount; ++thingIndex) {
 			dummyThing.setIndex(thingIndex);
+			uint16 *rawType = _vm->_dungeonMan->getThingData(dummyThing);
+			if (rawType[0] == _vm->_thingNone.toUint16())
+				continue;
 			int16 iconIndex = _vm->_objectMan->getIconIndex(dummyThing);
 			if (iconIndex >= 0 && iconIndex < kDMObjectNameCount) {
 				const char *displayName = _vm->_objectMan->_objectNames[iconIndex];
@@ -274,6 +279,7 @@ bool Console::Cmd_gimme(int argc, const char** argv) {
 						newThingData[thingCount * thingTypeSize + i] = newThingData[thingIndex * thingTypeSize + i];
 					_vm->_dungeonMan->_dungeonFileHeader._thingCounts[thingType]++;
 					_vm->_dungeonMan->_thingData[thingType] = newThingData;
+					dummyThing.setIndex(thingCount);
 					_vm->_championMan->addObjectInSlot((ChampionIndex)0, dummyThing, (ChampionSlot)29);
 					debugPrintf("Item gimmed to the first champion, last slot\n");
 					return true;
@@ -283,6 +289,22 @@ bool Console::Cmd_gimme(int argc, const char** argv) {
 	}
 
 	debugPrintf("No item found with name '%s'\n", requestedItemName.c_str());
+	return true;
+}
+
+bool Console::Cmd_nuke(int argc, const char** argv) {
+	DungeonMan &dm = *_vm->_dungeonMan;
+	int16 mapX = dm._partyMapX;
+	int16 mapY = dm._partyMapY;
+	dm.mapCoordsAfterRelMovement(dm._partyDir, 1, 0, mapX, mapY);
+
+	Thing groupThing = _vm->_groupMan->groupGetThing(mapX, mapY);
+	if (groupThing != _vm->_thingNone && groupThing != _vm->_thingEndOfList) {
+		_vm->_groupMan->groupDelete(mapX, mapY);
+		debugPrintf("Creatures in front have been nuked!\n");
+	} else {
+		debugPrintf("No creatures found in front of you.\n");
+	}
 	return true;
 }
 

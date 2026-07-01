@@ -19,6 +19,8 @@
  *
  */
 
+#include "common/random.h"
+
 #include "engines/nancy/nancy.h"
 #include "engines/nancy/util.h"
 
@@ -357,6 +359,12 @@ void EventFlagsMultiHS::readData(Common::SeekableReadStream &stream) {
 	}
 }
 
+bool EventFlagsMultiHS::cursorSetFromScript() const {
+	if (g_nancy->getGameType() >= kGameTypeNancy10 && NancySceneState.getHeldItem() >= 0)
+		return false;
+	return _isCursor;
+}
+
 CursorManager::CursorType EventFlagsMultiHS::getHoverCursor() const {
 	if (g_nancy->getGameType() >= kGameTypeNancy10 && NancySceneState.getHeldItem() >= 0)
 		return CursorManager::kHotspot;
@@ -384,7 +392,10 @@ void EventFlagsMultiHS::execute() {
 		// Swallow clicks if the cursor is in the puzzle-drag range
 		if (g_nancy->getGameType() <= kGameTypeNancy9 && (_hoverCursor == CursorManager::kCustom1 || _hoverCursor == CursorManager::kCustom2)) {
 			_state = kRun;
-		} else if (g_nancy->getGameType() >= kGameTypeNancy10 && (int)_hoverCursor >= 35) {
+		} else if (g_nancy->getGameType() >= kGameTypeNancy10 &&
+				(int)_hoverCursor >= (g_nancy->getGameType() >= kGameTypeNancy12 ?
+					CursorManager::kNewUseHand : CursorManager::kNewUseHand - 1)) {
+			// The puzzle-drag cursor range starts one slot earlier before Nancy12
 			_state = kRun;
 		} else {
 			_hasHotspot = false;
@@ -394,6 +405,23 @@ void EventFlagsMultiHS::execute() {
 
 		break;
 	}
+}
+
+void RandomizeEventFlags::readData(Common::SeekableReadStream &stream) {
+	uint16 numFlags = stream.readUint16LE();
+	_flagLabels.resize(numFlags);
+	for (uint i = 0; i < numFlags; ++i) {
+		_flagLabels[i] = stream.readSint16LE();
+	}
+}
+
+void RandomizeEventFlags::execute() {
+	for (uint i = 0; i < _flagLabels.size(); ++i) {
+		NancySceneState.setEventFlag(_flagLabels[i],
+			g_nancy->_randomSource->getRandomBit() ? g_nancy->_true : g_nancy->_false);
+	}
+
+	_isDone = true;
 }
 
 void DifficultyLevel::readData(Common::SeekableReadStream &stream) {

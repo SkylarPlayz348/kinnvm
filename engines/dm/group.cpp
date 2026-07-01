@@ -271,8 +271,10 @@ void GroupMan::dropCreatureFixedPossessions(CreatureType creatureType, int16 map
 	uint16 currFixedPossession = *fixedPossessions++;
 	bool weaponDropped = false;
 	while (currFixedPossession) {
-		if (getFlag(currFixedPossession, kDMMaskRandomDrop) && _vm->getRandomNumber(2))
+		if (getFlag(currFixedPossession, kDMMaskRandomDrop) && _vm->getRandomNumber(2)) {
+			currFixedPossession = *fixedPossessions++;
 			continue;
+		}
 
 		int16 currThingType;
 		if (clearFlag(currFixedPossession, kDMMaskRandomDrop) >= kDMObjectInfoIndexFirstJunk) {
@@ -288,8 +290,10 @@ void GroupMan::dropCreatureFixedPossessions(CreatureType creatureType, int16 map
 		}
 
 		Thing nextUnusedThing = dungeon.getUnusedThing(currThingType);
-		if ((nextUnusedThing) == _vm->_thingNone)
+		if ((nextUnusedThing) == _vm->_thingNone) {
+			currFixedPossession = *fixedPossessions++;
 			continue;
+		}
 
 		Weapon *currWeapon = (Weapon *)dungeon.getThingData(nextUnusedThing);
 		/* The same pointer type is used no matter the actual type k5_WeaponThingType, k6_ArmourThingType or k10_JunkThingType */
@@ -539,7 +543,7 @@ uint16 GroupMan::getGroupValueUpdatedWithCreatureValue(uint16 groupVal, uint16 c
 	creatureVal &= 0x0003;
 	creatureIndex <<= 1;
 	creatureVal <<= creatureIndex;
-	return creatureVal | (groupVal & ~(3 << creatureVal));
+	return creatureVal | (groupVal & ~(3 << creatureIndex));
 }
 
 int16 GroupMan::getDamageAllCreaturesOutcome(Group *group, int16 mapX, int16 mapY, int16 attack, bool notMoving) {
@@ -754,7 +758,7 @@ T0209005_AddEventAndReturn:
 		}
 		if (AL0447_i_Behavior == kDMBehaviorAttack) {
 			AL0446_i_CreatureAspectIndex = eventType - kDMEventTypeUpdateAspectCreature0; /* Value -1 for event 32, meaning aspect will be updated for all creatures in the group */
-			bool isAttacking = (AL0446_i_CreatureAspectIndex >= 0 && AL0446_i_CreatureAspectIndex < 4) ? getFlag(activeGroup->_aspect[AL0446_i_CreatureAspectIndex], kDMAspectMaskActiveGroupIsAttacking) : false;
+			bool isAttacking = (AL0446_i_CreatureAspectIndex >= 0) ? getFlag(activeGroup->_aspect[AL0446_i_CreatureAspectIndex], kDMAspectMaskActiveGroupIsAttacking) : false;
 			nextAspectUpdateTime = getCreatureAspectUpdateTime(activeGroup, AL0446_i_CreatureAspectIndex, isAttacking);
 			goto T0209136;
 		}
@@ -1126,8 +1130,8 @@ bool GroupMan::isMovementPossible(CreatureInfo *creatureInfo, int16 mapX, int16 
 		Thing curThing = dungeon.getSquareFirstThing(mapX, mapY);
 		while (curThing != _vm->_thingEndOfList) {
 			if ((curThing).getType() == kDMThingTypeExplosion) {
-				Teleporter *curTeleporter = (Teleporter *)dungeon.getThingData(curThing);
-				if (((Explosion *)curTeleporter)->setType(kDMExplosionTypeFluxcage)) {
+				Explosion *explosion = (Explosion *)dungeon.getThingData(curThing);
+				if (explosion->getType() == kDMExplosionTypeFluxcage) {
 					_fluxCages[dir] = true;
 					_fluxCageCount++;
 					_groupMovBlockedByWallStairsPitFakeWalFluxCageTeleporter = true;
@@ -1384,7 +1388,7 @@ void GroupMan::setGroupDirection(ActiveGroup *activeGroup, int16 dir, int16 crea
 		G0396_ps_TwoHalfSquareSizedCreaturesGroupLastDirectionSetActiveGroup = activeGroup;
 	}
 
-	activeGroup->_directions = (Direction)groupDirections;
+	activeGroup->_directions = groupDirections;
 }
 
 void GroupMan::addGroupEvent(TimelineEvent *event, uint32 time) {
@@ -1752,7 +1756,7 @@ void GroupMan::addActiveGroup(Thing thing, int16 mapX, int16 mapY) {
 	activeGroup->_lastMoveTime = _vm->_gameTime - 127;
 	uint16 creatureIndex = curGroup->getCount();
 	do {
-		activeGroup->_directions = (Direction)getGroupValueUpdatedWithCreatureValue(activeGroup->_directions, creatureIndex, curGroup->getDir());
+		activeGroup->_directions = getGroupValueUpdatedWithCreatureValue(activeGroup->_directions, creatureIndex, curGroup->getDir());
 		activeGroup->_aspect[creatureIndex] = 0;
 	} while (creatureIndex--);
 	getCreatureAspectUpdateTime(activeGroup, kDMWholeCreatureGroup, false);
@@ -2118,7 +2122,7 @@ void GroupMan::loadActiveGroupPart(Common::InSaveFile *file) {
 	for (uint16 i = 0; i < _maxActiveGroupCount; ++i) {
 		ActiveGroup *group = &_activeGroups[i];
 		group->_groupThingIndex = file->readUint16BE();
-		group->_directions = (Direction)file->readUint16BE();
+		group->_directions = file->readUint16BE();
 		group->_cells = file->readByte();
 		group->_lastMoveTime = file->readByte();
 		group->_delayFleeingFromTarget = file->readByte();

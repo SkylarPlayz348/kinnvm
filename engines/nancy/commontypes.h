@@ -269,6 +269,16 @@ struct SoundDescription {
 	void readTerse(Common::SeekableReadStream &stream);
 };
 
+// The "random sound" block shared by some Nancy 12 puzzles
+struct RandomSoundBlock {
+	Common::Array<Common::String> names;
+	int16 channel = 0;
+	int32 numLoops = 0;
+	int16 volume = 0;
+
+	void readData(Common::SeekableReadStream &stream);
+};
+
 // Structs inside nancy.dat, which contains all the data that was
 // originally stored inside the executable
 
@@ -347,6 +357,16 @@ struct StaticData {
 	Common::Array<Common::String> eventFlagNames;
 
 	void readData(Common::SeekableReadStream &stream, Common::Language language, uint32 endPos, int8 majorVersion, int8 minorVersion);
+};
+
+// Source-rect order shared by the close button and slider widgets in the
+// Nancy 10+ popup header. The tab/filter strips use a different order, with
+// the active entry at index 0.
+enum UIButtonState {
+	kUIButtonIdle = 0,
+	kUIButtonHover = 1,
+	kUIButtonPressed = 2, // dragging, for sliders
+	kUIButtonDisabled = 3
 };
 
 // Reusable button widget embedded in Nancy 10+ popup UIs.

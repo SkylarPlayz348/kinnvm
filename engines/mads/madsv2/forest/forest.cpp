@@ -26,6 +26,7 @@
 #include "mads/madsv2/core/env.h"
 #include "mads/madsv2/core/game.h"
 #include "mads/madsv2/core/imath.h"
+#include "mads/madsv2/core/timer.h"
 #include "mads/madsv2/core/inter.h"
 #include "mads/madsv2/core/kernel.h"
 #include "mads/madsv2/core/matte.h"
@@ -36,7 +37,9 @@
 #include "mads/madsv2/core/sound.h"
 #include "mads/madsv2/core/text.h"
 #include "mads/madsv2/forest/forest.h"
+#include "mads/madsv2/forest/extra.h"
 #include "mads/madsv2/forest/global.h"
+#include "mads/madsv2/forest/inventory.h"
 #include "mads/madsv2/forest/main.h"
 #include "mads/madsv2/forest/rooms/section1.h"
 #include "mads/madsv2/forest/rooms/section2.h"
@@ -58,6 +61,8 @@ ForestEngine *g_engine;
 ForestEngine::ForestEngine(OSystem *syst, const MADSGameDescription *gameDesc) :
 		MADSV2Engine(syst, gameDesc) {
 	g_engine = this;
+	init_extra();
+	init_inventory();
 }
 
 ForestEngine::~ForestEngine() {
@@ -86,11 +91,40 @@ Common::Error ForestEngine::run() {
 }
 
 void ForestEngine::global_init_code() {
-	int count;
+	Common::fill(global, global + GLOBAL_LIST_SIZE, 0);
+	Common::fill(flags, flags + 40, 0);
 
-	for (count = 0; count < GLOBAL_LIST_SIZE; count++) {
-		global[count] = 0;
+	flags[0] = flags[1] = flags[2] = flags[3] = -4;
+	flags[4] = flags[5] = 4;
+	flags[34] = flags[35] = flags[36] = 4;
+
+	global[g009] = -1;
+	global[player_score] = -1;
+	global[g022] = 0;
+
+	// Randomly select the destinations for the passageways in the underground quick transport area
+	int16 table[5] = { 106, 203, 302, 305, 307 };
+	int16 *const global_ptrs[5] = {
+		&global[tunnel_1_room], &global[tunnel_2_room], &global[tunnel_3_room],
+		&global[tunnel_4_room], &global[tunnel_5_room]
+	};
+
+	for (int16 *dest : global_ptrs) {
+		int pick;
+		do {
+			int index = imath_random(0, 4);
+			pick = table[index];
+			table[index] = 0;
+		} while (pick == 0);
+		*dest = pick;
 	}
+
+	global[player_selected_object] = -1;
+	global[g017] = -1;
+	global[intro] = 0;
+	global[outro] = 0;
+	global[g066] = 0;
+	global[walker_converse_now] = 0;
 
 	player.facing = FACING_NORTH;
 	player.turn_to_facing = FACING_NORTH;
@@ -109,6 +143,11 @@ void ForestEngine::section_music(int section_num) {
 
 void ForestEngine::global_section_constructor() {
 	Forest::global_section_constructor();
+}
+
+bool ForestEngine::canLoadGameStateCurrently(Common::U32String *msg) {
+	return game.going && !win_status && !kernel.activate_menu && player.commands_allowed &&
+		inter_input_mode == INTER_LIMITED_SENTENCES && section_id != 9;
 }
 
 void ForestEngine::syncRoom(Common::Serializer &s) {

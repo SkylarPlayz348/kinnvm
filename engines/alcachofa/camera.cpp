@@ -251,9 +251,12 @@ void CameraV1::setRoomBounds(Graphic &background) {
 
 void CameraV2::setRoomBounds(Graphic &background) {
 	Point bgSize = background.animation().imageSize(0);
+	if (bgSize == Point(0, 0)) // this fixes a bug in secta/escarabajo with subtitles off when talking to YAFAR
+		bgSize = Point(800, 600);
+
 	float scaleFactor = background.scale() / (float)kBaseScale;
 	Point screenSize(g_system->getWidth(), g_system->getHeight());
-	_roomMin = as2D(background.topLeft() + screenSize / 2) * scaleFactor;
+	_roomMin = as2D(background.topLeft()) * scaleFactor + as2D(screenSize / 2);
 	_roomMax = _roomMin + as2D(bgSize - screenSize) * scaleFactor;
 	_roomScale = 0;
 }

@@ -149,6 +149,17 @@ public:
 	bool getEventFlag(int16 label, byte flag) const;
 	bool getEventFlag(FlagDescription eventFlag) const;
 
+	// Nancy 11+ software-timer queries used by timer dependencies.
+	bool isSoftwareTimerActive(uint16 index) const;
+	uint32 getSoftwareTimerElapsed(uint16 index) const;
+
+	// Nancy 12+ UI resource values (the UIRC boot chunk). Resource 0 is the
+	// coin purse amount in cents. Backed by the lazily-created, saved
+	// UIResourceData puzzle chunk, seeded from UIRC on first use and mutated by
+	// AR 132 (ResourceUse). Non-const because the first access creates/seeds it.
+	int32 getUIResource(uint index);
+	void setUIResource(uint index, int32 value);
+
 	void setLogicCondition(int16 label, byte flag);
 	bool getLogicCondition(int16 label, byte flag) const;
 	void clearLogicConditions();
@@ -169,6 +180,12 @@ public:
 	void stopTimer() { _timers.timerIsActive = false; _timers.timerTime = 0; }
 
 	Time getMovementTimeDelta(bool fast) const { return fast ? _sceneState.summary.fastMoveTimeDelta : _sceneState.summary.slowMoveTimeDelta; }
+
+	// Nancy 11+ AR 30/31. Toggles whether the player may scroll/pan the viewport.
+	// Backed by a reserved event flag (so it persists across scene changes and
+	// is saved/restored with the rest of the event flags).
+	void setPlayerScrolling(bool enabled);
+	bool getPlayerScrolling() const;
 
 	void registerGraphics();
 
@@ -193,6 +210,9 @@ public:
 
 	void setActiveMovie(Action::PlaySecondaryMovie *activeMovie);
 	Action::PlaySecondaryMovie *getActiveMovie();
+
+	// Called when a PSM(isRandom) AR is loaded — drives stale-chain cleanup.
+	void notifyRandomMovieARLoaded() { _hadRandomMovieARThisScene = true; }
 	void setActiveConversation(Action::ConversationSound *activeConversation);
 	Action::ConversationSound *getActiveConversation();
 
@@ -238,6 +258,11 @@ private:
 	void run();
 	void handleInput();
 
+	// Nancy 11+ AR 69. Advances all running software timers (stored as TimerData
+	// puzzle data) and fires any whose configured duration has just elapsed.
+	void tickSoftwareTimers(uint32 deltaMs);
+	void fireSoftwareTimer(TimerData::Timer &timer);
+
 	// Rect of the open Nancy 10+ taskbar popup, or empty if none.
 	Common::Rect activePopupConfinement() const;
 
@@ -245,6 +270,9 @@ private:
 
 	void clearSceneData();
 	void clearPuzzleData();
+
+	// Maps an event flag label to its index in the eventFlags array
+	int16 eventFlagToIndex(int16 label) const;
 
 	struct SceneState {
 		SceneSummary summary;
@@ -319,6 +347,10 @@ private:
 	Action::ActionManager _actionManager;
 	Action::PlaySecondaryMovie *_activeMovie;
 	Action::ConversationSound *_activeConversation;
+
+	// Set by notifyRandomMovieARLoaded; checked in clearSceneData to wind
+	// down a persistent random-movie whose scene chain is over.
+	bool _hadRandomMovieARThisScene = false;
 
 	// Contains a screenshot of the Scene state from the last time it was exited
 	Graphics::ManagedSurface _lastScreenshot;

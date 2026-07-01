@@ -98,6 +98,7 @@ public:
 
 	const StaticData &getStaticData() const;
 	const EngineData *getEngineData(const Common::String &name) const;
+	const Common::String getEventFlagName(uint flagID) const;
 
 	void setState(NancyState::NancyState state, NancyState::NancyState overridePrevious = NancyState::kNone);
 	NancyState::NancyState getState() { return _gameFlow.curState; }
@@ -143,6 +144,9 @@ private:
 
 	void preloadCals();
 	void readDatFile();
+	// Nancy12 onwards no longer ship their static data in nancy.dat; the values
+	// the engine still needs are provided here instead (see also the EVNT chunk).
+	void populateStaticData();
 
 	Common::Error synchronize(Common::Serializer &serializer);
 

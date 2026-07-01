@@ -411,8 +411,8 @@ void Timeline::processEventDoorAnimation(TimelineEvent *event) {
 			return;
 		}
 		Thing groupThing = _vm->_groupMan->groupGetThing(mapX, mapY);
-		uint16 creatureAttributes = _vm->_dungeonMan->getCreatureAttributes(groupThing);
-		if ((groupThing != _vm->_thingEndOfList) && !getFlag(creatureAttributes, kDMCreatureMaskNonMaterial)) {
+		uint16 creatureAttributes;
+		if ((groupThing != _vm->_thingEndOfList) && !getFlag((creatureAttributes = _vm->_dungeonMan->getCreatureAttributes(groupThing)), kDMCreatureMaskNonMaterial)) {
 			if (doorState >= (verticalDoorFl ? CreatureInfo::getHeight(creatureAttributes) : 1)) { /* Creature height or 1 */
 				if (_vm->_groupMan->getDamageAllCreaturesOutcome((Group *)_vm->_dungeonMan->getThingData(groupThing), mapX, mapY, 5, true) != kDMKillOutcomeAllCreaturesInGroup)
 					_vm->_groupMan->processEvents29to41(mapX, mapY, kDMEventTypeCreateReactionDangerOnSquare, 0);
@@ -835,7 +835,7 @@ void Timeline::processEventEnableChampionAction(uint16 champIndex) {
 	curChampion->_enableActionEventIndex = -1;
 	clearFlag(curChampion->_attributes, kDMAttributeDisableAction);
 	if (curChampion->_actionIndex != kDMActionNone) {
-		curChampion->_actionDefense -= _actionDefense[curChampion->_actionDefense];
+		curChampion->_actionDefense -= _actionDefense[curChampion->_actionIndex];
 	}
 	if (curChampion->_currHealth) {
 		if ((curChampion->_actionIndex == kDMActionShoot) && (curChampion->_slots[kDMSlotReadyHand] == _vm->_thingNone)) {

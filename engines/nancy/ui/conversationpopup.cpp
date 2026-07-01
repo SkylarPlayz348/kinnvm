@@ -94,7 +94,7 @@ void ConversationPopup::open() {
 	_textHighlightSurface.fillRect(Common::Rect(0, 0, _textHighlightSurface.w, _textHighlightSurface.h), 0);
 
 	drawBackground();
-	drawScrollbar(0);
+	drawScrollbar(kUIButtonIdle);
 	setVisible(true);
 }
 
@@ -103,7 +103,7 @@ void ConversationPopup::addTextLine(const Common::String &text) {
 
 	drawBackground();
 	drawContent();
-	drawScrollbar(0);
+	drawScrollbar(kUIButtonIdle);
 }
 
 void ConversationPopup::close() {
@@ -124,15 +124,9 @@ void ConversationPopup::drawContent() {
 	_fullSurface.fillRect(Common::Rect(0, 0, _fullSurface.w, _fullSurface.h), 0);
 	_textHighlightSurface.fillRect(Common::Rect(0, 0, _textHighlightSurface.w, _textHighlightSurface.h), 0);
 
-	// TODO: Padding doesn't match the original game. leftOffset returns an
-	// unexpected value for Nancy 10+, so upOffset is used as a fallback for
-	// both axes until the TBOX layout for Nancy 10+ is better understood.
-
-	// TODO: Line spacing is tighter than the original game.
-	
 	Common::Rect textBounds(0, 0, _fullSurface.w, _fullSurface.h);
-	textBounds.top += _tboxData->upOffset;
-	textBounds.left += _tboxData->upOffset;
+	textBounds.top  += _tboxData->scrollbarDefaultPos.y;
+	textBounds.left += _tboxData->scrollbarDefaultPos.x;
 
 	drawAllText(textBounds, 0, _tboxData->conversationFontID, _tboxData->highlightConversationFontID);
 
@@ -156,7 +150,7 @@ void ConversationPopup::drawContent() {
 }
 
 uint16 ConversationPopup::getInnerHeight() const {
-	return _drawnTextHeight + _tboxData->upOffset;
+	return _drawnTextHeight + _tboxData->scrollbarDefaultPos.y;
 }
 
 Common::Rect ConversationPopup::toPopupLocal(const Common::Rect &chunkRect, bool useGameFrame) const {
@@ -196,7 +190,7 @@ Common::Rect ConversationPopup::computeThumbRect() const {
 	return toPopupLocal(chunkThumb, sl.destUsesGameFrameOffset != 0);
 }
 
-void ConversationPopup::drawScrollbar(uint state) {
+void ConversationPopup::drawScrollbar(UIButtonState state) {
 	const UISliderRecord &sl = _uicoData->header.slider;
 	if (!_uicoData->header.sliderEnabled) {
 		return;
@@ -239,11 +233,11 @@ void ConversationPopup::handleInput(NancyInput &input) {
 
 			drawBackground();
 			drawContent();
-			drawScrollbar(2);
+			drawScrollbar(kUIButtonPressed);
 
 			if (input.input & NancyInput::kLeftMouseButtonUp) {
 				_scrollbarDragging = false;
-				drawScrollbar(overThumb ? 1 : 0);
+				drawScrollbar(overThumb ? kUIButtonHover : kUIButtonIdle);
 				_needsRedraw = true;
 			}
 			input.eatMouseInput();
@@ -252,7 +246,7 @@ void ConversationPopup::handleInput(NancyInput &input) {
 
 		if (overThumb != _scrollbarHovered) {
 			_scrollbarHovered = overThumb;
-			drawScrollbar(overThumb ? 1 : 0);
+			drawScrollbar(overThumb ? kUIButtonHover : kUIButtonIdle);
 			_needsRedraw = true;
 		}
 
@@ -261,7 +255,7 @@ void ConversationPopup::handleInput(NancyInput &input) {
 			if (slider.isDraggable && (input.input & NancyInput::kLeftMouseButtonDown)) {
 				_scrollbarDragging = true;
 				_scrollbarGrabOffset = localMouse.y - thumbY;
-				drawScrollbar(2);
+				drawScrollbar(kUIButtonPressed);
 				_needsRedraw = true;
 				input.eatMouseInput();
 				return;

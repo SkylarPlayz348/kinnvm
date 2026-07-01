@@ -200,7 +200,6 @@ void SoundDescription::readDIGI(Common::SeekableReadStream &stream) {
 	s.setVersion(g_nancy->getGameType());
 
 	readFilename(s, name);
-	resolveSoundNameAutoText(name);
 
 	s.syncAsUint16LE(channelID);
 
@@ -268,11 +267,23 @@ void SoundDescription::readScene(Common::SeekableReadStream &stream) {
 
 void SoundDescription::readTerse(Common::SeekableReadStream &stream) {
 	readFilename(stream, name);
-	resolveSoundNameAutoText(name);
 	channelID = stream.readUint16LE();
 	numLoops = stream.readUint32LE();
 	volume = stream.readUint16LE();
 	stream.skip(2);
+}
+
+void RandomSoundBlock::readData(Common::SeekableReadStream &stream) {
+	int16 count = stream.readSint16LE();
+	if (count > 0) {
+		names.resize(count);
+		for (int i = 0; i < count; ++i) {
+			readFilename(stream, names[i]);
+		}
+		channel = stream.readSint16LE();
+		numLoops = stream.readSint32LE();
+		volume = stream.readSint16LE();
+	}
 }
 
 void ConditionalDialogue::readData(Common::SeekableReadStream &stream) {

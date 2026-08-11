@@ -613,7 +613,7 @@ static const NancyGameDescription gameDescriptions[] = {
 			AD_ENTRY1s("ciftree.dat", "d85192a942a207017ebf0a19207ac698", 19498032),
 			Common::EN_ANY,
 			Common::kPlatformWindows,
-			ADGF_TESTING | ADGF_DROPPLATFORM,
+			ADGF_DROPPLATFORM,
 			NANCY8_GUIOPTIONS
 		},
 		kGameTypeNancy8
@@ -630,7 +630,7 @@ static const NancyGameDescription gameDescriptions[] = {
 			},
 			Common::EN_ANY,
 			Common::kPlatformWindows,
-			ADGF_TESTING | ADGF_DROPPLATFORM | GF_COMPRESSED,
+			ADGF_DROPPLATFORM | GF_COMPRESSED,
 			NANCY8_GUIOPTIONS
 		},
 		kGameTypeNancy8
@@ -641,7 +641,7 @@ static const NancyGameDescription gameDescriptions[] = {
 			AD_ENTRY1s("ciftree.dat", "9ed40f0bcc1d9e3e38e127bfbc6797d7", 20358011),
 			Common::RU_RUS,
 			Common::kPlatformWindows,
-			ADGF_TESTING | ADGF_DROPPLATFORM,
+			ADGF_DROPPLATFORM,
 			NANCY8_GUIOPTIONS
 		},
 		kGameTypeNancy8
@@ -658,7 +658,7 @@ static const NancyGameDescription gameDescriptions[] = {
 			},
 			Common::RU_RUS,
 			Common::kPlatformWindows,
-			ADGF_TESTING | ADGF_DROPPLATFORM | GF_COMPRESSED,
+			ADGF_DROPPLATFORM | GF_COMPRESSED,
 			NANCY8_GUIOPTIONS
 		},
 		kGameTypeNancy8
@@ -673,7 +673,7 @@ static const NancyGameDescription gameDescriptions[] = {
 			},
 			Common::EN_ANY,
 			Common::kPlatformWindows,
-			ADGF_TESTING | ADGF_DROPPLATFORM,
+			ADGF_DROPPLATFORM,
 			NANCY8_GUIOPTIONS
 		},
 		kGameTypeNancy9
@@ -690,7 +690,7 @@ static const NancyGameDescription gameDescriptions[] = {
 			},
 			Common::EN_ANY,
 			Common::kPlatformWindows,
-			ADGF_TESTING | ADGF_DROPPLATFORM | GF_COMPRESSED,
+			ADGF_DROPPLATFORM | GF_COMPRESSED,
 			NANCY8_GUIOPTIONS
 		},
 		kGameTypeNancy9
@@ -705,7 +705,7 @@ static const NancyGameDescription gameDescriptions[] = {
 			},
 			Common::EN_ANY,
 			Common::kPlatformWindows,
-			ADGF_UNSTABLE | ADGF_DROPPLATFORM,
+			ADGF_TESTING | ADGF_DROPPLATFORM,
 			NANCY8_GUIOPTIONS
 		},
 		kGameTypeNancy10
@@ -722,7 +722,7 @@ static const NancyGameDescription gameDescriptions[] = {
 			},
 			Common::EN_ANY,
 			Common::kPlatformWindows,
-			ADGF_UNSTABLE | ADGF_DROPPLATFORM | GF_COMPRESSED,
+			ADGF_TESTING | ADGF_DROPPLATFORM | GF_COMPRESSED,
 			NANCY8_GUIOPTIONS
 		},
 		kGameTypeNancy10
@@ -739,7 +739,7 @@ static const NancyGameDescription gameDescriptions[] = {
 			},
 			Common::EN_ANY,
 			Common::kPlatformWindows,
-			ADGF_UNSTABLE | ADGF_DROPPLATFORM | GF_COMPRESSED,
+			ADGF_TESTING | ADGF_DROPPLATFORM | GF_COMPRESSED,
 			NANCY8_GUIOPTIONS
 		},
 		kGameTypeNancy10
@@ -755,7 +755,7 @@ static const NancyGameDescription gameDescriptions[] = {
 			},
 			Common::EN_ANY,
 			Common::kPlatformWindows,
-			ADGF_UNSTABLE | ADGF_DROPPLATFORM,
+			ADGF_TESTING | ADGF_DROPPLATFORM | GF_COMPRESSED,
 			NANCY8_GUIOPTIONS
 		},
 		kGameTypeNancy10
@@ -770,7 +770,7 @@ static const NancyGameDescription gameDescriptions[] = {
 			},
 			Common::EN_ANY,
 			Common::kPlatformWindows,
-			ADGF_UNSTABLE | ADGF_DROPPLATFORM,
+			ADGF_TESTING | ADGF_DROPPLATFORM,
 			NANCY8_GUIOPTIONS
 		},
 		kGameTypeNancy11
@@ -787,7 +787,7 @@ static const NancyGameDescription gameDescriptions[] = {
 			},
 			Common::EN_ANY,
 			Common::kPlatformWindows,
-			ADGF_UNSTABLE | ADGF_DROPPLATFORM | GF_COMPRESSED,
+			ADGF_TESTING | ADGF_DROPPLATFORM | GF_COMPRESSED,
 			NANCY8_GUIOPTIONS
 		},
 		kGameTypeNancy11
@@ -797,6 +797,17 @@ static const NancyGameDescription gameDescriptions[] = {
 			"nancy12", nullptr,
 			AD_ENTRY1s("ciftree.dat", "b71cc174ce0481be835360395864eeb1", 43101199),
 			Common::EN_ANY,
+			Common::kPlatformWindows,
+			ADGF_UNSTABLE | ADGF_DROPPLATFORM,
+			NANCY8_GUIOPTIONS
+		},
+		kGameTypeNancy12
+	},
+	{ // MD5 by tunnelsociety from bug #17000
+		{
+			"nancy12", nullptr,
+			AD_ENTRY1s("ciftree.dat", "816db22b5c4d5211336b742fee8ea080", 45822011),
+			Common::FR_FRA,
 			Common::kPlatformWindows,
 			ADGF_UNSTABLE | ADGF_DROPPLATFORM,
 			NANCY8_GUIOPTIONS
@@ -842,7 +853,7 @@ static const NancyGameDescription gameDescriptions[] = {
 			AD_ENTRY1s("ciftree.dat", "4014eba84276281456cdba1fa9c03389", 45713842),
 			Common::EN_ANY,
 			Common::kPlatformWindows,
-			ADGF_UNSUPPORTED | ADGF_DROPPLATFORM,
+			ADGF_UNSTABLE | ADGF_DROPPLATFORM,
 			NANCY8_GUIOPTIONS
 		},
 		kGameTypeNancy16

@@ -1,16 +1,21 @@
 MODULE := engines/macs2
 
 MODULE_OBJS = \
+	amiga_archive.o \
+	amiga_decode.o \
+	amiga_resources.o \
 	midiparser_macs2.o \
 	music.o \
 	dialogs.o \
 	events.o \
 	gameobjects.o \
+	hotspot_names.o \
 	macs2.o \
 	messages.o \
 	metaengine.o \
 	saveload.o \
 	scriptexecutor.o \
+	scummui.o \
 	view1.o
 
 ifdef USE_IMGUI

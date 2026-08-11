@@ -20,30 +20,24 @@
  *
  */
 
-#include "mads/nebular/nebular.h"
-
 #include "base/plugins.h"
 #include "engines/advancedDetector.h"
-
 #include "backends/keymapper/action.h"
 #include "backends/keymapper/keymapper.h"
 #include "backends/keymapper/standard-actions.h"
-
 #include "common/savefile.h"
 #include "common/str-array.h"
 #include "common/memstream.h"
 #include "common/system.h"
 #include "common/translation.h"
+#include "graphics/scaler.h"
 #include "graphics/surface.h"
-
-#include "mads/nebular/core/events.h"
-#include "mads/nebular/core/game.h"
 #include "mads/detection.h"
-#ifdef ENABLE_MADSV2
-#include "mads/madsv2/phantom/phantom.h"
-#include "mads/madsv2/dragonsphere/dragonsphere.h"
-#include "mads/madsv2/forest/forest.h"
-#endif
+#include "mads/nebular/nebular.h"
+#include "mads/nebular/bonus/bonus.h"
+#include "mads/phantom/phantom.h"
+#include "mads/dragonsphere/dragonsphere.h"
+#include "mads/forest/forest.h"
 
 #define MAX_SAVES 99
 
@@ -67,7 +61,7 @@ static const ADExtraGuiOptionsMap optionsList[] = {
 		{
 			_s("Easy mouse interface"),
 			_s("Shows object names when hovering the mouse over them"),
-			"EasyMouse",
+			"interface_hotspots",
 			true,
 			0,
 			0
@@ -79,7 +73,7 @@ static const ADExtraGuiOptionsMap optionsList[] = {
 		{
 			_s("Animated inventory items"),
 			_s("Animated inventory items"),
-			"InvObjectsAnimated",
+			"inventory_mode",
 			true,
 			0,
 			0
@@ -91,7 +85,7 @@ static const ADExtraGuiOptionsMap optionsList[] = {
 		{
 			_s("Animated game interface"),
 			_s("Animated game interface"),
-			"TextWindowAnimated",
+			"animated_interface",
 			true,
 			0,
 			0
@@ -103,7 +97,7 @@ static const ADExtraGuiOptionsMap optionsList[] = {
 		{
 			_s("Naughty game mode"),
 			_s("Naughty game mode"),
-			"NaughtyMode",
+			"naughtiness",
 			true,
 			0,
 			0
@@ -122,17 +116,17 @@ static const ADExtraGuiOptionsMap optionsList[] = {
 		}
 	},
 
-	/*{
-		GAMEOPTION_GRAPHICS_DITHERING,
+	{
+		GAMEOPTION_ORIGINAL_MAC_MENUS,
 		{
-			_s("Graphics dithering"),
-			_s("Graphics dithering"),
-			"GraphicsDithering",
-			true,
+			_s("Use original Macintosh menus (experimental)"),
+			_s("Use the Macintosh menu bar and original desktop framing"),
+			"original_mac_menus",
+			false,
 			0,
 			0
 		}
-	},*/
+	},
 
 #ifdef USE_TTS
 	{
@@ -193,13 +187,9 @@ public:
 
 	bool hasFeature(MetaEngineFeature f) const override;
 	Common::Error createInstance(OSystem *syst, Engine **engine, const MADS::MADSGameDescription *desc) const override;
-
-	SaveStateList listSaves(const char *target) const override;
 	int getMaximumSaveSlot() const override;
-	bool removeSaveState(const char *target, int slot) const override;
-	SaveStateDescriptor querySaveMetaInfos(const char *target, int slot) const override;
-
 	Common::KeymapArray initKeymaps(const char *target) const override;
+	void getSavegameThumbnail(Graphics::Surface &thumb) override;
 };
 
 bool MADSMetaEngine::hasFeature(MetaEngineFeature f) const {
@@ -221,92 +211,25 @@ bool MADS::MADSEngine::hasFeature(EngineFeature f) const {
 }
 
 Common::Error MADSMetaEngine::createInstance(OSystem *syst, Engine **engine, const MADS::MADSGameDescription *desc) const {
-#ifdef ENABLE_MADSV2
-	if (desc->gameID == MADS::GType_Phantom)
-		*engine = new MADS::MADSV2::Phantom::PhantomEngine(syst, desc);
+	if (desc->gameID == MADS::GType_RexNebular) {
+		if (desc->features & MADS::GF_BONUS_DISK)
+			*engine = new MADS::RexNebular::BonusEngine(syst, desc);
+		else
+			*engine = new MADS::RexNebular::RexNebularEngine(syst, desc);
+	} else if (desc->gameID == MADS::GType_Phantom)
+		*engine = new MADS::Phantom::PhantomEngine(syst, desc);
 	else if (desc->gameID == MADS::GType_Forest)
-		*engine = new MADS::MADSV2::Forest::ForestEngine(syst, desc);
+		*engine = new MADS::Forest::ForestEngine(syst, desc);
 	else if (desc->gameID == MADS::GType_Dragonsphere)
-		*engine = new MADS::MADSV2::Dragonsphere::DragonsphereEngine(syst, desc);
+		*engine = new MADS::Dragonsphere::DragonsphereEngine(syst, desc);
 	else
-#endif
+		error("Unsupported game specified");
 
-	*engine = new MADS::Nebular::RexNebularEngine(syst,desc);
 	return Common::kNoError;
-}
-
-SaveStateList MADSMetaEngine::listSaves(const char *target) const {
-	if (getGameId(target) != "nebular")
-		return AdvancedMetaEngine<MADS::MADSGameDescription>::listSaves(target);
-
-	Common::SaveFileManager *saveFileMan = g_system->getSavefileManager();
-	Common::StringArray filenames;
-	Common::String saveDesc;
-	Common::String pattern = Common::String::format("%s.0##", target);
-	MADS::Nebular::MADSSavegameHeader header;
-
-	filenames = saveFileMan->listSavefiles(pattern);
-
-	SaveStateList saveList;
-	for (Common::StringArray::const_iterator file = filenames.begin(); file != filenames.end(); ++file) {
-		const char *ext = strrchr(file->c_str(), '.');
-		int slot = ext ? atoi(ext + 1) : -1;
-
-		if (slot >= 0 && slot < MAX_SAVES) {
-			Common::InSaveFile *in = g_system->getSavefileManager()->openForLoading(*file);
-
-			if (in) {
-				if (MADS::Nebular::Game::readSavegameHeader(in, header))
-					saveList.push_back(SaveStateDescriptor(this, slot, header._saveName));
-				delete in;
-			}
-		}
-	}
-
-	// Sort saves based on slot number.
-	Common::sort(saveList.begin(), saveList.end(), SaveStateDescriptorSlotComparator());
-	return saveList;
 }
 
 int MADSMetaEngine::getMaximumSaveSlot() const {
 	return MAX_SAVES;
-}
-
-bool MADSMetaEngine::removeSaveState(const char *target, int slot) const {
-	if (getGameId(target) == "nebular") {
-		Common::String filename = Common::String::format("%s.%03d", target, slot);
-		return g_system->getSavefileManager()->removeSavefile(filename);
-	} else {
-		return AdvancedMetaEngine<MADS::MADSGameDescription>::removeSaveState(target, slot);
-	}
-}
-
-SaveStateDescriptor MADSMetaEngine::querySaveMetaInfos(const char *target, int slot) const {
-	if (getGameId(target) != "nebular")
-		return AdvancedMetaEngine<MADS::MADSGameDescription>::querySaveMetaInfos(target, slot);
-
-	Common::String filename = Common::String::format("%s.%03d", target, slot);
-	Common::InSaveFile *f = g_system->getSavefileManager()->openForLoading(filename);
-
-	if (f) {
-		MADS::Nebular::MADSSavegameHeader header;
-		if (!MADS::Nebular::Game::readSavegameHeader(f, header, false)) {
-			delete f;
-			return SaveStateDescriptor();
-		}
-		delete f;
-
-		// Create the return descriptor
-		SaveStateDescriptor desc(this, slot, header._saveName);
-		desc.setThumbnail(header._thumbnail);
-		desc.setSaveDate(header._year, header._month, header._day);
-		desc.setSaveTime(header._hour, header._minute);
-		desc.setPlayTime(header._totalFrames * GAME_FRAME_TIME);
-
-		return desc;
-	}
-
-	return SaveStateDescriptor();
 }
 
 Common::KeymapArray MADSMetaEngine::initKeymaps(const char *target) const {
@@ -422,6 +345,18 @@ Common::KeymapArray MADSMetaEngine::initKeymaps(const char *target) const {
 	menuKeyMap->setEnabled(false);
 
 	return keymaps;
+}
+
+void MADSMetaEngine::getSavegameThumbnail(Graphics::Surface &thumb) {
+	const Graphics::Surface &newThumb = MADS::g_engine->getSavegameThumbnail();
+	thumb.free();
+
+	if (newThumb.h == 0)
+		// No provided thumbnail, so just get it from the screen
+		::createThumbnailFromScreen(&thumb);
+	else
+		// Use provided thumbnail
+		thumb.copyFrom(newThumb);
 }
 
 #if PLUGIN_ENABLED_DYNAMIC(MADS)

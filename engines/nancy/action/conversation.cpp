@@ -30,8 +30,10 @@
 #include "engines/nancy/util.h"
 #include "engines/nancy/graphics.h"
 #include "engines/nancy/resource.h"
+#include "engines/nancy/iff.h"
 
 #include "engines/nancy/action/conversation.h"
+#include "engines/nancy/action/actionmanager.h"
 #include "engines/nancy/action/secondarymovie.h"
 
 #include "engines/nancy/state/scene.h"
@@ -60,6 +62,11 @@ void ConversationSound::init() {
 }
 
 void ConversationSound::readData(Common::SeekableReadStream &stream) {
+	if (g_nancy->getGameType() >= kGameTypeNancy13) {
+		readDataNancy13(stream);
+		return;
+	}
+
 	Common::Serializer ser(&stream, nullptr);
 	ser.setVersion(g_nancy->getGameType());
 
@@ -165,6 +172,51 @@ void ConversationSound::readTerseData(Common::SeekableReadStream &stream) {
 	}
 }
 
+void ConversationSound::readDataNancy13(Common::SeekableReadStream &stream) {
+	readFilename(stream, _sound.name);
+	_sound.channelID = 12;	// hardcoded, as in the terse variants
+	_sound.numLoops = 1;
+
+	readCelDataNancy13(stream);
+
+	_conditionalResponseCharacterID = stream.readByte();
+	_goodbyeResponseCharacterID = stream.readByte();
+
+	_sceneChange.sceneID = stream.readUint16LE();
+	_sceneChange.frameID = stream.readUint16LE();
+	_sceneChange.continueSceneSound = kContinueSceneSound;
+
+	// Caption and response texts are external, keyed by sound name in CONVO.
+	const CVTX *convo = (const CVTX *)g_nancy->getEngineData("CONVO");
+	assert(convo);
+	_text = convo->texts.getValOrDefault(_sound.name, "");
+
+	uint16 numResponses = stream.readUint16LE();
+	_responses.resize(numResponses);
+	for (uint i = 0; i < numResponses; ++i) {
+		ResponseStruct &response = _responses[i];
+		readFilename(stream, response.soundName);
+		response.sceneChange.sceneID = stream.readUint16LE();
+		response.sceneChange.continueSceneSound = kContinueSceneSound;
+		response.conditionFlags.read(stream);
+		response.text = convo->texts.getValOrDefault(response.soundName, "");
+	}
+
+	uint16 numFlagsStructs = stream.readUint16LE();
+	_flagsStructs.resize(numFlagsStructs);
+	for (uint i = 0; i < numFlagsStructs; ++i) {
+		FlagsStruct &flagsStruct = _flagsStructs[i];
+		flagsStruct.flagToSet.type = stream.readByte();
+		flagsStruct.flagToSet.flag.label = stream.readSint16LE();
+		flagsStruct.flagToSet.flag.flag = stream.readByte();
+	}
+}
+
+// The base conversation has no cels; skip the frame fields.
+void ConversationSound::readCelDataNancy13(Common::SeekableReadStream &stream) {
+	stream.skip(8); // firstFrame + lastFrame (int32)
+}
+
 void ConversationSound::readCaptionText(Common::SeekableReadStream &stream) {
 	char *rawText = new char[1500];
 	stream.read(rawText, 1500);
@@ -186,7 +238,7 @@ void ConversationSound::readTerseCaptionText(Common::SeekableReadStream &stream)
 	const CVTX *convo = (const CVTX *)g_nancy->getEngineData("CONVO");
 	assert(convo);
 
-	_text = getTextFromCaseInsensitiveKey(convo->texts, key);
+	_text = convo->texts.getValOrDefault(key, "");
 }
 
 void ConversationSound::readTerseResponseText(Common::SeekableReadStream &stream, ResponseStruct &response) {
@@ -196,7 +248,7 @@ void ConversationSound::readTerseResponseText(Common::SeekableReadStream &stream
 	const CVTX *convo = (const CVTX *)g_nancy->getEngineData("CONVO");
 	assert(convo);
 
-	response.text = getTextFromCaseInsensitiveKey(convo->texts, key);
+	response.text = convo->texts.getValOrDefault(key, "");
 }
 
 void ConversationSound::execute() {
@@ -442,13 +494,22 @@ void ConversationSound::execute() {
 }
 
 void ConversationSound::addConditionalDialogue() {
+	if (g_nancy->getGameType() >= kGameTypeNancy12) {
+		addConditionalDialogueNancy12();
+		return;
+	}
+
+	// We adjust the base label for Nancy 11 event flags, which can be
+	// larger than 1000.
+	int16 baseLabel = g_nancy->getGameType() >= kGameTypeNancy11 ? 1000 : 0;
+
 	for (const auto &res : g_nancy->getStaticData().conditionalDialogue[_conditionalResponseCharacterID]) {
 		bool isSatisfied = true;
 
 		for (const auto &cond : res.conditions) {
 			switch (cond.type) {
 			case (byte)StaticDataConditionType::kEvent :
-				if (!NancySceneState.getEventFlag(cond.label, cond.flag)) {
+				if (!NancySceneState.getEventFlag(baseLabel + cond.label, cond.flag)) {
 					isSatisfied = false;
 				}
 
@@ -508,6 +569,15 @@ void ConversationSound::addConditionalDialogue() {
 }
 
 void ConversationSound::addGoodbye() {
+	if (g_nancy->getGameType() >= kGameTypeNancy12) {
+		addGoodbyeNancy12();
+		return;
+	}
+
+	// We adjust the base label for Nancy 11 event flags, which can be
+	// larger than 1000.
+	int16 baseLabel = g_nancy->getGameType() >= kGameTypeNancy11 ? 1000 : 0;
+
 	auto &res = g_nancy->getStaticData().goodbyes[_goodbyeResponseCharacterID];
 	_responses.push_back(ResponseStruct());
 	ResponseStruct &newResponse = _responses.back();
@@ -538,7 +608,7 @@ void ConversationSound::addGoodbye() {
 			for (const auto &cond : sc.conditions) {
 				switch (cond.type) {
 				case (byte)StaticDataConditionType::kEvent :
-					if (!NancySceneState.getEventFlag(cond.label, cond.flag)) {
+					if (!NancySceneState.getEventFlag(baseLabel + cond.label, cond.flag)) {
 						isSatisfied = false;
 					}
 
@@ -580,6 +650,133 @@ void ConversationSound::addGoodbye() {
 	// Set an event flag if applicable
 	// Assumes flagToSet is an event flag
 	NancySceneState.setEventFlag(sceneChange.flagToSet.label, sceneChange.flagToSet.flag);
+}
+
+void ConversationSound::addConditionalDialogueNancy12() {
+	// Every action record in scene S<800 + charID> is one conditional response
+	Common::Path sceneName(Common::String::format("S%u", 800 + _conditionalResponseCharacterID));
+	IFF *iff = g_nancy->_resource->loadIFF(sceneName);
+	if (!iff) {
+		warning("Could not load conditional dialogue scene %s", sceneName.toString().c_str());
+		return;
+	}
+
+	// Response text is in the CONVO file's CVTX chunk, keyed by sound ID
+	const CVTX *convo = (const CVTX *)g_nancy->getEngineData("CONVO");
+	assert(convo);
+
+	Common::SeekableReadStream *chunk = nullptr;
+	for (uint i = 0; (chunk = iff->getChunkStream("ACT", i)) != nullptr; ++i) {
+		ActionRecord *record = ActionManager::createAndLoadNewRecord(*chunk);
+		delete chunk;
+
+		ConversationInfoCheck *infoCheck = dynamic_cast<ConversationInfoCheck *>(record);
+		if (infoCheck) {
+			NancySceneState.getActionManager().processDependency(infoCheck->_dependencies, *infoCheck, true);
+
+			if (infoCheck->_dependencies.satisfied) {
+				_responses.push_back(ResponseStruct());
+				ResponseStruct &newResponse = _responses.back();
+				newResponse.soundName = infoCheck->_soundID;
+				newResponse.text = convo->texts[infoCheck->_soundID];
+				newResponse.sceneChange.sceneID = infoCheck->_sceneID;
+				newResponse.sceneChange.continueSceneSound = kContinueSceneSound;
+				newResponse.sceneChange.listenerFrontVector.set(0, 0, 1);
+
+				// Drop the response if it's a repeat
+				for (uint j = 0; j < _responses.size() - 1; ++j) {
+					if (	_responses[j].soundName == newResponse.soundName &&
+							_responses[j].text == newResponse.text &&
+							_responses[j].sceneChange.sceneID == newResponse.sceneChange.sceneID) {
+						_responses.pop_back();
+						break;
+					}
+				}
+			}
+		}
+
+		delete record;
+	}
+
+	delete iff;
+}
+
+void ConversationSound::addGoodbyeNancy12() {
+	// Use the first satisfied goodbye record in scene S<900 + charID>
+	Common::Path sceneName(Common::String::format("S%u", 900 + _goodbyeResponseCharacterID));
+	IFF *iff = g_nancy->_resource->loadIFF(sceneName);
+	if (!iff) {
+		warning("Could not load goodbye scene %s", sceneName.toString().c_str());
+		return;
+	}
+
+	// Response text is in the CONVO file's CVTX chunk, keyed by sound ID
+	const CVTX *convo = (const CVTX *)g_nancy->getEngineData("CONVO");
+	assert(convo);
+
+	bool added = false;
+	Common::SeekableReadStream *chunk = nullptr;
+	for (uint i = 0; !added && (chunk = iff->getChunkStream("ACT", i)) != nullptr; ++i) {
+		ActionRecord *record = ActionManager::createAndLoadNewRecord(*chunk);
+		delete chunk;
+
+		ConversationGoodbye *goodbye = dynamic_cast<ConversationGoodbye *>(record);
+		if (goodbye && !goodbye->_soundIDs.empty() && !goodbye->_sceneIDs.empty()) {
+			NancySceneState.getActionManager().processDependency(goodbye->_dependencies, *goodbye, true);
+
+			if (goodbye->_dependencies.satisfied) {
+				_responses.push_back(ResponseStruct());
+				ResponseStruct &newResponse = _responses.back();
+
+				const Common::String &soundID = goodbye->_soundIDs[g_nancy->_randomSource->getRandomNumber(goodbye->_soundIDs.size() - 1)];
+				newResponse.soundName = soundID;
+				newResponse.text = convo->texts[soundID];
+				newResponse.sceneChange.sceneID = goodbye->_sceneIDs[g_nancy->_randomSource->getRandomNumber(goodbye->_sceneIDs.size() - 1)];
+				newResponse.sceneChange.continueSceneSound = kContinueSceneSound;
+				newResponse.sceneChange.listenerFrontVector.set(0, 0, 1);
+
+				added = true;
+			}
+		}
+
+		delete record;
+	}
+
+	delete iff;
+}
+
+void ConversationInfoCheck::readData(Common::SeekableReadStream &stream) {
+	readFilename(stream, _soundID);
+	_sceneID = stream.readUint16LE();
+}
+
+void ConversationGoodbye::readData(Common::SeekableReadStream &stream) {
+	if (g_nancy->getGameType() == kGameTypeNancy12) {
+		// A single sound, then a count and a fixed set of 5 candidate scenes
+		_soundIDs.resize(1);
+		readFilename(stream, _soundIDs[0]);
+
+		uint16 numScenes = stream.readUint16LE();
+		_sceneIDs.resize(numScenes);
+		for (uint i = 0; i < 5; ++i) {
+			uint16 sceneID = stream.readUint16LE();
+			if (i < numScenes) {
+				_sceneIDs[i] = sceneID;
+			}
+		}
+
+		return;
+	}
+
+	// Nancy13+: a count-prefixed list of sounds, then one of scenes
+	uint16 numSounds = stream.readUint16LE();
+	readFilenameArray(stream, _soundIDs, numSounds);
+
+	uint16 numScenes = stream.readUint16LE();
+	_sceneIDs.resize(numScenes);
+	for (uint i = 0; i < numScenes; ++i) {
+		_sceneIDs[i] = stream.readUint16LE();
+	}
 }
 
 void ConversationSound::ConversationFlag::read(Common::SeekableReadStream &stream) {
@@ -673,7 +870,7 @@ bool ConversationSound::ConversationFlags::isSatisfied() const {
 }
 
 void ConversationVideo::init() {
-	if (!_decoder.loadFile(Common::Path(_videoName + ".avf"))) {
+	if (!_decoder.loadFile(Common::Path(_videoName))) {
 		error("Couldn't load video file %s", _videoName.c_str());
 	}
 
@@ -815,6 +1012,11 @@ void ConversationCel::updateGraphics() {
 }
 
 void ConversationCel::readData(Common::SeekableReadStream &stream) {
+	if (g_nancy->getGameType() >= kGameTypeNancy13) {
+		readDataNancy13(stream);
+		return;
+	}
+
 	Common::String xsheetName;
 	readFilename(stream, xsheetName);
 
@@ -847,8 +1049,26 @@ void ConversationCel::readData(Common::SeekableReadStream &stream) {
 	ConversationSound::readData(stream);
 }
 
+// The sound name (read by the base) is also the XSheet name. first/last frame
+// are int32s with -1 sentinels.
+void ConversationCel::readCelDataNancy13(Common::SeekableReadStream &stream) {
+	readXSheet(stream, _sound.name);	// also fills _treeNames from the XSheet header
+
+	_drawingOrder = { 1, 0, 2, 3 };
+	_overrideTreeRects.resize(4, kCelOverrideTreeRectsOff);
+
+	const int32 firstFrame = stream.readSint32LE();
+	const int32 lastFrame = stream.readSint32LE();
+	const uint numFrames = (!_celNames.empty() && !_celNames[0].empty()) ? _celNames[0].size() : 0;
+	_firstFrame = firstFrame < 0 ? 0 : (uint16)firstFrame;
+	_lastFrame = lastFrame < 0 ? (numFrames ? (uint16)(numFrames - 1) : 0) : (uint16)lastFrame;
+}
+
 void ConversationCel::readXSheet(Common::SeekableReadStream &stream, const Common::String &xsheetName) {
 	Common::SeekableReadStream *xsheet = SearchMan.createReadStreamForMember(Common::Path(xsheetName));
+	const bool isNancy13 = g_nancy->getGameType() >= kGameTypeNancy13;
+	const uint kNameSize = 33;
+	const uint kFrameRecordSize = 140;
 
 	// Read the xsheet and load all images into the arrays
 	// Completely unoptimized, the original engine uses a buffer
@@ -861,19 +1081,40 @@ void ConversationCel::readXSheet(Common::SeekableReadStream &stream, const Commo
 	}
 
 	xsheet->seek(0x22);
-	uint numFrames = xsheet->readUint16LE();
-	xsheet->skip(2);
-	_frameTime = xsheet->readUint16LE();
-	xsheet->skip(2);
+	const uint16 numFrames = xsheet->readUint16LE();
+	uint16 numTrees = 4;
 
-	_celNames.resize(4, Common::Array<Common::Path>(numFrames));
-	for (uint i = 0; i < numFrames; ++i) {
-		for (uint j = 0; j < _celNames.size(); ++j) {
-			readFilename(*xsheet, _celNames[j][i]);
+	if (isNancy13) {
+		// Nancy13 moved the cel tree / .cal names into the XSheet header, which
+		// reserves a fixed kMaxTrees name slots followed by a 32-bit frame time;
+		// the frame data begins right after. Each frame is likewise a fixed-size
+		// block of kMaxTrees name slots. Earlier games keep the tree names in the
+		// AR data and use a 16-bit frame time.
+		const uint kMaxTrees = 4;
+
+		numTrees = xsheet->readUint16LE();
+
+		_treeNames.resize(numTrees);
+		for (uint j = 0; j < numTrees; ++j) {
+			readFilename(*xsheet, _treeNames[j]);
 		}
 
-		// 4 unknown values
-		xsheet->skip(8);
+		// Skip any unused tree-name slots so the frame time is read from its fixed
+		// offset regardless of numTrees.
+		xsheet->skip((kMaxTrees - numTrees) * kNameSize);
+		_frameTime = xsheet->readUint32LE();
+	} else {
+		xsheet->skip(2);
+		_frameTime = xsheet->readUint16LE();
+		xsheet->skip(2);
+	}
+
+	_celNames.resize(numTrees, Common::Array<Common::Path>(numFrames));
+	for (uint i = 0; i < numFrames; ++i) {
+		for (uint j = 0; j < numTrees; ++j) {
+			readFilename(*xsheet, _celNames[j][i]);
+		}
+		xsheet->skip(kFrameRecordSize - numTrees * kNameSize);
 	}
 
 	delete xsheet;

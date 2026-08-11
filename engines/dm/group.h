@@ -132,13 +132,8 @@ public:
 	uint16 _cells;
 	uint16 _health[4];
 	uint16 _flags;
-public:
-	explicit Group(uint16 *rawDat) : _nextThing(rawDat[0]), _slot(rawDat[1]), _cells(rawDat[3]), _flags(rawDat[8]) {
-		_type = (CreatureType)rawDat[2];
-		_health[0] = rawDat[4];
-		_health[1] = rawDat[5];
-		_health[2] = rawDat[6];
-		_health[3] = rawDat[7];
+	Group() : _nextThing(0xFFFF), _slot(0xFFFF), _type((CreatureType)0), _cells(0), _flags(0) {
+		_health[0] = _health[1] = _health[2] = _health[3] = 0;
 	}
 
 	uint16 &getActiveGroupIndex() { return _cells; }
@@ -247,8 +242,8 @@ public:
 	uint16 isLordChaosOnSquare(int16 mapX, int16 mapY); // @ F0222_GROUP_IsLordChaosOnSquare
 	bool isFluxcageOnSquare(int16 mapX, int16 mapY); // @ F0221_GROUP_IsFluxcageOnSquare
 	void fuseAction(uint16 mapX, uint16 mapY); // @ F0225_GROUP_FuseAction
-	void saveActiveGroupPart(Common::OutSaveFile *file);
-	void loadActiveGroupPart(Common::InSaveFile *file);
+	void saveActiveGroupPart(Common::WriteStream *file);
+	void loadActiveGroupPart(Common::SeekableReadStream *file);
 };
 }
 

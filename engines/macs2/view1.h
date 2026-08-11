@@ -27,6 +27,7 @@
 
 namespace Macs2 {
 
+class ScummUI;
 class GameObject;
 
 enum class ViewMode {
@@ -55,8 +56,8 @@ class Character {
 private:
 	Common::Point _startPosition;
 
-	uint32 _startTime;
-	uint32 _duration;
+	uint32 _startTime = 0;
+	uint32 _duration = 0;
 
 	bool _lerpIgnoresObstacles = false;
 
@@ -80,7 +81,7 @@ private:
 	bool HandleWalkability(Character *c);
 
 	// fn0037_0E8C proc
-	uint8 lookupWalkability(const Common::Point &p) const;
+	uint16 lookupWalkability(const Common::Point &p) const;
 
 public:
 	Character();
@@ -113,11 +114,10 @@ public:
 
 	Common::Point getPosition() const;
 	void setPosition(const Common::Point &newPosition);
-	Macs2::GameObject *_gameObject;
+	Macs2::GameObject *_gameObject = nullptr;
 
 	uint16 getVerticalOffset() const;
 
-	// TODO: Handle properly
 	uint8 _animationIndex = 1;
 	uint16 _motionTargetVerticalOffset = 0;
 	uint16 _motionVerticalOffsetDelta = 0;
@@ -134,12 +134,11 @@ public:
 	bool isAnimationMirrored() const;
 	uint8 getMirroredAnimation(uint8 original) const;
 
-	// TODO: Will need time handling
 	// advanceMode matches drawAnimFrame/advanceAnimFrame (1010:16e7): 0=current frame,
 	// 2=advance sequence after returning current frame. Hit testing uses 0; drawing uses 2.
 	bool fillCurrentAnimationFrame(uint16 advanceMode, Macs2::AnimFrame &out);
 	Macs2::AnimFrame *getCurrentAnimationFrame(uint16 advanceMode);
-	Macs2::AnimFrame *getCurrentPortrait(bool onRightSide = false, uint16 frameIndex = 2);
+	Macs2::AnimFrame *getCurrentPortrait(bool onRightSide = false, uint16 frameIndex = 0);
 
 	void update();
 };
@@ -171,7 +170,7 @@ struct SpeechActData {
 	Character *speaker = nullptr;
 	Common::Array<Common::String> strings;
 	Common::Point position;
-	bool onRightSide;
+	bool onRightSide = false;
 	// Mouth animation counter from handleTimerCallback (1008:d38b).
 	// Decremented each frame. Controls which portrait frame is drawn:
 	// >1: draw frame 2 from primary portrait blob (+0x14C)
@@ -187,6 +186,8 @@ struct ScalingValues {
 };
 
 class View1 : public UIElement {
+	friend class ScummUI;
+
 private:
 	// drawSpriteTransparent @ 1010:0ed1 (drawAnimFrameDepth @ 1010:172c)
 	void drawSpriteTransparent(int shadingTableOffset, uint8 depthThreshold, uint16 scalingFactor,
@@ -199,6 +200,8 @@ private:
 
 	// Set by action bar map button on press; enterMapMode() runs on panel release.
 	bool _pendingMapOpen = false;
+
+	ScummUI *_scummUI = nullptr;
 
 	// Saved scene visuals for help screen restore (avoids changeScene on exit)
 	byte _savedPalVanilla[256 * 3] = {0};
@@ -304,9 +307,12 @@ private:
 
 	void showStringBox(const Common::StringArray &sa);
 
-	void renderString(uint16 x, uint16 y, Common::String s);
+	void renderString(uint16 x, uint16 y, const Common::String &s);
 	void renderString(const Common::Point pos, const Common::String &s);
+	void renderStringTo(uint16 x, uint16 y, const Common::String &s, Graphics::ManagedSurface &surf);
 	void renderStringWithFont(uint16 x, uint16 y, const Common::String &s, const GlyphData *glyphs, uint16 numGlyphs);
+	void renderStringWithFontTo(uint16 x, uint16 y, const Common::String &s, const GlyphData *glyphs,
+								uint16 numGlyphs, Graphics::ManagedSurface &surf);
 	int measureStringWithFont(const Common::String &s, const GlyphData *glyphs, uint16 numGlyphs);
 
 	Common::Array<Common::Rect> _mainMenuButtonLocations;
@@ -316,12 +322,13 @@ private:
 	Common::Array<Common::Rect> _inventoryButtonLocations;
 	uint16 _inventoryScrollOffset = 0;
 
-	void drawSprite(int16 x, int16 y, uint16 width, uint16 height, byte *data, Graphics::ManagedSurface &s, bool mirrored, bool useDepth = false, uint8 depth = 0);
-	void drawSprite(int16 x, int16 y, const Sprite &sprite, Graphics::ManagedSurface &s, bool mirrored, bool useDepth = false, uint8 depth = 0);
-	void drawSprite(const Common::Point &pos, uint16 width, uint16 height, byte *data, Graphics::ManagedSurface &s, bool mirrored, bool useDepth = false, uint8 depth = 0);
+	void drawSprite(int16 x, int16 y, uint16 width, uint16 height, byte *data, Graphics::ManagedSurface &s, bool mirrored, bool useDepth = false, uint8 depth = 0, bool clipToGameArea = false);
+	void drawSprite(int16 x, int16 y, const Sprite &sprite, Graphics::ManagedSurface &s, bool mirrored, bool useDepth = false, uint8 depth = 0, bool clipToGameArea = false);
+	void drawSprite(const Common::Point &pos, uint16 width, uint16 height, byte *data, Graphics::ManagedSurface &s, bool mirrored, bool useDepth = false, uint8 depth = 0, bool clipToGameArea = false);
 
 	void drawSpriteClipped(uint16 x, uint16 y, Common::Rect &clippingRect, uint16 width, uint16 height, const byte *const data, Graphics::ManagedSurface &s);
 	void drawSpriteClipped(uint16 x, uint16 y, Common::Rect &clippingRect, const Sprite &sprite, Graphics::ManagedSurface &s);
+	void drawSpriteFitted(const Common::Rect &bounds, const Sprite &sprite, Graphics::ManagedSurface &s, uint16 inset = 6);
 
 	// Binary sortObjectListByY (1008:8cf2) + buildSortedObjectList (1008:8c5a):
 	// scan 512 objects, collect current-scene indices at 0xFAC, quicksort by Y.
@@ -343,6 +350,10 @@ private:
 public:
 	View1();
 	virtual ~View1();
+
+	bool hasScummVerbUI() const;
+	bool shouldShowScummVerbUI() const;
+	void ensureScummVerbUI();
 
 	// g_wHelpButtonDisabled (1020:23B4): when non-zero, help/map button is disabled
 	// and script scene changes use applyScenePaletteEffect instead of palette fades.
@@ -473,6 +484,7 @@ public:
 
 	// Sets the source for the to-be-opened inventory and updats the array of inventory objects
 	void setInventorySource(GameObject *newInventorySource);
+	void refreshProtagonistInventoryAfterLoad(uint16 actorIndex);
 	void openInventory(GameObject *newInventorySource);
 	// Binary handleInput (1008:e8bf) close path for the inventory panels.
 	void closeInventory();
@@ -481,7 +493,7 @@ public:
 
 	void transferInventoryItem(GameObject *item, GameObject *targetContainer);
 
-	Character *getCharacterByIndex(uint16 index);
+	Character *getCharacterByIndex(uint16 index) const;
 	void rebuildCharacterLookupTable() const;
 
 	int getCharacterArrayIndex(const Character *c) const;

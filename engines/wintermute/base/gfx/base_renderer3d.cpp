@@ -44,6 +44,9 @@ BaseRenderer3D::BaseRenderer3D(Wintermute::BaseGame *inGame) : BaseRenderer(inGa
 	DXMatrixIdentity(&_worldMatrix);
 	DXMatrixIdentity(&_viewMatrix);
 	DXMatrixIdentity(&_projectionMatrix);
+
+	_brightnessOknytt = -1;
+	_brightnessJulia = -1.0f;
 }
 
 BaseRenderer3D::~BaseRenderer3D() {

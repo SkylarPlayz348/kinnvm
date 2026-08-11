@@ -64,7 +64,7 @@
 
 namespace Director {
 
-Cast::Cast(Movie *movie, uint16 castLibID, bool isShared, bool isExternal, uint16 libResourceId) {
+Cast::Cast(Movie *movie, uint16 castLibID, bool isShared, bool isExternal, uint32 libResourceId) {
 	_movie = movie;
 	_vm = _movie->getVM();
 	_lingo = _vm->getLingo();
@@ -97,6 +97,11 @@ Cast::Cast(Movie *movie, uint16 castLibID, bool isShared, bool isExternal, uint1
 }
 
 Cast::~Cast() {
+	for (auto &it : _liveScriptContexts) {
+		it._key->_cast = nullptr;
+	}
+	_liveScriptContexts.clear();
+
 	for (auto &it : _loadedStxts)
 		delete it._value;
 
@@ -269,6 +274,17 @@ bool Cast::duplicateCastMember(CastMember *source, CastMemberInfo *info, int tar
 	if (!source)
 		return true;
 	CastMember *target = source->duplicate(this, targetId);
+	if (!target) {
+		warning("Cast::duplicateCastMember(): could not duplicate %s cast member %d",
+				castType2str(source->_type), source->getID());
+		return false;
+	}
+	// The duplicate reads from the same on-disk resource as the source
+	target->_sourceType = source->_sourceType;
+	// Some duplicate() implementations don't carry the child resource
+	// references; they only make sense within the same archive
+	if (target->_children.empty() && source->getCast() == this)
+		target->_children = source->_children;
 
 	if (info) {
 		CastMemberInfo *newInfo = new CastMemberInfo(*info);
@@ -449,18 +465,36 @@ bool Cast::loadConfig() {
 
 	_unk1 = stream->readSint16();
 
-	// Warning for post-D7 movies (unk1 is stageColorG and stageColorB post-D7)
-	if (humanVer >= 700)
-		warning("STUB: Cast::loadConfig: 16 bit unk1 read instead of two 8 bit stageColorG and stageColorB. Read value: %04x", _unk1);
+	// D7+: stageColorG is file byte 18, stageColorB is byte 19 (fixed
+	// offsets, so the split depends on the stream endianness); the raw
+	// 16-bit value is kept for checksum/save
+	if (humanVer >= 700) {
+		if (stream->isBE()) {
+			_D7stageColorG = (_unk1 >> 8) & 0xFF;
+			_D7stageColorB = _unk1 & 0xFF;
+		} else {
+			_D7stageColorG = _unk1 & 0xFF;
+			_D7stageColorB = (_unk1 >> 8) & 0xFF;
+		}
+	}
 
 	_commentFont = stream->readUint16();
 	_commentSize = stream->readUint16();
 	_commentStyle = stream->readUint16();
 	_stageColor = stream->readUint16();
 
-	// Warning for post-D7 movies (stageColor is isStageColorRGB and stageColorR post-D7)
-	if (humanVer >= 700)
-		warning("STUB: Cast::loadConfig: 16 bit stageColor read instead of two 8 bit isStageColorRGB and stageColorR. Read value: %04x", _stageColor);
+	// D7+: stageColorIsRGB is file byte 26, stageColorR is byte 27
+	if (humanVer >= 700) {
+		if (stream->isBE()) {
+			_D7stageColorIsRGB = (_stageColor >> 8) & 0xFF;
+			_D7stageColorR = _stageColor & 0xFF;
+		} else {
+			_D7stageColorIsRGB = _stageColor & 0xFF;
+			_D7stageColorR = (_stageColor >> 8) & 0xFF;
+		}
+		debugC(1, kDebugLoading, "Cast::loadConfig(): D7 stage color: isRGB %d, R %d, G %d, B %d",
+			_D7stageColorIsRGB, _D7stageColorR, _D7stageColorG, _D7stageColorB);
+	}
 
 	_bitdepth = stream->readUint16();
 
@@ -600,6 +634,7 @@ bool Cast::loadConfig() {
 	}
 
 	if (_movieDepth != _vm->_colorDepth) {
+		// TODO: switch Director and WindowManager to the requested color depth
 		warning("STUB: loadConfig(): Movie bit depth is %d, but set to %d", _movieDepth, _vm->_colorDepth);
 	}
 
@@ -607,7 +642,7 @@ bool Cast::loadConfig() {
 	return true;
 }
 
-void Cast::saveConfig(Common::SeekableWriteStream *writeStream, uint32 offset) {
+void Cast::saveConfig(Common::SeekableWriteStream *writeStream, uint32 offset, uint32 tag) {
 	if (_version < kFileVer400) {
 		error("Cast::saveConfig called on a pre-D4 Director movie");
 	}
@@ -616,7 +651,7 @@ void Cast::saveConfig(Common::SeekableWriteStream *writeStream, uint32 offset) {
 
 	uint32 configSize = getConfigSize();
 
-	writeStream->writeUint32LE(MKTAG('V', 'W', 'C', 'F'));
+	writeStream->writeUint32LE(tag);
 	writeStream->writeUint32LE(configSize);
 
 	// These offsets are only for Director Version 4 to Director version 6
@@ -627,8 +662,10 @@ void Cast::saveConfig(Common::SeekableWriteStream *writeStream, uint32 offset) {
 	Movie::writeRect(writeStream, _checkRect);      // 4, 6, 8, 10
 
 	writeStream->writeUint16BE(_castArrayStartForChecksum);    // 12
-	// This will change
-	writeStream->writeUint16BE(_castArrayStartForChecksum + _castArchive->getResourceIDList(MKTAG('C', 'A', 'S', 't')).size());      // 14
+
+	// computeChecksum() reads this field; keep it in sync with the disk
+	_castArrayEndForChecksum = _castArrayStartForChecksum + _castArchive->getResourceIDList(MKTAG('C', 'A', 'S', 't')).size();
+	writeStream->writeUint16BE(_castArrayEndForChecksum);      // 14
 
 	writeStream->writeByte(_readRate);              // 16
 	writeStream->writeByte(_lightswitch);           // 17
@@ -663,21 +700,24 @@ void Cast::saveConfig(Common::SeekableWriteStream *writeStream, uint32 offset) {
 	uint32 checksum = computeChecksum();
 	writeStream->writeUint32BE(checksum);           // 64
 
+	// Reverse the builtin-palette offset applied by loadConfig()
+	int16 paletteMember = _defaultPalette.member;
+	if (paletteMember < 0)
+		paletteMember += 1;
 	if (_version >= kFileVer400 && _version < kFileVer500) {
 		writeStream->writeSint16BE(_field30);       // 68
+		writeStream->writeSint16BE(paletteMember);  // 70
 
-		// This loop isn't writing meaningful data currently
-		// But it is possible that this data might be needed
 		for (int i = 0; i < 0x08; i++) {
-			writeStream->writeByte(0);              // 70, 71, 72, 73, 74, 75, 76, 77
+			writeStream->writeByte(0);              // 72, 73, 74, 75, 76, 77, 78, 79
 		}
-	} else if (_version >= kFileVer500 && _version < kFileVer600) {
-		for (int i = 0; i < 0x08; i++) {
-			writeStream->writeByte(0);              // 68, 69, 70, 71, 72, 73, 74, 75
-		}
+	} else if (_version >= kFileVer500 && _version < kFileVer1000) {
+		writeStream->writeSint16BE(_field30);       // 68
+		writeStream->writeSint16BE(_defPaletteNum);      // 70
+		writeStream->writeSint32BE(_chunkBaseNum);       // 72
 
 		writeStream->writeSint16BE(_defaultPalette.castLib);    // 76
-		writeStream->writeSint16BE(_defaultPalette.member);     // 78
+		writeStream->writeSint16BE(paletteMember);              // 78
 	}
 
 	if (_version >= kFileVer600 && _version < kFileVer1000) {
@@ -717,12 +757,12 @@ void Cast::saveConfig(Common::SeekableWriteStream *writeStream, uint32 offset) {
 
 uint32 Cast::getConfigSize() {
 	if (_version >= kFileVer400 && _version < kFileVer500) {
-		return 78; // 78 bytes of data in castConfig
-	} else if (_version >= kFileVer500 && _version < kFileVer600) {
 		return 80;	// 80 bytes of data in castConfig
+	} else if (_version >= kFileVer500 && _version < kFileVer1000) {
+		return _version < kFileVer600 ? 80 : 84;	// D5: 80 bytes; D6-D9: 84 bytes
 	}
 
-	warning("Cast::getConfigSize: Director version 6+ is not handled");
+	warning("Cast::getConfigSize: Director version %d is not handled", humanVersion(_version));
 	return 0;
 }
 
@@ -805,9 +845,16 @@ void Cast::loadCast() {
 	if (!_loadedCast)
 		_loadedCast = new Common::HashMap<int, CastMember *>();
 
-	// External casts only have one library ID, so instead
-	// we use the movie's mapping.
-	uint16 libResourceId = _isExternal ? 1024 : _libResourceId;
+	// External casts have a single library. Its resource id lives in the
+	// cast file's own KEY* table (1024 in D5/D6, e.g. 0x00010400 in D7+),
+	// so resolve it from the archive's CAS* resource instead of assuming 1024.
+	uint32 libResourceId = _libResourceId;
+	if (_isExternal) {
+		libResourceId = 1024;
+		Common::Array<uint16> casStar = _castArchive->getResourceIDList(MKTAG('C', 'A', 'S', '*'));
+		if (!casStar.empty())
+			libResourceId = _castArchive->getResourceDetail(MKTAG('C', 'A', 'S', '*'), casStar[0]).libResourceId;
+	}
 
 	if (cast.size() > 0) {
 		debugC(2, kDebugLoading, "****** Loading CASt resources for libId %d (%s), resourceId %d", _castLibID, _castName.c_str(), libResourceId);
@@ -817,8 +864,6 @@ void Cast::loadCast() {
 		for (auto &iterator : cast) {
 			Resource res = _castArchive->getResourceDetail(MKTAG('C', 'A', 'S', 't'), iterator);
 			// Only load cast members which belong to the requested library ID.
-			// External casts only have one library ID, so instead
-			// we use the movie's mapping.
 			if (res.libResourceId != libResourceId) {
 				debugC(5, kDebugLoading, "SKIPPED - CASt: resource %d, castId %d, libResourceId %d", iterator, res.castId, res.libResourceId);
 				continue;
@@ -914,6 +959,36 @@ void Cast::loadCast() {
 	}
 }
 
+// Members without a version-capable writer, and members whose in-memory
+// type differs from the type stored on disk (e.g. promoted Xtras), keep
+// their original 'CASt' bytes when saving
+bool Cast::keepOriginalCastBytes(CastMember *target) {
+	if (!target || !target->canWriteCastData())
+		return true;
+	return target->_sourceType != kCastTypeNull && target->_sourceType != target->_type;
+}
+
+// True when a member was changed at runtime (Lingo's `the modified of
+// member`) but has no writer for this version: saving would silently
+// lose the change
+bool Cast::hasUnsavableChanges() {
+	if (!_loadedCast)
+		return false;
+	for (auto &it : *_loadedCast) {
+		CastMember *member = it._value;
+		if (!member || !keepOriginalCastBytes(member))
+			continue;
+		// New (e.g. duplicated) members have no original bytes to copy
+		if (member->isChanged() || member->_index == -1) {
+			warning("Cast::hasUnsavableChanges(): %s cast member %d was %s but has no writer for version v%d",
+					castType2str(member->_type), it._key,
+					member->_index == -1 ? "created at runtime" : "modified", humanVersion(_version));
+			return true;
+		}
+	}
+	return false;
+}
+
 void Cast::saveCastData(Common::SeekableWriteStream *writeStream, Resource *res) {
 	// This offset is at which we will start writing our 'CASt' resources
 	// In the original file, all the 'CASt' resources don't necessarily appear side by side
@@ -931,8 +1006,17 @@ void Cast::saveCastData(Common::SeekableWriteStream *writeStream, Resource *res)
 
 	CastType type = kCastTypeAny;
 
-	if (_loadedCast->contains(id)) {
-		CastMember *target = _loadedCast->getVal(id);
+	CastMember *target = _loadedCast->contains(id) ? _loadedCast->getVal(id) : nullptr;
+
+	// Members whose writer doesn't support this version keep their original
+	// 'CASt' bytes; the preflight in writeToFile() already refused the save
+	// if any of them was modified
+	bool keepOriginal = keepOriginalCastBytes(target);
+	if (target && keepOriginal)
+		debugC(5, kDebugSaving, "Cast::saveCastData(): keeping original bytes for %s cast member %d",
+				castType2str(target->_type), id);
+
+	if (target && !keepOriginal) {
 		// To make it consistent with how the data is stored originally, getResourceSize returns
 		// the size excluding 'CASt' header and the entry for size itself. Adding 8 to compensate for that
 		castSize = target->getCastResourceSize();
@@ -1177,10 +1261,16 @@ uint32 Cast::computeChecksum() {
 	check -= (int8)_readRate + 9;
 	check -= _lightswitch + 10;
 
-	if (humanVer < 700)
-		check += _unk1 + 11;
-	else
-		warning("STUB: skipped using stageColorG, stageColorB for post-D7 movie in checksum calulation");
+	int32 operand11;
+	if (humanVer < 700) {
+		operand11 = _unk1;
+	} else {
+		// Reconstructs the int16 Director summed here pre-D7 (ProjectorRays)
+		operand11 = _castArchive->_isBigEndian
+			? (int16)((_D7stageColorG << 8) | _D7stageColorB)
+			: (int16)((_D7stageColorB << 8) | _D7stageColorG);
+	}
+	check += operand11 + 11;
 
 	check *= _commentFont + 12;
 	check += _commentSize + 13;
@@ -1190,10 +1280,8 @@ uint32 Cast::computeChecksum() {
 	else
 		check *= _commentStyle + 14;
 
-	if (humanVer < 700)
-		check += _stageColor + 15;
-	else
-		check += (uint8)(_stageColor & 0xFF) + 15;	// Taking lower 8 bits to take into account stageColorR
+	int32 operand15 = (humanVer < 700) ? _stageColor : _D7stageColorR;
+	check += operand15 + 15;
 
 
 	check += _bitdepth + 16;
@@ -1624,10 +1712,12 @@ void Cast::loadCastData(Common::SeekableReadStreamEndian &stream, uint16 id, Res
 		debugC(3, kDebugLoading, "Cast::loadCastData(): loading kCastTransition (id=%d, %d children)",  id, res->children.size());
 		target = new TransitionCastMember(this, id, castStream, _version);
 		break;
-	case kCastXtra:
+	case kCastXtra: {
 		debugC(3, kDebugLoading, "Cast::loadCastData(): loading kCastXtra (id=%d, %d children)",  id, res->children.size());
-		target = new XtraCastMember(this, id, castStream, _version);
+		XtraCastMember *xtra = new XtraCastMember(this, id, castStream, _version);
+		target = XtraCastMember::promote(this, id, xtra);
 		break;
+	}
 	default:
 		warning("BUILDBOT: STUB: Cast::loadCastData(): Unhandled cast type: %d [%s] (id=%d, %d children)! This will be missing from the movie and may cause problems", castType, tag2str(castType), id, res->children.size());
 		// also don't try and read the strings... we don't know what this item is.
@@ -1638,6 +1728,7 @@ void Cast::loadCastData(Common::SeekableReadStreamEndian &stream, uint16 id, Res
 		target->_castDataSize = castDataSize;
 		target->_flags1 = flags1;
 		target->_index = res->index;
+		target->_sourceType = (CastType)castType;
 		setCastMember(id, target);
 	}
 	if (castStream.eos()) {
@@ -1813,6 +1904,7 @@ void Cast::loadLingoContext(Common::SeekableReadStreamEndian &stream) {
 				// Those scripts need to be cleaned up on ~LingoArchive
 				script->setOnlyInLctxContexts();
 			}
+			script->setCast(this);
 		}
 	} else {
 		error("Cast::loadLingoContext: unsupported Director version v%d (%d)", humanVersion(_version), _version);
@@ -2135,10 +2227,10 @@ void Cast::loadCastInfo(Common::SeekableReadStreamEndian &stream, uint16 id) {
 		}
 	}
 
-	// For SoundCastMember, read the flags in the CastInfo
-	if (_version >= kFileVer400 && _version < kFileVer700 && member->_type == kCastSound) {
+	// Looping = play-once bit (flags & 16) cleared; verified on D7 only
+	if (_version >= kFileVer400 && _version < kFileVer800 && member->_type == kCastSound) {
 		((SoundCastMember *)member)->_looping = castInfo.flags & 16 ? 0 : 1;
-	} else if (_version >= kFileVer700 && member->_type == kCastSound) {
+	} else if (_version >= kFileVer800 && member->_type == kCastSound) {
 		warning("STUB: Cast::loadCastInfo(): Sound cast member info not yet supported for version v%d (%d)", humanVersion(_version), _version);
 	}
 

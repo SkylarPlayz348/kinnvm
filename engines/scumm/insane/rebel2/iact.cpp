@@ -38,7 +38,7 @@ const int kRA2Handler7DirectInputNumerator = 4;
 const int kRA2Handler7DirectInputDenominator = 5;
 const int kRA2Handler7MouseTargetRangeX = 0xc0;
 
-static bool readLevel2BackgroundChunkHeader(Common::SeekableReadStream &stream, int64 containerEnd, const char *context,
+bool readLevel2BackgroundChunkHeader(Common::SeekableReadStream &stream, int64 containerEnd, const char *context,
 		uint32 &tag, uint32 &chunkSize, int64 &dataEnd, int64 &nextChunkPos) {
 	const int64 headerPos = stream.pos();
 	if (headerPos < 0 || headerPos + 8 > containerEnd)
@@ -295,32 +295,27 @@ void InsaneRebel2::iactRebel2Opcode2(Common::SeekableReadStream &b, int16 par2, 
 				}
 			}
 		} else if (value > 99 && value < 110) {
+			int idx = value - 100;
 			if (!isBitSet(targetId)) {
-				int idx = value - 100;
-				if (idx >= 0 && idx < 10) {
-					_rebelValueCounters[idx]++;
-					_rebelLastCounter = _rebelValueCounters[idx];
-					if (_rebelShieldGateActive && targetId >= 0 && targetId < 512) {
-						_rebelGaugeSlot[targetId] = (int8)idx;
-						_rebelGaugeArmed = true;
-						_rebelLastArmedSlot = idx;
-					}
-					debugC(DEBUG_INSANE, "IACT Opcode2: Increment VAL counter[%d] -> %d (target=%d)", value, _rebelValueCounters[idx], targetId);
-				}
+				_rebelValueCounters[idx]++;
+				debugC(DEBUG_INSANE, "IACT Opcode2: Increment counter[%d] -> %d (target=%d)", idx, _rebelValueCounters[idx], targetId);
 			}
-
+			_rebelLastCounter = _rebelValueCounters[idx];
+			if (_rebelShieldGateActive) {
+				_rebelGaugeArmed = true;
+				_rebelLastArmedSlot = idx;
+			}
 		} else if (value > 0x3ff) {
 			for (int slot = 1; slot <= 9; ++slot) {
 				if ((value & (1 << (slot - 1))) != 0) {
 					if (!isBitSet(targetId)) {
-						_rebelMaskCounters[slot]++;
-						_rebelLastCounter = _rebelMaskCounters[slot];
-						if (_rebelShieldGateActive && targetId >= 0 && targetId < 512) {
-							_rebelGaugeSlot[targetId] = (int8)(10 + slot);
-							_rebelGaugeArmed = true;
-							_rebelLastArmedSlot = 10 + slot;
-						}
-						debugC(DEBUG_INSANE, "IACT Opcode2: Increment MASK counter[%d] -> %d (target=%d)", slot, _rebelMaskCounters[slot], targetId);
+						_rebelValueCounters[slot]++;
+						debugC(DEBUG_INSANE, "IACT Opcode2: Increment counter[%d] (mask 0x%x) -> %d (target=%d)", slot, value, _rebelValueCounters[slot], targetId);
+					}
+					_rebelLastCounter = _rebelValueCounters[slot];
+					if (_rebelShieldGateActive) {
+						_rebelGaugeArmed = true;
+						_rebelLastArmedSlot = slot;
 					}
 				}
 			}
@@ -401,6 +396,7 @@ void InsaneRebel2::iactRebel2Opcode3(Common::SeekableReadStream &b, int16 par2, 
 				}
 
 				if (shouldDamage) {
+					_rebelDeathCause = 1;
 					if (applyPlayerDamage(directHitDamage)) {
 						debugC(DEBUG_INSANE, "DIRECT HIT damage from enemy %d. par3=%d par4=%d damage=%d total=%d",
 							srcId, par3, par4, directHitDamage, _playerDamage);
@@ -424,6 +420,7 @@ void InsaneRebel2::iactRebel2Opcode3(Common::SeekableReadStream &b, int16 par2, 
 			debugC(DEBUG_INSANE, "Opcode3: probability=%d roll=%d (need roll < prob)", probability, roll);
 
 			if (roll < probability) {
+				_rebelDeathCause = 0;
 				int damageAmount = (params.shotDamage >= 0) ? params.shotDamage : 0;
 				if (applyPlayerDamage(damageAmount)) {
 					debugC(DEBUG_INSANE, "PROBABILISTIC damage from enemy %d. Damage=%d total=%d",
@@ -2071,6 +2068,7 @@ void InsaneRebel2::iactRebel2Opcode9(byte *renderBitmap, Common::SeekableReadStr
 	int srcLen = strlen(textStr);
 	int dstIdx = 0;
 	int numChars = _rebelMsgFont->getNumChars();
+	const bool useCJK = _vm->_language == Common::JA_JPN;
 
 	for (int i = 0; i < srcLen && dstIdx < (int)sizeof(convertedText) - 1; i++) {
 		byte ch = (byte)textStr[i];
@@ -2107,6 +2105,16 @@ void InsaneRebel2::iactRebel2Opcode9(byte *renderBitmap, Common::SeekableReadStr
 			}
 		}
 
+		uint charLen;
+		decodeRebel2Char(textStr + i, srcLen - i, charLen, useCJK);
+		if (charLen == 2) {
+			if (dstIdx + 2 > (int)sizeof(convertedText) - 1)
+				break;
+			convertedText[dstIdx++] = textStr[i++];
+			convertedText[dstIdx++] = textStr[i];
+			continue;
+		}
+
 		if (ch >= 'a' && ch <= 'z') {
 			ch = ch - 'a' + 'A';
 		}
@@ -2122,7 +2130,7 @@ void InsaneRebel2::iactRebel2Opcode9(byte *renderBitmap, Common::SeekableReadStr
 	convertedText[dstIdx] = '\0';
 
 	if (ConfMan.getBool("subtitles")) {
-		Rebel2FontSet fontSet;
+		Rebel2FontSet fontSet(_vm->_language == Common::JA_JPN);
 		fontSet.numFonts = 1;
 		fontSet.fonts[0] = _rebelMsgFont;
 
@@ -2147,13 +2155,19 @@ void InsaneRebel2::enemyUpdate(byte *renderBitmap, Common::SeekableReadStream &b
 	int16 w = b.readSint16LE();
 	int16 h = b.readSint16LE();
 
-	// Turret surface targets mirror their gauge group state.
+	// Turret surface targets mirror their gauge group state: hidden while the group
+	// counter sits at zero, shown while it is nonzero, with a blink-out (alternating
+	// odd/even ticks) during the 6 frames after the group is depleted.
 	if (par3 == 2 && _rebelHandler == 0x26) {
-		const int surfaceIdx = (par4 >= 100 && par4 < 110) ? (par4 - 100) : -1;
-		if (surfaceIdx >= 0 && _rebelGaugeCleared[surfaceIdx])
-			setBit(enemyId);
-		else
-			clearBit(enemyId);
+		if (par4 >= 100 && par4 < 110) {
+			const int surfaceIdx = par4 - 100;
+			if (_rebelValueCounters[surfaceIdx] == 0 && (_rebelGaugeBlink[surfaceIdx] & 1) == 0)
+				setBit(enemyId);
+			else
+				clearBit(enemyId);
+			if (_rebelGaugeBlink[surfaceIdx] != 0)
+				_rebelGaugeBlink[surfaceIdx]--;
+		}
 		return;
 	}
 
@@ -2168,6 +2182,8 @@ void InsaneRebel2::enemyUpdate(byte *renderBitmap, Common::SeekableReadStream &b
 	Common::List<enemy>::iterator it;
 	for (it = _enemies.begin(); it != _enemies.end(); ++it) {
 		if (it->id == enemyId) {
+			it->velX = x - it->rect.left;
+			it->velY = y - it->rect.top;
 			it->rect = Common::Rect(x, y, x + w, y + h);
 			it->type = par4;
 			// IACT bit state is authoritative; clear stale destruction state here.
@@ -2187,6 +2203,8 @@ void InsaneRebel2::initEnemyStruct(int id, int32 x, int32 y, int32 w, int32 h, b
 	e.id = id;
 	e.type = type;
 	e.rect = Common::Rect(x, y, x + w, y + h);
+	e.velX = 0;
+	e.velY = 0;
 	e.active = active;
 	e.destroyed = destroyed;
 	e.explosionFrame = explosionFrame;

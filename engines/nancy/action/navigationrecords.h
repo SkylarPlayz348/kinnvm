@@ -35,6 +35,8 @@ public:
 
 	SceneChangeDescription _sceneChange;
 
+	Common::String getRecordExtraInfo() const override { return Common::String::format("Scene %d", _sceneChange.sceneID); }
+
 protected:
 	Common::String getRecordTypeName() const override { return "SceneChange"; }
 };
@@ -77,6 +79,7 @@ public:
 	void execute() override;
 
 	CursorManager::CursorType getHoverCursor() const override { return _hoverCursor; }
+	bool cursorSetFromScript() const override { return _isTerse; }
 
 	Common::Array<HotspotDescription> _hotspots;
 	bool _isTerse = false;
@@ -186,6 +189,8 @@ public:
 
 	SceneChangeDescription _defaultScene;
 	Common::Array<HotspotDescription> _hotspots;
+
+	Common::String getRecordExtraInfo() const override { return Common::String::format("Default scene %d", _defaultScene.sceneID); }
 
 protected:
 	Common::String getRecordTypeName() const override { return "HotMultiframeMultisceneCursorTypeSceneChange"; }

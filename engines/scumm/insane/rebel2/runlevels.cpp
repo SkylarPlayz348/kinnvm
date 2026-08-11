@@ -26,53 +26,112 @@
 #include "scumm/smush/smush_player.h"
 
 #include "scumm/insane/rebel2/rebel.h"
+#include "scumm/insane/rebel2/shared.h"
 
 namespace Scumm {
+
+Rebel2Level1Handler::Result runRebel2Level1(Rebel2Level1Handler &handler, int lives) {
+	while (!handler.shouldQuit()) {
+		const Rebel2Level1Handler::Result result = handler.playAttempt(lives);
+		if (result == Rebel2Level1Handler::kQuit || result == Rebel2Level1Handler::kError)
+			return result;
+		if (result == Rebel2Level1Handler::kComplete) {
+			if (!handler.playComplete())
+				return handler.shouldQuit() ? Rebel2Level1Handler::kQuit : Rebel2Level1Handler::kError;
+			return Rebel2Level1Handler::kComplete;
+		}
+
+		if (!handler.playDeath())
+			return handler.shouldQuit() ? Rebel2Level1Handler::kQuit : Rebel2Level1Handler::kError;
+		if (handler.shouldQuit())
+			return Rebel2Level1Handler::kQuit;
+
+		--lives;
+		if (lives <= 0) {
+			if (!handler.playGameOver(lives))
+				return handler.shouldQuit() ? Rebel2Level1Handler::kQuit : Rebel2Level1Handler::kError;
+			return Rebel2Level1Handler::kGameOver;
+		}
+
+		if (!handler.playRetry(lives))
+			return handler.shouldQuit() ? Rebel2Level1Handler::kQuit : Rebel2Level1Handler::kError;
+		if (handler.shouldQuit())
+			return Rebel2Level1Handler::kQuit;
+	}
+
+	return Rebel2Level1Handler::kQuit;
+}
+
+class InsaneRebel2::Level1Handler : public Rebel2Level1Handler {
+public:
+	explicit Level1Handler(InsaneRebel2 &rebel) : _rebel(rebel) {}
+
+	bool shouldQuit() const override {
+		return _rebel._vm->shouldQuit();
+	}
+
+	Result playAttempt(int &lives) override {
+		_rebel._playerLives = lives;
+		_rebel._playerShield = 255;
+		_rebel._playerDamage = 0;
+		_rebel._deathFrame = 0;
+		_rebel.resetExplosions();
+
+		_rebel.clearBit(0);
+		_rebel._rebelKillCounter = 0;
+		_rebel._rebelHitCounter = 0;
+
+		if (!_rebel.playLevelSegment("LEV01/01P01.SAN", 0x28))
+			return kQuit;
+
+		lives = _rebel._playerLives;
+		return _rebel._playerShield > 0 ? kComplete : kDeath;
+	}
+
+	bool playComplete() override {
+		const int accuracy = _rebel.calculateAccuracy(_rebel._rebelKillCounter, _rebel._rebelHitCounter);
+		debugC(DEBUG_INSANE, "Level 1 completed!");
+		_rebel.playLevelEnd(1, accuracy, -1, false);
+		_rebel._levelUnlocked[1] = true;
+		return true;
+	}
+
+	bool playDeath() override {
+		debugC(DEBUG_INSANE, "Level 1 death at frame %d, lives=%d", _rebel._deathFrame, _rebel._playerLives - 1);
+		_rebel.playLevelDeathVariant(1, 1, _rebel._deathFrame);
+		return true;
+	}
+
+	bool playRetry(int lives) override {
+		_rebel._playerLives = lives;
+		_rebel.playLevelRetry(1);
+		return true;
+	}
+
+	bool playGameOver(int lives) override {
+		_rebel._playerLives = lives;
+		_rebel.playLevelGameOver(1);
+		return true;
+	}
+
+private:
+	InsaneRebel2 &_rebel;
+};
 
 int InsaneRebel2::runLevel1() {
 	playLevelBegin(1);
 	if (_vm->shouldQuit())
 		return kLevelQuit;
 
-	while (!_vm->shouldQuit()) {
-		_playerShield = 255;
-		_playerDamage = 0;
-		_deathFrame = 0;
-		resetExplosions();
-
-		clearBit(0);
-		_rebelKillCounter = 0;
-		_rebelHitCounter = 0;
-
-		if (!playLevelSegment("LEV01/01P01.SAN", 0x28))
-			return kLevelQuit;
-
-		if (_playerShield > 0) {
-			int accuracy = calculateAccuracy(_rebelKillCounter, _rebelHitCounter);
-			debugC(DEBUG_INSANE, "Level 1 completed!");
-			playLevelEnd(1, accuracy, -1, false);
-			_levelUnlocked[1] = true;
-			return kLevelNextLevel;
-		}
-
-		debugC(DEBUG_INSANE, "Level 1 death at frame %d, lives=%d", _deathFrame, _playerLives - 1);
-		playLevelDeathVariant(1, 1, _deathFrame);
-
-		if (_vm->shouldQuit())
-			return kLevelQuit;
-
-		_playerLives--;
-		if (_playerLives <= 0) {
-			playLevelGameOver(1);
-			return kLevelGameOver;
-		}
-
-		playLevelRetry(1);
-		if (_vm->shouldQuit())
-			return kLevelQuit;
+	Level1Handler handler(*this);
+	switch (runRebel2Level1(handler, _playerLives)) {
+	case Rebel2Level1Handler::kComplete:
+		return kLevelNextLevel;
+	case Rebel2Level1Handler::kGameOver:
+		return kLevelGameOver;
+	default:
+		return kLevelQuit;
 	}
-
-	return kLevelQuit;
 }
 
 InsaneRebel2::WaveEndResult InsaneRebel2::processWaveEnd(int16 mask, int16 *budget, int16 threshold, uint16 flags) {
@@ -268,10 +327,11 @@ void InsaneRebel2::resetLevelPhaseState(bool clearEnemies) {
 	if (clearEnemies)
 		_enemies.clear();
 
-	if (_selectedChapter == 1 || _selectedChapter == 10) {
-		_rebelAutopilot = 1;
-		_rebelDamageLevel = 5;
-	}
+	// Every phase starts with the player fully in cover. This only has an
+	// effect in the on-foot cover sections (handler 25, levels 2 and 11);
+	// the other levels ignore these values.
+	_rebelAutopilot = 1;
+	_rebelDamageLevel = 5;
 }
 
 void InsaneRebel2::clearEmbeddedHudFrames() {
@@ -292,19 +352,52 @@ void InsaneRebel2::resetLevelWaveState() {
 	_rebelWaveState = 0;
 }
 
-void InsaneRebel2::resetShieldGauge() {
+void InsaneRebel2::resetGaugeCounters() {
 	for (int i = 0; i < 10; ++i) {
 		_rebelValueCounters[i] = 0;
-		_rebelMaskCounters[i] = 0;
+		_rebelGaugeBlink[i] = 0;
 	}
-	for (int i = 0; i < 512; ++i)
-		_rebelGaugeSlot[i] = -1;
 	_rebelLastCounter = -1;        // non-zero sentinel: gauge not yet depleted
+}
+
+void InsaneRebel2::resetShieldGauge() {
+	resetGaugeCounters();
+	for (int i = 0; i < 15; ++i) {
+		_turretShakeRingX[i] = 0;
+		_turretShakeRingY[i] = 0;
+	}
 	_rebelShieldDestroyed = false;
 	_rebelGaugeArmed = false;
 	_rebelLastArmedSlot = -1;
-	for (int i = 0; i < 10; ++i)
-		_rebelGaugeCleared[i] = false;
+}
+
+void InsaneRebel2::decrementGaugeGroup(int slot, int targetId) {
+	_rebelValueCounters[slot]--;
+	if (_rebelValueCounters[slot] == 0) {
+		_rebelGaugeBlink[slot] = 6;
+		if (_rebelShieldGateActive && !_rebelReactorMode) {
+			_rebelShieldDestroyed = true;
+			debugC(DEBUG_INSANE, "Shield destroyed (gauge slot %d depleted by target %d)", slot, targetId);
+		}
+	}
+	_rebelLastCounter = _rebelValueCounters[slot];
+}
+
+int16 InsaneRebel2::getWaveBudgetBase(int phase) const {
+	// Per-phase wave budgets share the tail columns (rollRate..driftRate) of the
+	// previous level-type row with the flight movement rates.
+	const LevelDifficultyParams &p =
+		kDifficultyTable[CLIP(_difficulty, 0, 5)][CLIP(_rebelLevelType - 1, 0, 16)];
+	switch (phase) {
+	case 1:
+		return p.rollRate;
+	case 2:
+		return p.liftRate;
+	case 3:
+		return p.slideRate;
+	default:
+		return p.driftRate;
+	}
 }
 
 void InsaneRebel2::resetExplosions() {
@@ -316,6 +409,8 @@ void InsaneRebel2::resetExplosions() {
 		_explosions[i].width = 0;
 		_explosions[i].height = 0;
 		_explosions[i].scale = 0;
+		_explosions[i].dx = 0;
+		_explosions[i].dy = 0;
 	}
 }
 
@@ -360,227 +455,244 @@ void InsaneRebel2::resetHandler7FlightState() {
 	}
 }
 
-int InsaneRebel2::runLevel2() {
-	const int16 kLevel2BudgetBase[3] = { 3, 3, 3 };
+Rebel2Level2Handler::Result runRebel2Level2(Rebel2Level2Handler &handler,
+		Common::RandomSource &random) {
+	typedef Rebel2Level2Handler Handler;
 
-	int bonusCount = 0;
-	int totalKills = 0;
-	int totalMisses = 0;
-	int prevWaveState = 0;
+	if (!handler.playOpening())
+		return handler.shouldQuit() ? Handler::kQuit : Handler::kError;
 
-	playCinematic("LEV02/02CUT.SAN");
-	if (_vm->shouldQuit())
-		return kLevelQuit;
+	while (!handler.shouldQuit()) {
+		handler.beginAttempt();
+		int bonusCount = 0;
+		uint16 previousWave = 0;
+		bool died = false;
+		Handler::Result deathResult = Handler::kQuit;
 
-	playLevelBegin(2);
-	if (_vm->shouldQuit())
-		return kLevelQuit;
+		for (int phase = 1; phase <= 3 && !died; ++phase) {
+			handler.beginPhase(phase, phase > 1);
+			int16 budget = handler.waveBudget(phase);
+			if (!handler.playBackgroundWave(phase))
+				return Handler::kQuit;
 
-	clearBit(0);
+			if (phase == 1) {
+				// Phase 1 ignores what a wave credited and simply rolls one of three.
+				handler.creditWave(0x36, &budget, 0);
+				while (!handler.playerDead() && (handler.phaseState() & 0x06) != 0x06) {
+					if (handler.shouldQuit())
+						return Handler::kQuit;
+					if (!handler.playWave(1, (uint16)random.getRandomNumber(2)))
+						return Handler::kQuit;
+					handler.creditWave(0x36, &budget, 0x14);
+				}
+			} else if (phase == 2) {
+				// Phase 2 re-credits from a threshold of zero at the top of every pass.
+				while (true) {
+					const Handler::WaveCredit credit = handler.creditWave(0x3e, &budget, 0);
+					uint16 wave = credit.bits;
+					if (credit.stop || (handler.phaseState() & 0x0e) == 0x0e)
+						break;
+					if (handler.shouldQuit())
+						return Handler::kQuit;
+					if ((wave & 0x0c) == 0)
+						wave = (uint16)random.getRandomNumber(2) + 0x10;
+					if (!handler.playWave(2, wave))
+						return Handler::kQuit;
+				}
+			} else {
+				Handler::WaveCredit credit = handler.creditWave(0x3e, &budget, 0);
+				while (!credit.stop && (handler.phaseState() & 0x0e) != 0x0e) {
+					if (handler.shouldQuit())
+						return Handler::kQuit;
+					uint16 wave = credit.bits;
+					// One pass in eight sets the low bit, but never twice running.
+					if (!(previousWave & 1) && !random.getRandomNumber(7))
+						wave |= 1;
+					previousWave = wave;
+					if (!handler.playWave(3, wave))
+						return Handler::kQuit;
+					credit = handler.creditWave(0x3e, &budget, 0x14);
+				}
+			}
 
-	while (!_vm->shouldQuit()) {
-		resetLevelAttemptState(1);
-		bonusCount = 0;
-		totalKills = 0;
-		totalMisses = 0;
+			if (handler.phaseState() & 0x10)
+				++bonusCount;
+			// The last phase banks its kills before the death check, the others after.
+			if (phase == 3)
+				handler.accumulateKills();
 
-		resetLevelPhaseState(false);
-
-		int16 budget = kLevel2BudgetBase[0] + _vm->_rnd.getRandomNumber(2);
-
-		debugC(DEBUG_INSANE, "Level 2 Phase 1 - playing 02P01_A.SAN (background) budget=%d", budget);
-		if (!playLevelSegment("LEV02/P1/02P01_A.SAN", 0x28))
-			return kLevelQuit;
-
-		processWaveEnd(0x36, &budget, 0, 0);
-
-		while (_playerDamage < 255 && (_rebelPhaseState & 0x06) != 0x06) {
-			if (_vm->shouldQuit())
-				return kLevelQuit;
-
-			int variant = _vm->_rnd.getRandomNumber(2);  // 0-2
-			const char *variants[] = {
-				"LEV02/P1/02P01_B.SAN",
-				"LEV02/P1/02P01_C.SAN",
-				"LEV02/P1/02P01_D.SAN"
-			};
-			debugC(DEBUG_INSANE, "Phase 1 wave - playing %s (state=0x%x budget=%d)", variants[variant], _rebelPhaseState, budget);
-			if (!playLevelSegment(variants[variant], 0x428))
-				return kLevelQuit;
-
-			processWaveEnd(0x36, &budget, 0x14, 0);
-			debugC(DEBUG_INSANE, "Phase 1 wave done - state=0x%x (need 0x06) budget=%d", _rebelPhaseState, budget);
-		}
-
-		if ((_rebelPhaseState & 0x10) != 0)
-			bonusCount++;
-
-		if (_playerDamage >= 255) {
-			int levelResult;
-			if (handleLevelDeath(2, _currentPhase, "LEV02/02DIE.SAN", "LEV02/02RETRY.SAN", levelResult))
-				continue;
-			return levelResult;
-		}
-		if (_vm->shouldQuit())
-			return kLevelQuit;
-
-		_rebelHandler = 0;
-		_rebelStatusBarSprite = 0;
-		if (!playLevelSegment("LEV02/02PST1.SAN", 0x28, false))
-			return kLevelQuit;
-
-		totalKills += _rebelKillCounter;
-		totalMisses += _rebelHitCounter;
-
-		_currentPhase = 2;
-		resetLevelPhaseState(true);
-
-		budget = kLevel2BudgetBase[1] + _vm->_rnd.getRandomNumber(2);
-
-		_rebelHandler = 8;
-
-		debugC(DEBUG_INSANE, "Level 2 Phase 2 - playing 02P02_A.SAN (background) budget=%d", budget);
-		if (!playLevelSegment("LEV02/P2/02P02_A.SAN", 0x28))
-			return kLevelQuit;
-
-		while (true) {
-			WaveEndResult waveEnd = processWaveEnd(0x3e, &budget, 0, 0);
-			uint16 waveSelect = waveEnd.creditedBits;
-			if (waveEnd.shouldStop() || (_rebelPhaseState & 0x0e) == 0x0e)
+			if (handler.playerDead()) {
+				died = true;
+				if (!handler.handleDeath(phase, deathResult))
+					return deathResult;
 				break;
-			if (_vm->shouldQuit())
-				return kLevelQuit;
-
-
-			if ((waveSelect & 0x0c) == 0) {
-				waveSelect = _vm->_rnd.getRandomNumber(2) + 0x10;
 			}
+			if (handler.shouldQuit())
+				return Handler::kQuit;
 
-			const char *filename;
-			switch (waveSelect) {
-			case 4: case 6:
-				filename = "LEV02/P2/02P02_B.SAN"; break;
-			case 8: case 10:
-				filename = "LEV02/P2/02P02_C.SAN"; break;
-			case 0x0c: case 0x0e:
-				filename = "LEV02/P2/02P02_A.SAN"; break;
-			case 0x11:
-				filename = "LEV02/P2/02P02_E.SAN"; break;
-			case 0x12:
-				filename = "LEV02/P2/02P02_F.SAN"; break;
-			default:
-				filename = "LEV02/P2/02P02_D.SAN"; break;
-			}
-
-			debugC(DEBUG_INSANE, "Phase 2 wave - playing %s (state=0x%x sel=0x%x budget=%d)", filename, _rebelPhaseState, waveSelect, budget);
-			if (!playLevelSegment(filename, 0x428))
-				return kLevelQuit;
-		}
-
-		if ((_rebelPhaseState & 0x10) != 0)
-			bonusCount++;
-
-		if (_playerDamage >= 255) {
-			int levelResult;
-			if (handleLevelDeath(2, _currentPhase, "LEV02/02DIE.SAN", "LEV02/02RETRY.SAN", levelResult))
-				continue;
-			return levelResult;
-		}
-		if (_vm->shouldQuit())
-			return kLevelQuit;
-
-		_rebelHandler = 0;
-		_rebelStatusBarSprite = 0;
-		if (!playLevelSegment("LEV02/02PST2.SAN", 0x28, false))
-			return kLevelQuit;
-
-		totalKills += _rebelKillCounter;
-		totalMisses += _rebelHitCounter;
-
-		_currentPhase = 3;
-		resetLevelPhaseState(true);
-		prevWaveState = 0;
-
-		budget = kLevel2BudgetBase[2] + _vm->_rnd.getRandomNumber(2);
-
-		_rebelHandler = 8;
-
-		debugC(DEBUG_INSANE, "Level 2 Phase 3 - playing 02P03_A.SAN (background) budget=%d", budget);
-		if (!playLevelSegment("LEV02/P3/02P03_A.SAN", 0x28))
-			return kLevelQuit;
-
-		{
-			WaveEndResult waveEnd = processWaveEnd(0x3e, &budget, 0, 0);
-
-			while (!waveEnd.shouldStop() && (_rebelPhaseState & 0x0e) != 0x0e) {
-				if (_vm->shouldQuit())
-					return kLevelQuit;
-
-				uint16 waveSelect = waveEnd.creditedBits;
-
-				if (((prevWaveState & 1) == 0) && (_vm->_rnd.getRandomNumber(7) == 0)) {
-					waveSelect |= 1;
-				}
-				prevWaveState = waveSelect;
-
-				const char *filename;
-				switch (waveSelect) {
-				case 0:
-					filename = "LEV02/P3/02P03_H.SAN"; break;
-				case 2:
-					filename = "LEV02/P3/02P03_G.SAN"; break;
-				case 4:
-					filename = "LEV02/P3/02P03_F.SAN"; break;
-				case 6:
-					filename = "LEV02/P3/02P03_E.SAN"; break;
-				case 8:
-					filename = "LEV02/P3/02P03_D.SAN"; break;
-				case 10:
-					filename = "LEV02/P3/02P03_C.SAN"; break;
-				case 0x0c:
-					filename = "LEV02/P3/02P03_B.SAN"; break;
-				case 0x0e:
-					filename = "LEV02/P3/02P03_A.SAN"; break;
-				default:
-					filename = "LEV02/P3/02P03_I.SAN"; break;
-				}
-
-				debugC(DEBUG_INSANE, "Phase 3 wave - playing %s (state=0x%x sel=0x%x budget=%d)", filename, _rebelPhaseState, waveSelect, budget);
-				if (!playLevelSegment(filename, 0x428))
-					return kLevelQuit;
-
-				waveEnd = processWaveEnd(0x3e, &budget, 0x14, 0);
-				debugC(DEBUG_INSANE, "Phase 3 wave done - state=0x%x (need 0x0e) budget=%d", _rebelPhaseState, budget);
+			if (phase == 3) {
+				handler.accumulateMisses();
+			} else {
+				if (!handler.playPhaseEnd(phase))
+					return Handler::kQuit;
+				handler.accumulateKills();
+				handler.accumulateMisses();
 			}
 		}
 
-		if ((_rebelPhaseState & 0x10) != 0)
-			bonusCount++;
-		totalKills += _rebelKillCounter;
-
-		if (_playerDamage >= 255) {
-			int levelResult;
-			if (handleLevelDeath(2, _currentPhase, "LEV02/02DIE.SAN", "LEV02/02RETRY.SAN", levelResult))
-				continue;
-			return levelResult;
-		}
-		if (_vm->shouldQuit())
-			return kLevelQuit;
-
-		{
-			totalMisses += _rebelHitCounter;
-			int accuracy = calculateAccuracy(totalKills, totalMisses);
-			debugC(DEBUG_INSANE, "Level 2 completed! kills=%d misses=%d accuracy=%d%% bonus=%d",
-				totalKills, totalMisses, accuracy, bonusCount);
-			playLevelEnd(2, accuracy, -1, bonusCount > 2);
-		}
-
-		_levelUnlocked[2] = true;
-		return kLevelNextLevel;
+		if (died)
+			continue;
+		handler.playComplete(bonusCount);
+		return Handler::kComplete;
 	}
 
-	return kLevelQuit;
+	return Handler::kQuit;
 }
+
+// The DOS release plays each wave as a SMUSH segment; everything else about the level's
+// shape lives in runRebel2Level2.
+class InsaneRebel2::Level2Handler : public Rebel2Level2Handler {
+public:
+	explicit Level2Handler(InsaneRebel2 &rebel) : _rebel(rebel) {}
+
+	bool shouldQuit() const override { return _rebel._vm->shouldQuit(); }
+
+	bool playOpening() override {
+		_rebel.playCinematic("LEV02/02CUT.SAN");
+		if (shouldQuit())
+			return false;
+		_rebel.playLevelBegin(2);
+		if (shouldQuit())
+			return false;
+		_rebel.clearBit(0);
+		return true;
+	}
+
+	void beginAttempt() override {
+		_rebel.resetLevelAttemptState(1);
+		_rebel._totalKills = 0;
+		_rebel._totalMisses = 0;
+	}
+
+	void beginPhase(int phase, bool clearEnemies) override {
+		_rebel._currentPhase = phase;
+		_rebel.resetLevelPhaseState(clearEnemies);
+	}
+
+	int16 waveBudget(int phase) override {
+		return _rebel.getWaveBudgetBase(phase) + _rebel._vm->_rnd.getRandomNumber(2);
+	}
+
+	bool playBackgroundWave(int phase) override {
+		static const char *const backgrounds[] = {
+			"LEV02/P1/02P01_A.SAN", "LEV02/P2/02P02_A.SAN", "LEV02/P3/02P03_A.SAN"
+		};
+		if (phase > 1)
+			_rebel._rebelHandler = 8;
+		return _rebel.playLevelSegment(backgrounds[phase - 1], 0x28);
+	}
+
+	bool playWave(int phase, uint16 selection) override {
+		return _rebel.playLevelSegment(waveFile(phase, selection), 0x428);
+	}
+
+	WaveCredit creditWave(int16 mask, int16 *budget, int16 threshold) override {
+		const WaveEndResult result = _rebel.processWaveEnd(mask, budget, threshold, 0);
+		WaveCredit credit;
+		credit.bits = result.creditedBits;
+		credit.stop = result.shouldStop();
+		return credit;
+	}
+
+	bool playPhaseEnd(int phase) override {
+		_rebel._rebelHandler = 0;
+		_rebel._rebelStatusBarSprite = 0;
+		return _rebel.playLevelSegment(phase == 1 ? "LEV02/02PST1.SAN" : "LEV02/02PST2.SAN",
+				0x28, false);
+	}
+
+	uint16 phaseState() const override { return (uint16)_rebel._rebelPhaseState; }
+	bool playerDead() const override { return _rebel._playerDamage >= 255; }
+	void accumulateKills() override { _rebel._totalKills += _rebel._rebelKillCounter; }
+	void accumulateMisses() override { _rebel._totalMisses += _rebel._rebelHitCounter; }
+
+	bool handleDeath(int phase, Result &result) override {
+		int levelResult;
+		if (_rebel.handleLevelDeath(2, phase, "LEV02/02DIE.SAN", "LEV02/02RETRY.SAN",
+				levelResult))
+			return true;
+		result = levelResult == kLevelGameOver ? kGameOver :
+				levelResult == kLevelQuit ? kQuit : kError;
+		return false;
+	}
+
+	void playComplete(int bonusCount) override {
+		const int accuracy = _rebel.calculateAccuracy(_rebel._totalKills, _rebel._totalMisses);
+		_rebel.playLevelEnd(2, accuracy, -1, bonusCount > 2);
+		_rebel._levelUnlocked[2] = true;
+	}
+
+private:
+	static const char *waveFile(int phase, uint16 selection) {
+		if (phase == 1) {
+			static const char *const variants[] = {
+				"LEV02/P1/02P01_B.SAN", "LEV02/P1/02P01_C.SAN", "LEV02/P1/02P01_D.SAN"
+			};
+			return variants[selection % 3];
+		}
+		if (phase == 2) {
+			switch (selection) {
+			case 4: case 6:
+				return "LEV02/P2/02P02_B.SAN";
+			case 8: case 10:
+				return "LEV02/P2/02P02_C.SAN";
+			case 0x0c: case 0x0e:
+				return "LEV02/P2/02P02_A.SAN";
+			case 0x11:
+				return "LEV02/P2/02P02_E.SAN";
+			case 0x12:
+				return "LEV02/P2/02P02_F.SAN";
+			default:
+				return "LEV02/P2/02P02_D.SAN";
+			}
+		}
+		switch (selection) {
+		case 0:
+			return "LEV02/P3/02P03_H.SAN";
+		case 2:
+			return "LEV02/P3/02P03_G.SAN";
+		case 4:
+			return "LEV02/P3/02P03_F.SAN";
+		case 6:
+			return "LEV02/P3/02P03_E.SAN";
+		case 8:
+			return "LEV02/P3/02P03_D.SAN";
+		case 10:
+			return "LEV02/P3/02P03_C.SAN";
+		case 0x0c:
+			return "LEV02/P3/02P03_B.SAN";
+		case 0x0e:
+			return "LEV02/P3/02P03_A.SAN";
+		default:
+			return "LEV02/P3/02P03_I.SAN";
+		}
+	}
+
+	InsaneRebel2 &_rebel;
+};
+
+int InsaneRebel2::runLevel2() {
+	Level2Handler handler(*this);
+	switch (runRebel2Level2(handler, _vm->_rnd)) {
+	case Rebel2Level2Handler::kComplete:
+		return kLevelNextLevel;
+	case Rebel2Level2Handler::kGameOver:
+		return kLevelGameOver;
+	default:
+		return kLevelQuit;
+	}
+}
+
 
 int InsaneRebel2::runLevel3() {
 	int phase1Score = 0;
@@ -715,15 +827,17 @@ int InsaneRebel2::runLevel4() {
 		}
 
 		debugC(DEBUG_INSANE, "Level 4 death");
-		playLevelDeathVariant(4, 1, _deathFrame);
-		if (_vm->shouldQuit())
-			return kLevelQuit;
-
+		// The death video only plays on the retry path; the last life goes
+		// straight to the game-over cinematic.
 		_playerLives--;
 		if (_playerLives <= 0) {
 			playLevelGameOver(4);
 			return kLevelGameOver;
 		}
+
+		playLevelDeathVariant(4, 1, _deathFrame);
+		if (_vm->shouldQuit())
+			return kLevelQuit;
 
 		playLevelRetry(4);
 		if (_vm->shouldQuit())
@@ -831,6 +945,8 @@ int InsaneRebel2::runLevel6() {
 			playLevelRetryVariant(6, 1);
 			if (_vm->shouldQuit())
 				return kLevelQuit;
+			_playerShield = 255;  // full shield on retry (original resets damage before replaying)
+			_playerDamage = 0;
 			continue;
 		}
 
@@ -878,6 +994,8 @@ int InsaneRebel2::runLevel6() {
 			playLevelRetryVariant(6, 2);
 			if (_vm->shouldQuit())
 				return kLevelQuit;
+			_playerShield = 255;  // full shield on retry, as in phase 1
+			_playerDamage = 0;
 		}
 
 		break;  // Should only reach here on shouldQuit
@@ -921,7 +1039,7 @@ int InsaneRebel2::runLevel7() {
 		// Right fork: continue into the alternate corridor segment (0x40 =
 		// continuation, so the ship position carries over instead of recentering).
 		if (_level7TookRightFork && _playerShield > 0) {
-			if (!playLevelSegment("LEV07/07PLAYB.SAN", 0x68))
+			if (!playLevelSegment("LEV07/07PLAYB.SAN", 0x468))
 				return kLevelQuit;
 		}
 
@@ -935,7 +1053,7 @@ int InsaneRebel2::runLevel7() {
 		// Death cinematic depends on which corridor side the player died on
 		// (the original keys 07DIE_B/07DIE_A on DAT_0047ab8c), independent of
 		// the fork frame; taking the right fork implies the right side.
-		const bool diedOnRight = _level7TookRightFork || (_flyShipScreenX > 0xd4);
+		const bool diedOnRight = _level7TookRightFork || (_flyShipScreenX + _smoothedVelocity > 0xd4);
 		debugC(DEBUG_INSANE, "Level 7 death at frame %d, right=%d", _deathFrame, diedOnRight);
 		if (diedOnRight) {
 			playCinematic("LEV07/07DIE_B.SAN");
@@ -1022,6 +1140,7 @@ int InsaneRebel2::runLevel9() {
 		clearBit(0);
 		_rebelKillCounter = 0;
 		_rebelHitCounter = 0;
+		resetShieldGauge();
 
 		_rebelPhaseState = 0xfffffffe;
 
@@ -1110,8 +1229,6 @@ int InsaneRebel2::runLevel11() {
 	int totalMisses = 0;
 	int prevPhaseState = 0;
 
-	const int16 kLevel11BudgetBase[4] = { 3, 3, 3, 3 };
-
 	playCinematic("LEV11/11CUT.SAN");
 	if (_vm->shouldQuit())
 		return kLevelQuit;
@@ -1130,7 +1247,7 @@ int InsaneRebel2::runLevel11() {
 
 		resetLevelPhaseState(false);
 
-		int16 budget = kLevel11BudgetBase[0] + _vm->_rnd.getRandomNumber(2);
+		int16 budget = getWaveBudgetBase(1) + _vm->_rnd.getRandomNumber(2);
 
 		debugC(DEBUG_INSANE, "Level 11 Phase 1 - playing 11P01_A.SAN budget=%d", budget);
 		if (!playLevelSegment("LEV11/P1/11P01_A.SAN", 0x28))
@@ -1146,6 +1263,7 @@ int InsaneRebel2::runLevel11() {
 				uint16 waveSelect = waveEnd.creditedBits;
 
 				if ((_rebelPhaseState & 0x10) != 0 && (prevPhaseState & 0x10) == 0) {
+					playAuxSfx(3, 127, 0);
 				}
 				prevPhaseState = _rebelPhaseState;
 
@@ -1186,7 +1304,7 @@ int InsaneRebel2::runLevel11() {
 		_currentPhase = 2;
 		resetLevelPhaseState(true);
 
-		budget = kLevel11BudgetBase[1] + _vm->_rnd.getRandomNumber(2);
+		budget = getWaveBudgetBase(2) + _vm->_rnd.getRandomNumber(2);
 		_rebelHandler = 8;
 
 		debugC(DEBUG_INSANE, "Level 11 Phase 2 - playing 11P02_A.SAN budget=%d", budget);
@@ -1238,7 +1356,7 @@ int InsaneRebel2::runLevel11() {
 		resetLevelPhaseState(true);
 		prevPhaseState = 0;
 
-		budget = kLevel11BudgetBase[2] + _vm->_rnd.getRandomNumber(2);
+		budget = getWaveBudgetBase(3) + _vm->_rnd.getRandomNumber(2);
 		_rebelHandler = 8;
 
 		debugC(DEBUG_INSANE, "Level 11 Phase 3 first half - playing 11P03_A.SAN budget=%d", budget);
@@ -1254,6 +1372,7 @@ int InsaneRebel2::runLevel11() {
 					return kLevelQuit;
 
 				if ((_rebelPhaseState & 0x0e) == 0x0e && (prevPhaseState & 0x0e) != 0x0e) {
+					playAuxSfx(3, 127, 0);
 				}
 				prevPhaseState = _rebelPhaseState;
 
@@ -1313,7 +1432,7 @@ int InsaneRebel2::runLevel11() {
 
 		_rebelHandler = 8;
 
-		budget = kLevel11BudgetBase[3] + _vm->_rnd.getRandomNumber(2);
+		// The phase-3 budget carries into the second half; no new roll.
 
 		debugC(DEBUG_INSANE, "Level 11 Phase 3 second half - playing 11P03_G.SAN budget=%d", budget);
 		if (!playLevelSegment("LEV11/P3/11P03_G.SAN", 0x28))
@@ -1382,8 +1501,6 @@ int InsaneRebel2::runLevel11() {
 }
 
 int InsaneRebel2::runLevel12() {
-	const int16 kLevel12BudgetBase[4] = { 3, 4, 4, 4 };
-
 	playCinematic("LEV12/12CUT.SAN");
 	if (_vm->shouldQuit())
 		return kLevelQuit;
@@ -1399,7 +1516,7 @@ int InsaneRebel2::runLevel12() {
 
 		resetLevelPhaseState(false);
 
-		int16 budget = kLevel12BudgetBase[0] + _vm->_rnd.getRandomNumber(2);
+		int16 budget = getWaveBudgetBase(1) + _vm->_rnd.getRandomNumber(2);
 
 		debugC(DEBUG_INSANE, "Level 12 Phase 1 - init 12P05.SAN budget=%d", budget);
 		if (!playLevelSegment("LEV12/12P05.SAN", 0x28, false))
@@ -1446,7 +1563,7 @@ int InsaneRebel2::runLevel12() {
 		_currentPhase = 2;
 		resetLevelWaveState();
 
-		budget = kLevel12BudgetBase[1] + _vm->_rnd.getRandomNumber(3);
+		budget = getWaveBudgetBase(2) + _vm->_rnd.getRandomNumber(3);
 
 		debugC(DEBUG_INSANE, "Level 12 Phase 2 - init 12P06.SAN budget=%d", budget);
 		if (!playLevelSegment("LEV12/12P06.SAN", 0x428, false))
@@ -1503,7 +1620,7 @@ int InsaneRebel2::runLevel12() {
 		_currentPhase = 3;
 		resetLevelWaveState();
 
-		budget = kLevel12BudgetBase[2] + _vm->_rnd.getRandomNumber(3);
+		budget = getWaveBudgetBase(3) + _vm->_rnd.getRandomNumber(3);
 
 		debugC(DEBUG_INSANE, "Level 12 Phase 3 - init 12P07.SAN budget=%d", budget);
 		if (!playLevelSegment("LEV12/12P07.SAN", 0x428, false))
@@ -1557,7 +1674,7 @@ int InsaneRebel2::runLevel12() {
 		_currentPhase = 4;
 		resetLevelWaveState();
 
-		budget = kLevel12BudgetBase[3] + _vm->_rnd.getRandomNumber(3);
+		budget = getWaveBudgetBase(4) + _vm->_rnd.getRandomNumber(3);
 
 		debugC(DEBUG_INSANE, "Level 12 Phase 4 - init 12P08.SAN budget=%d", budget);
 		if (!playLevelSegment("LEV12/12P08.SAN", 0x428, false))
@@ -1764,6 +1881,7 @@ int InsaneRebel2::runLevel15() {
 		_rebelHitCounter = 0;
 
 		_rebelLevelType = 0xf;
+		_level15SecondHalf = false;
 
 		if (!playLevelSegment("LEV15/15PLAY.SAN", 0x28))
 			return kLevelQuit;

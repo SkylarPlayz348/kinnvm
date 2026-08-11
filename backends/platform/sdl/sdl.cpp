@@ -229,6 +229,10 @@ bool OSystem_SDL::hasFeature(Feature f) {
 	if (f == kFeatureJoystickDeadzone || f == kFeatureKbdMouseSpeed) {
 		return _eventSource->isJoystickConnected();
 	}
+#if defined(MACOSX) && SDL_VERSION_ATLEAST(2, 0, 4)
+	// WORKAROUND: see SdlEventSource::handleMouseMotion()
+	if (f == kFeatureStaleMousePositionWorkaround) return true;
+#endif
 #if defined(USE_OPENGL_GAME) || defined(USE_OPENGL_SHADERS)
 	/* Even if we are using the SDL graphics manager,
 	 * we are at one initGraphics3d call of supporting OpenGL */
@@ -278,6 +282,9 @@ void OSystem_SDL::setFeatureState(Feature f, bool enable) {
 		}
 		break;
 	}
+	case kFeatureStaleMousePositionWorkaround:
+		_eventSource->setStaleMousePositionWorkaround(enable);
+		break;
 	default:
 		ModularGraphicsBackend::setFeatureState(f, enable);
 		break;
@@ -288,6 +295,9 @@ bool OSystem_SDL::getFeatureState(Feature f) {
 	switch (f) {
 	case kFeatureTouchpadMode:
 		return ConfMan.getBool("touchpad_mouse_mode");
+		break;
+	case kFeatureStaleMousePositionWorkaround:
+		return _eventSource->getStaleMousePositionWorkaround();
 		break;
 	default:
 		return ModularGraphicsBackend::getFeatureState(f);

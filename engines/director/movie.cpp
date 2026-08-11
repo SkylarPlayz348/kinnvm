@@ -62,10 +62,6 @@ Movie::Movie(Window *window) {
 
 	_videoPlayback = false;
 
-	_key = 0;
-	_keyCode = 0;
-	_keyFlags = 0;
-
 	_currentDraggedChannel = nullptr;
 	_currentHiliteChannelId = 0;
 	_mouseDownWasInButton = false;
@@ -112,9 +108,12 @@ Movie::~Movie() {
 		g_director->_allOpenResFiles.remove(_cast->getArchive()->getPathName());
 	}
 
-	delete _cast;
-	delete _sharedCast;
 	delete _score;
+
+	for (auto &it : _casts) {
+		delete it._value;
+	}
+	delete _sharedCast;
 }
 
 void Movie::setArchive(Common::SharedPtr<Archive> archive) {
@@ -153,26 +152,72 @@ void Movie::loadCastLibMapping(Common::SeekableReadStreamEndian &stream) {
 	if (debugChannelSet(8, kDebugLoading)) {
 		stream.hexdump(stream.size());
 	}
-	stream.readUint32(); // header size
-	uint32 count = stream.readUint32();
-	stream.readUint16();
-	uint32 unkCount = stream.readUint32() + 1;
-	for (uint32 i = 0; i < unkCount; i++) {
-		stream.readUint32();
-	}
+	// MCsL is a "list chunk": header gives per-cast-library field count and
+	// stride; the actual field bytes are found via an offset table located
+	// at dataOffset. libResourceId is 32-bit in all Director versions;
+	// D5/D6 movies simply store 0 in the high word.
+	uint32 dataOffset = stream.readUint32();
+	stream.readUint16(); // unknown
+	uint32 count = stream.readUint16();
+	uint32 itemsPerCast = stream.readUint16();
+
+	stream.seek(dataOffset);
+	uint16 offsetTableLen = stream.readUint16();
+	Common::Array<uint32> offsets(offsetTableLen);
+	for (uint16 i = 0; i < offsetTableLen; i++)
+		offsets[i] = stream.readUint32();
+	uint32 itemsLen = stream.readUint32();
+	uint32 itemsBase = stream.pos();
+
+	auto itemSpan = [&](uint32 idx, uint32 &start, uint32 &end) {
+		start = idx < offsetTableLen ? offsets[idx] : itemsLen;
+		end = (idx + 1) < offsetTableLen ? offsets[idx + 1] : itemsLen;
+		start = MIN<uint32>(start, itemsLen);
+		end = MIN<uint32>(end, itemsLen);
+		if (end < start)
+			end = start;
+	};
+
 	for (uint32 i = 0; i < count; i++) {
-		int nameSize = stream.readByte();
-		Common::String name = stream.readString('\0', nameSize);
-		stream.readByte(); // null
-		int pathSize = stream.readByte();
-		Common::String path = stream.readString('\0', pathSize);
-		stream.readByte(); // null
-		if (pathSize > 1)
-			stream.readUint16();
-		uint16 minMember = stream.readUint16();
-		uint16 maxMember = stream.readUint16();
-		stream.readUint16();
-		uint16 libResourceId = stream.readUint16();
+		uint32 base = i * itemsPerCast;
+		uint32 start, end;
+
+		Common::String name;
+		itemSpan(base + 1, start, end);
+		if (end - start >= 1) {
+			stream.seek(itemsBase + start);
+			int nameSize = stream.readByte();
+			name = stream.readString('\0', MIN<uint32>(nameSize, end - start - 1));
+		}
+
+		Common::String path;
+		if (itemsPerCast >= 2) {
+			itemSpan(base + 2, start, end);
+			if (end - start >= 1) {
+				stream.seek(itemsBase + start);
+				int pathSize = stream.readByte();
+				path = stream.readString('\0', MIN<uint32>(pathSize, end - start - 1));
+			}
+		}
+
+		if (itemsPerCast >= 3) {
+			itemSpan(base + 3, start, end);
+			if (end - start >= 2) {
+				stream.seek(itemsBase + start);
+				stream.readUint16(); // preload settings; unused
+			}
+		}
+
+		uint16 minMember = 0, maxMember = 0;
+		uint32 libResourceId = 1024;
+		if (itemsPerCast >= 4) {
+			itemSpan(base + 4, start, end);
+			uint32 span = end - start;
+			stream.seek(itemsBase + start);
+			minMember = span >= 2 ? stream.readUint16() : 0;
+			maxMember = span >= 4 ? stream.readUint16() : 0;
+			libResourceId = span >= 8 ? stream.readUint32() : (span >= 6 ? stream.readUint16() : 1024);
+		}
 		uint16 libId = i + 1;
 		debugC(5, kDebugLoading, "Movie::loadCastLibMapping: name: %s, path: %s, minMember: %d, maxMember: %d, libResourceId: %d, libId: %d", utf8ToPrintable(name).c_str(), utf8ToPrintable(path).c_str(), minMember, maxMember, libResourceId, libId);
 		Common::SharedPtr<Archive> castArchive = _movieArchive;
@@ -188,6 +233,12 @@ void Movie::loadCastLibMapping(Common::SeekableReadStreamEndian &stream) {
 		Cast *cast = nullptr;
 		if (_casts.contains(libId)) {
 			cast = _casts.getVal(libId);
+			// The default internal cast is created before the MCsL is parsed;
+			// adopt the authored resource id and name
+			if (!isExternal) {
+				cast->_libResourceId = libResourceId;
+				cast->setCastName(name);
+			}
 		} else {
 			cast = new Cast(this, libId, false, isExternal, libResourceId);
 			cast->setCastName(name);
@@ -238,14 +289,16 @@ bool Movie::loadArchive() {
 	} else {
 		_defaultPalette = CastMemberID(kClutSystemMac, -1);
 	}
-	g_director->_lastPalette = CastMemberID();
+	if (!_isEmbedded)
+		g_director->_lastPalette = CastMemberID();
 
 	bool recenter = false;
 	// For the stage, always resize to the movie rect.
 	// For MIAWs, only resize if the window hasn't been explicitly sized by Lingo
 	// (i.e. still at the 1x1 default from createWindow).
+	// An embedded movie borrows the host's window and must never resize it.
 	bool windowSizeIsDefault = (_window->getSurface()->w <= 1 && _window->getSurface()->h <= 1);
-	if (_window == _vm->getStage() || windowSizeIsDefault) {
+	if (!_isEmbedded && (_window == _vm->getStage() || windowSizeIsDefault)) {
 		if (_window->getSurface()->w != _movieRect.width() || _window->getSurface()->h != _movieRect.height()) {
 			_window->resizeInner(_movieRect.width(), _movieRect.height());
 			recenter = true;
@@ -253,7 +306,7 @@ bool Movie::loadArchive() {
 	}
 
 	// TODO: Add more options for desktop dimensions
-	if (_window == _vm->getStage()) {
+	if (!_isEmbedded && _window == _vm->getStage()) {
 		uint16 windowWidth = g_director->desktopEnabled() ? g_director->_wmWidth : _movieRect.width();
 		uint16 windowHeight = g_director->desktopEnabled() ? g_director->_wmHeight : _movieRect.height();
 		if (_vm->_wm->_screenDims.width() != windowWidth || _vm->_wm->_screenDims.height() != windowHeight) {
@@ -267,7 +320,8 @@ bool Movie::loadArchive() {
 	if (recenter && g_director->desktopEnabled())
 		_window->center(g_director->_centerStage);
 
-	_window->setStageColor(_stageColor, true);
+	if (!_isEmbedded)
+		_window->setStageColor(_stageColor, true);
 
 	// Score
 	if (!(r = _movieArchive->getMovieResourceIfPresent(MKTAG('V', 'W', 'S', 'C')))) {
@@ -472,7 +526,9 @@ Common::SharedPtr<Archive> Movie::loadExternalCastFrom(Common::Path &filename) {
 bool Movie::loadCastLibFrom(uint16 libId, Common::Path &filename) {
 	if (_casts.contains(libId)) {
 		Cast *cast = _casts[libId];
-		if (cast->getArchive()->getPathName() == filename) {
+		// The cast may not have an archive attached yet, e.g. when Lingo
+		// changes the fileName of a castLib before the movie finished loading.
+		if (cast->getArchive() && cast->getArchive()->getPathName() == filename) {
 			// CastLib is already loaded, change nothing
 			return false;
 		}
@@ -483,13 +539,15 @@ bool Movie::loadCastLibFrom(uint16 libId, Common::Path &filename) {
 		return false;
 	}
 
-	uint16 libResourceId = 1024;
+	uint32 libResourceId = 1024;
 	Common::String name;
+	bool replacingDefault = false;
 	if (_casts.contains(libId)) {
-		Cast *cast = _casts[libId];
-		libResourceId = cast->_libResourceId;
-		name = cast->getCastName();
-		delete cast;
+		Cast *oldCast = _casts[libId];
+		libResourceId = oldCast->_libResourceId;
+		name = oldCast->getCastName();
+		replacingDefault = (oldCast == _cast);
+		delete oldCast;
 		_casts.erase(libId);
 	}
 
@@ -499,12 +557,20 @@ bool Movie::loadCastLibFrom(uint16 libId, Common::Path &filename) {
 	cast->loadCast();
 
 	_casts.setVal(libId, cast);
+	// Keep the default-cast shortcut from dangling when lib 1 is swapped.
+	if (replacingDefault)
+		_cast = cast;
 	_score->refreshPointersForCastLib(libId);
 	return true;
 }
 
 CastMember *Movie::getCastMember(CastMemberID memberID) {
 	CastMember *result = nullptr;
+	if (memberID.castLib == SHARED_CAST_LIB) {
+		if (_sharedCast)
+			result = _sharedCast->getCastMember(memberID.member);
+		return result;
+	}
 	if (_casts.contains(memberID.castLib)) {
 		if (memberID.member == 0)
 			return nullptr;
@@ -531,7 +597,7 @@ Cast *Movie::getCast(CastMemberID memberID) {
 	return nullptr;
 }
 
-Cast *Movie::getCastByLibResourceID(int libresourceID) {
+Cast *Movie::getCastByLibResourceID(uint32 libresourceID) {
 	for (auto it : _casts) {
 		if (it._value->_libResourceId == libresourceID) {
 			debugC(3, kDebugSaving, "Movie::getCastByLibResourceID: Found cast with libresourceID: %d", libresourceID);
@@ -681,6 +747,11 @@ CastMemberID Movie::getCastMemberIDByNameAndType(const Common::String &name, int
 	} else {
 		warning("Movie::getCastMemberIDByNameAndType: Unknown castLib %d", castLib);
 	}
+	// An embedded movie shares its host's cast, so a member it lacks may
+	// live in the host movie.
+	if (result.member == -1 && _parentMovie)
+		return _parentMovie->getCastMemberIDByNameAndType(name, castLib, type);
+
 	if (result.member == -1) {
 		warning("Movie::getCastMemberIDByNameAndType: No match found for member name %s and lib %d", name.c_str(), castLib);
 	}
@@ -765,6 +836,11 @@ Symbol Movie::getHandler(const Common::String &name, uint16 castLibHint) {
 	if (_sharedCast && _sharedCast->_lingoArchive->functionHandlers.contains(name))
 		return _sharedCast->_lingoArchive->functionHandlers[name];
 
+	// An embedded movie shares its host's handler scope, so a handler it
+	// lacks may live in the host movie.
+	if (_parentMovie)
+		return _parentMovie->getHandler(name, castLibHint);
+
 	return Symbol();
 }
 
@@ -792,8 +868,11 @@ Common::String InfoEntry::readString(bool pascal) {
 			encodedStr += data[i];
 	}
 
-	// FIXME: Use the case which contains this string, not the main cast.
-	return g_director->getCurrentMovie()->getCast()->decodeString(encodedStr).encode(Common::kUtf8);
+	// FIXME: Use the cast which contains this string, not the main cast.
+	Movie *movie = g_director->getCurrentMovie();
+	if (!movie || !movie->getCast())
+		return encodedStr; // no cast to decode against yet
+	return movie->getCast()->decodeString(encodedStr).encode(Common::kUtf8);
 }
 
 void InfoEntry::writeString(Common::String string, bool pascal) {

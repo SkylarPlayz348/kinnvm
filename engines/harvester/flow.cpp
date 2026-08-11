@@ -23,6 +23,7 @@
 
 #include "harvester/flow.h"
 
+#include "common/algorithm.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
 #include "common/endian.h"
@@ -38,6 +39,7 @@
 #include "graphics/framelimiter.h"
 #include "harvester/cft_font.h"
 #include "harvester/detection.h"
+#include "harvester/fst_player.h"
 #include "harvester/harvester.h"
 #include "harvester/palette_utils.h"
 #include "harvester/resources.h"
@@ -54,6 +56,14 @@ namespace {
 static const char *const kQuickTipsPath = "ADJHEAD.RCS";
 static const char *const kMenuPath = "MENU.INI";
 static const char *const kMenuSectionName = "menu";
+static const char *const kDemoMenuItems[] = {
+	"NEW GAME",
+	"SAVE GAME",
+	"LOAD GAME",
+	"OPTIONS",
+	"HELP",
+	"QUIT GAME"
+};
 static const char *const kTownMapPalettePath = "1:/GRAPHIC/PAL/HARVMAP.PAL";
 static const char *const kTownMapMusicPath = "SOUND/MUSIC/MENACE.CMP";
 static const char *const kTownMapBitmapPaths[] = {
@@ -80,6 +90,19 @@ static const char *const kPlayerActorEntityName = "PLAYER";
 static const uint32 kPaletteFadeTickMs = 4;
 static const float kPaletteFadeStep = 0.1f;
 static const float kPaletteBrightnessBlack = 0.0f;
+static const float kPaletteBrightnessFull = 1.0f;
+static const uint32 kDemoEndingScreenDurationMs = 10000;
+static const int kDemoEndingScreenNumbers[] = { 1, 2, 3, 4, 6 };
+static const char *const kDemoEndingMusicPath = "SOUND/MUSIC/ROCKFITE.CMP";
+static const uint32 kDemoIntroductionDurationMs = 17000;
+static const char *const kDemoIntroductionBitmapPath = "1:/GRAPHIC/OTHER/MAINMENU.BM";
+static const char *const kDemoIntroductionPalettePath = "1:/GRAPHIC/PAL/MAINMENU.PAL";
+static const char *const kDemoIntroductionMusicPath = "SOUND/MUSIC/LODGERB.CMP";
+static const char *const kDemoIntroductionFstPath = "GRAPHIC/FST/PCFALL.FST";
+static const char *const kDemoIntroductionText =
+	"After solving the enigmas of the Harvest town, you are thrust into the realm of "
+	"the Order of the Harvest Moon, a bizarre institution of secretive knowledge.  "
+	"However, the only thing you really care about is escaping from this hellish reality...";
 static const float kTownMapNightPaletteBrightness = 0.6f;
 // Native keeps WAIT_BM visible while room construction runs; fast local loads need a short floor.
 static const uint32 kTransitionWaitFrameMinMs = 120;
@@ -597,6 +620,26 @@ static void blitBitmap(Graphics::Screen &screen, const IndexedBitmap &bitmap, in
 	screen.copyRectToSurface(bitmap.pixels.data(), bitmap.width, x, y, bitmap.width, bitmap.height);
 }
 
+static void blitTransparentBitmap(Graphics::Screen &screen, const IndexedBitmap &bitmap,
+		int x, int y) {
+	if (!bitmap.isValid())
+		return;
+
+	for (uint32 srcY = 0; srcY < bitmap.height; ++srcY) {
+		const int destY = y + (int)srcY;
+		if (destY < 0 || destY >= screen.h)
+			continue;
+		for (uint32 srcX = 0; srcX < bitmap.width; ++srcX) {
+			const int destX = x + (int)srcX;
+			if (destX < 0 || destX >= screen.w)
+				continue;
+			const byte color = bitmap.pixels[srcY * bitmap.width + srcX];
+			if (color != 0)
+				*(byte *)screen.getBasePtr(destX, destY) = color;
+		}
+	}
+}
+
 bool captureScreenBackdrop(const Graphics::Screen &screen, IndexedBitmap &bitmap) {
 	if (screen.w <= 0 || screen.h <= 0 || screen.format.bytesPerPixel != 1)
 		return false;
@@ -802,7 +845,7 @@ bool loadRoomSceneResources(const RoomSetupState &state, ResourceManager &resour
 	for (const ObjectRecord &object : state.activeObjects)
 		queueSceneObject("active", object, sceneObjects);
 
-	scene.sceneObjects = sceneObjects;
+	scene.sceneObjects = Common::move(sceneObjects);
 	for (const AnimRecord &anim : state.roomAnimations) {
 		if (shouldDisplaySceneAnimation(anim))
 			scene.sceneAnimations.push_back(anim);
@@ -1427,6 +1470,11 @@ Common::Error Flow::run() {
 		_engine.clearCurrentSaveRoomState();
 		_engine.clearPendingLoadedDialogueStateBlob();
 		_engine.getScript()->resetRuntimeState();
+		if (_engine.isDemo()) {
+			error = runDemoIntroduction();
+			if (error.getCode() != Common::kNoError)
+				return error;
+		}
 		error = runQuickTips();
 		if (error.getCode() != Common::kNoError)
 			return error;
@@ -1460,9 +1508,9 @@ bool Flow::loadQuickTips() {
 		if (ch == '\r')
 			continue;
 		if (ch == '\n') {
-			const Common::String trimmed = trimAsciiLine(currentLine);
+			Common::String trimmed = trimAsciiLine(currentLine);
 			if (!trimmed.empty())
-				_quickTips.push_back(trimmed);
+				_quickTips.push_back(Common::move(trimmed));
 			currentLine.clear();
 			continue;
 		}
@@ -1470,9 +1518,9 @@ bool Flow::loadQuickTips() {
 		currentLine += ch;
 	}
 
-	const Common::String trimmed = trimAsciiLine(currentLine);
+	Common::String trimmed = trimAsciiLine(currentLine);
 	if (!trimmed.empty())
-		_quickTips.push_back(trimmed);
+		_quickTips.push_back(Common::move(trimmed));
 
 	debugC(1, kDebugGeneral, "Harvester: loaded %u quick tips from '%s'", (uint)_quickTips.size(), kQuickTipsPath);
 	return true;
@@ -1483,6 +1531,15 @@ bool Flow::loadMenuItems() {
 
 	Common::Array<byte> data;
 	if (!_engine.getResources()->loadFile(kMenuPath, data)) {
+		if (_engine.isDemo()) {
+			for (const char *item : kDemoMenuItems)
+				_menuItems.push_back(item);
+			debugC(1, kDebugGeneral,
+				"Harvester: using %u built-in DOS demo menu items",
+				(uint)_menuItems.size());
+			return true;
+		}
+
 		warning("Harvester: unable to load startup menu '%s'", kMenuPath);
 		return true;
 	}
@@ -1501,7 +1558,7 @@ bool Flow::loadMenuItems() {
 		Common::String key = Common::String::format("main_menu_%u", i);
 		Common::String value;
 		if (menu.getKey(key, kMenuSectionName, value) && !value.empty())
-			_menuItems.push_back(value);
+			_menuItems.push_back(Common::move(value));
 	}
 
 	debugC(1, kDebugGeneral, "Harvester: loaded %u startup menu items from '%s'", (uint)_menuItems.size(), kMenuPath);
@@ -1595,6 +1652,149 @@ Common::Error Flow::runQuickTips() {
 		limiter.startFrame();
 	}
 
+	return Common::kNoError;
+}
+
+Common::Error Flow::runDemoEnding() {
+	Graphics::Screen *screen = _engine.getScreen();
+	ResourceManager *resources = _engine.getResources();
+	EntityManager *entityManager = _engine.getRuntimeEntities();
+	if (!screen || !resources)
+		return Common::kReadingFailed;
+
+	if (entityManager)
+		entityManager->hideCursor();
+	_engine.stopSound();
+	if (!_engine.playMusic(kDemoEndingMusicPath))
+		return Common::kReadingFailed;
+
+	for (uint i = 0; i < ARRAYSIZE(kDemoEndingScreenNumbers) && !_engine.shouldQuit(); ++i) {
+		const int screenNumber = kDemoEndingScreenNumbers[i];
+		const Common::String bitmapPath = Common::String::format(
+			"1:/GRAPHIC/OTHER/SCREEN%d.BM", screenNumber);
+		const Common::String palettePath = Common::String::format(
+			"1:/GRAPHIC/PAL/SCREEN%d.PAL", screenNumber);
+		IndexedBitmap bitmap;
+		byte palette[256 * 3];
+		if (!loadBitmapResource(*resources, bitmapPath, bitmap) ||
+				!loadPaletteResource(*resources, palettePath, palette)) {
+			warning("Harvester: unable to load DOS demo ending screen %d", screenNumber);
+			return Common::kReadingFailed;
+		}
+
+		setScaledPalette(*screen, palette, kPaletteBrightnessBlack);
+		screen->fillRect(Common::Rect(0, 0, screen->w, screen->h), 0);
+		blitBitmap(*screen, bitmap, 0, 0);
+		screen->makeAllDirty();
+		screen->update();
+
+		Common::Error fadeError = fadePalette(
+			palette, kPaletteBrightnessBlack, kPaletteBrightnessFull);
+		if (fadeError.getCode() != Common::kNoError)
+			return fadeError;
+
+		const uint32 deadline = g_system->getMillis() + kDemoEndingScreenDurationMs;
+		bool skipScreen = false;
+		while (!skipScreen && !_engine.shouldQuit() &&
+				(int32)(deadline - g_system->getMillis()) > 0) {
+			Common::Event event;
+			while (g_system->getEventManager()->pollEvent(event)) {
+				Common::Error eventError = Common::kNoError;
+				if (handleSystemEvent(event, eventError))
+					return eventError;
+				if (event.type == Common::EVENT_LBUTTONDOWN ||
+						(event.type == Common::EVENT_KEYDOWN &&
+						(event.kbd.keycode == Common::KEYCODE_SPACE ||
+						event.kbd.keycode == Common::KEYCODE_ESCAPE ||
+						event.kbd.keycode == Common::KEYCODE_RETURN))) {
+					skipScreen = true;
+				}
+			}
+			g_system->delayMillis(1);
+		}
+
+		if (i + 1 == ARRAYSIZE(kDemoEndingScreenNumbers))
+			_engine.stopMusic();
+		fadeError = fadePalette(
+			palette, kPaletteBrightnessFull, kPaletteBrightnessBlack);
+		if (fadeError.getCode() != Common::kNoError)
+			return fadeError;
+	}
+
+	_engine.quitGame();
+	return Common::kNoError;
+}
+
+Common::Error Flow::runDemoIntroduction() {
+	Graphics::Screen *screen = _engine.getScreen();
+	ResourceManager *resources = _engine.getResources();
+	EntityManager *entityManager = _engine.getRuntimeEntities();
+	const Art *art = _engine.getArt();
+	const CftFontResource *fontResource = findStartupFontByName(_engine, "TEXTFONT");
+	if (!screen || !resources || !art || !fontResource)
+		return Common::kReadingFailed;
+
+	IndexedBitmap bitmap;
+	byte palette[256 * 3];
+	if (!loadBitmapResource(*resources, kDemoIntroductionBitmapPath, bitmap) ||
+			!loadPaletteResource(*resources, kDemoIntroductionPalettePath, palette)) {
+		return Common::kReadingFailed;
+	}
+
+	HarvesterCftFont font(*fontResource);
+	if (!font.isValid())
+		return Common::kReadingFailed;
+	debugC(1, kDebugGeneral,
+		"Harvester: showing DOS demo introduction for %u ms",
+		kDemoIntroductionDurationMs);
+
+	if (entityManager)
+		entityManager->hideCursor();
+	setScaledPalette(*screen, palette, kPaletteBrightnessBlack);
+	screen->fillRect(Common::Rect(0, 0, screen->w, screen->h), 0);
+	blitBitmap(*screen, bitmap, 0, 0);
+	blitTransparentBitmap(*screen, art->getLogoBitmap(), 160, 0);
+	drawWrappedText(*screen, font, kDemoIntroductionText, 90, 200, 420, 0xce,
+		kNativeIdentTextLineSpacing);
+	screen->makeAllDirty();
+	screen->update();
+
+	if (!_engine.playMusic(kDemoIntroductionMusicPath))
+		return Common::kReadingFailed;
+	Common::Error fadeError = fadePalette(
+		palette, kPaletteBrightnessBlack, kPaletteBrightnessFull);
+	if (fadeError.getCode() != Common::kNoError)
+		return fadeError;
+
+	const uint32 deadline = g_system->getMillis() + kDemoIntroductionDurationMs;
+	bool skipIntroduction = false;
+	while (!skipIntroduction && !_engine.shouldQuit() &&
+			(int32)(deadline - g_system->getMillis()) > 0) {
+		Common::Event event;
+		while (g_system->getEventManager()->pollEvent(event)) {
+			Common::Error eventError = Common::kNoError;
+			if (handleSystemEvent(event, eventError))
+				return eventError;
+			if (event.type == Common::EVENT_LBUTTONDOWN ||
+					event.type == Common::EVENT_RBUTTONDOWN ||
+					(event.type == Common::EVENT_KEYDOWN &&
+					(event.kbd.keycode == Common::KEYCODE_SPACE ||
+					event.kbd.keycode == Common::KEYCODE_ESCAPE ||
+					event.kbd.keycode == Common::KEYCODE_RETURN))) {
+				skipIntroduction = true;
+			}
+		}
+		g_system->delayMillis(1);
+	}
+
+	fadeError = fadePalette(palette, kPaletteBrightnessFull, kPaletteBrightnessBlack);
+	if (fadeError.getCode() != Common::kNoError)
+		return fadeError;
+	_engine.stopMusic();
+
+	FstPlayer fstPlayer(_engine);
+	if (!fstPlayer.play(kDemoIntroductionFstPath))
+		return Common::kReadingFailed;
 	return Common::kNoError;
 }
 
@@ -1789,7 +1989,7 @@ bool Flow::takeQueuedDialogueInteraction(InteractionResult &interaction) {
 	if (!_hasQueuedDialogueInteraction)
 		return false;
 
-	interaction = _queuedDialogueInteraction;
+	interaction = Common::move(_queuedDialogueInteraction);
 	_queuedDialogueInteraction = InteractionResult();
 	_hasQueuedDialogueInteraction = false;
 	return true;
@@ -1810,7 +2010,7 @@ bool Flow::takeQueuedDebugInteraction(InteractionResult &interaction) {
 	if (!_hasQueuedDebugInteraction)
 		return false;
 
-	interaction = _queuedDebugInteraction;
+	interaction = Common::move(_queuedDebugInteraction);
 	_queuedDebugInteraction = InteractionResult();
 	_hasQueuedDebugInteraction = false;
 	return true;
@@ -2284,6 +2484,35 @@ Common::Error Flow::fadeInRoomScene(const byte *palette, float targetBrightness)
 	}
 
 	setScaledPalette(*screen, palette, targetBrightness);
+	screen->makeAllDirty();
+	screen->update();
+	return Common::kNoError;
+}
+
+Common::Error Flow::fadePalette(const byte *palette, float fromBrightness,
+		float toBrightness) {
+	Graphics::Screen *screen = _engine.getScreen();
+	if (!screen || !palette)
+		return Common::kNoError;
+
+	const float step = fromBrightness < toBrightness ? kPaletteFadeStep : -kPaletteFadeStep;
+	for (float brightness = fromBrightness;
+			step > 0.0f ? brightness < toBrightness : brightness > toBrightness;
+			brightness += step) {
+		setScaledPalette(*screen, palette, brightness);
+		screen->makeAllDirty();
+		screen->update();
+
+		const uint32 nextTick = g_system->getMillis() + kPaletteFadeTickMs;
+		while ((int32)(nextTick - g_system->getMillis()) > 0) {
+			Common::Error eventError = Common::kNoError;
+			if (pumpTransitionEvents(eventError))
+				return eventError;
+			g_system->delayMillis(1);
+		}
+	}
+
+	setScaledPalette(*screen, palette, toBrightness);
 	screen->makeAllDirty();
 	screen->update();
 	return Common::kNoError;

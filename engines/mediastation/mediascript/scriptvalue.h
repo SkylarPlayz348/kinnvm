@@ -34,7 +34,7 @@ class Actor;
 
 class ScriptValue {
 public:
-	ScriptValue() : _type(kScriptValueTypeEmpty), _collection(nullptr) {}
+	ScriptValue() : _type(kScriptValueTypeEmpty), _u{}, _collection(nullptr) {}
 	ScriptValue(ParameterReadStream *stream);
 	ScriptValue(const ScriptValue &other);
 	~ScriptValue();
@@ -73,7 +73,7 @@ public:
 	void setToMethodId(BuiltInMethod methodId);
 	BuiltInMethod asMethodId() const;
 
-	Common::String getDebugString() const;
+	Common::String getDebugString(bool includeDefaultName = true) const;
 
 	void operator=(const ScriptValue &other);
 	bool operator==(const ScriptValue &other) const;

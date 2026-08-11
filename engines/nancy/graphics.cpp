@@ -37,12 +37,12 @@ GraphicsManager::GraphicsManager() :
 	_inputPixelFormat16(2, 5, 5, 5, 0, 10, 5, 0, 0),
 	_inputPixelFormat24(Graphics::PixelFormat::createFormatBGR24()),
 	_inputPixelFormat32(Graphics::PixelFormat::createFormatBGRA32()),
-	_screenPixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0),
+	_screenPixelFormat16(2, 5, 6, 5, 0, 11, 5, 0, 0),
+	_screenPixelFormat32(Graphics::PixelFormat::createFormatBGRA32()),
 	_clut8Format(Graphics::PixelFormat::createFormatCLUT8()),
-	_transparentPixelFormat(4, 8, 8, 8, 8, 8, 16, 24, 0),
-	_isSuppressed(false),
-	_screen(640, 480, _screenPixelFormat){}
-
+	_transparentPixelFormat(Graphics::PixelFormat::createFormatBGRA32()),
+	_screen(640, 480, getScreenPixelFormat()),
+	_isSuppressed(false){}
 void GraphicsManager::init() {
 	auto *bsum = GetEngineData(BSUM);
 	assert(bsum);
@@ -51,19 +51,20 @@ void GraphicsManager::init() {
 	if (g_nancy->getGameType() == kGameTypeVampire) {
 		_transColor = bsum->paletteTrans;
 	} else {
-		_transColor = 	(bsum->rTrans << _inputPixelFormat16.rShift) |
-						(bsum->gTrans << _inputPixelFormat16.gShift) |
-						(bsum->bTrans << _inputPixelFormat16.bShift);
+		const Graphics::PixelFormat &format = getInputPixelFormat();
+		_transColor = (bsum->rTrans << format.rShift) |
+					  (bsum->gTrans << format.gShift) |
+					  (bsum->bTrans << format.bShift);
 	}
 
-	initGraphics(640, 480, &_screenPixelFormat);
+	initGraphics(640, 480, &getScreenPixelFormat());
 	_screen.setTransparentColor(getTransColor());
 	_screen.clear();
 
+	// OB0 has been dropped in Nancy16+
 	const ImageChunk *ob0 = (const ImageChunk *)g_nancy->getEngineData("OB0");
-	assert(ob0);
-
-	g_nancy->_resource->loadImage(ob0->imageName, _object0);
+	if (ob0)
+		g_nancy->_resource->loadImage(ob0->imageName, _object0);
 }
 
 void GraphicsManager::draw(bool updateScreen) {
@@ -400,6 +401,8 @@ const Graphics::PixelFormat &GraphicsManager::getInputPixelFormat(uint bpp) {
 		return _clut8Format;
 
 	switch (bpp) {
+	case 0:
+		return g_nancy->getGameType() >= kGameTypeNancy13 ? _inputPixelFormat32 : _inputPixelFormat16;
 	case 16:
 		return _inputPixelFormat16;	// RGB555
 	case 24:
@@ -412,7 +415,7 @@ const Graphics::PixelFormat &GraphicsManager::getInputPixelFormat(uint bpp) {
 }
 
 const Graphics::PixelFormat &GraphicsManager::getScreenPixelFormat() {
-	return _screenPixelFormat;
+	return (g_nancy->getGameType() >= kGameTypeNancy13) ? _screenPixelFormat32 : _screenPixelFormat16;
 }
 
 const Graphics::PixelFormat &GraphicsManager::getTransparentPixelFormat() {

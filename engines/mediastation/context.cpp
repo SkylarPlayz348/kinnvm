@@ -33,6 +33,7 @@
 #include "mediastation/actors/palette.h"
 #include "mediastation/actors/image.h"
 #include "mediastation/actors/path.h"
+#include "mediastation/actors/printer.h"
 #include "mediastation/actors/sound.h"
 #include "mediastation/actors/movie.h"
 #include "mediastation/actors/sprite.h"
@@ -42,6 +43,8 @@
 #include "mediastation/actors/screen.h"
 #include "mediastation/actors/font.h"
 #include "mediastation/actors/text.h"
+#include "mediastation/minigames/dotgame.h"
+#include "mediastation/minigames/stalkingzazu.h"
 
 namespace MediaStation {
 
@@ -133,6 +136,10 @@ void ImtGod::readCreateActorData(Chunk &chunk) {
 		actor = new SpriteMovieActor();
 		break;
 
+	case kActorTypeStalkingZazu:
+		actor = new StalkingZazuActor();
+		break;
+
 	case kActorTypeCanvas:
 		actor = new CanvasActor();
 		break;
@@ -163,6 +170,14 @@ void ImtGod::readCreateActorData(Chunk &chunk) {
 
 	case kActorTypeDiskImage:
 		actor = new DiskImageActor();
+		break;
+
+	case kActorTypePrinter:
+		actor = new PrinterActor();
+		break;
+
+	case kActorTypeDotGame:
+		actor = new DotGameActor();
 		break;
 
 	default:

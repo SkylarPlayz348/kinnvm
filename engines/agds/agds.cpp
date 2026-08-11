@@ -71,8 +71,9 @@ AGDSEngine::AGDSEngine(OSystem *system, const ADGameDescription *gameDesc) : Eng
 																			 _ambientSoundId(-1),
 																			 _curtainTimer(-1),
 																			 _curtainScreen(0),
-																			 _fastMode(true),
+																			 _fastMode(false),
 																			 _hintMode(false) {
+	debug("agds engine version %d", version());
 }
 
 AGDSEngine::~AGDSEngine() {
@@ -250,7 +251,7 @@ void AGDSEngine::runProcess(const ObjectPtr &object, uint ip) {
 			return;
 		}
 		if (!process) {
-			process = ProcessPtr(new Process(this, object, ip, version()));
+			process = ProcessPtr(new Process(this, object, ip, version(), language()));
 			process->run();
 			return;
 		}
@@ -315,7 +316,7 @@ void AGDSEngine::saveScreenPatch() {
 	patch->characterPresent = _currentCharacter != nullptr && _currentCharacter->visible();
 	if (_currentCharacter) {
 		patch->characterPosition = _currentCharacter->position();
-		patch->characterDirection = _currentCharacter->direction();
+		patch->characterDirection = _currentCharacter->baseDirection();
 	}
 	patch->defaultMouseCursor = _defaultMouseCursorName;
 }
@@ -361,7 +362,9 @@ void AGDSEngine::loadScreen(const Common::String &name, ScreenLoadingType loadin
 
 	if (doPatch) {
 		_currentScreen->load(patch);
-		if (_currentCharacter) {
+		// script-created patches never captured the screen and carry no
+		// character state; applying their defaults would hide the character
+		if (_currentCharacter && patch->screenSaved) {
 			_currentCharacter->visible(patch->characterPresent);
 			_currentCharacter->position(patch->characterPosition);
 			_currentCharacter->direction(patch->characterDirection);
@@ -656,10 +659,8 @@ Common::Error AGDSEngine::run() {
 						if (lclick) {
 							if (_currentCharacter && _currentCharacter->active() && _currentScreen && _currentScreen->region()) {
 								auto &region = _currentScreen->region();
-								if (region->pointIn(_mouse)) {
-									// FIXME: some object requires character to be in "trap" region
-									// Remove this after movement implementation.
-									_currentCharacter->moveTo(Common::String(), _mouse, -1);
+								if (region->walkPointInside(_mouse) > 0) {
+									_currentCharacter->moveTo(Common::String(), _mouse, -1, true);
 								}
 							}
 							auto scroll = _currentScreen->scrollPosition();
@@ -866,7 +867,7 @@ AnimationPtr AGDSEngine::loadAnimation(const Common::String &name) {
 	debug("loadAnimation %s", name.c_str());
 
 	Common::SharedPtr<Animation> animation(new Animation(this, name));
-	if (v2()) {
+	if (versionAtLeast(kAGDSVersionNibiru2511)) {
 		debug("v2 stub");
 		return animation;
 	}
@@ -894,7 +895,7 @@ void AGDSEngine::loadCharacter(const Common::String &id, const Common::String &f
 
 	_currentCharacter.reset(new Character(this, id));
 	auto resName = loadText(filename);
-	if (v2()) {
+	if (versionAtLeast(kAGDSVersionNibiru2511)) {
 		debug("character resource name: %s, stub\n", resName.c_str());
 		_currentCharacter->associate(object);
 		return;
@@ -928,7 +929,7 @@ Graphics::ManagedSurface *AGDSEngine::loadFromCache(int id) const {
 }
 
 void AGDSEngine::loadFont(int id, const Common::String &name, int gw, int gh) {
-	if (v2()) {
+	if (versionAtLeast(kAGDSVersionNibiru2511)) {
 		debug("loadTTF %d %s, pixelSize: %d", id, name.c_str(), gh);
 #ifdef USE_FREETYPE2
 		_fonts[id].reset(Graphics::loadTTFFontFromArchive(name, gh));
@@ -1444,16 +1445,22 @@ int AGDSEngine::getRandomNumber(int max) {
 	return max > 0 ? _random.getRandomNumber(max - 1) : 0;
 }
 
-bool AGDSEngine::v2() const {
-	return _gameDescription->flags & AGDS_V2;
-}
-
 int AGDSEngine::version() const {
 	if (_gameDescription->flags & ADGF_DEMO)
-		return 0;
-	if (v2())
-		return 2;
-	return 1;
+		return kAGDSVersionDemo2283;
+	if (_gameDescription->flags & AGDS_2299)
+		return kAGDSVersionBlackMirror2299;
+	if (_gameDescription->flags & AGDS_2511)
+		return kAGDSVersionNibiru2511;
+	return kAGDSVersionBlackMirror2296;
+}
+
+bool AGDSEngine::versionAtLeast(int target) const {
+	return version() >= target;
+}
+
+Common::Language AGDSEngine::language() const {
+	return _gameDescription->language;
 }
 
 } // End of namespace AGDS

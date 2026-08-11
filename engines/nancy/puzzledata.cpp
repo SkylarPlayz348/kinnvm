@@ -302,6 +302,21 @@ float TableData::getComboValue(uint16 index) const {
 	return index < comboValues.size() ? comboValues[index] : kNoTableValue;
 }
 
+uint TableData::getNumSingleValues() const {
+	// nancy8 has 20 single & 20 combo values, later games have 30/10
+	return g_nancy->getGameType() <= kGameTypeNancy8 ? 20 : 30;
+}
+
+int16 TableData::getValue(uint16 index) const {
+	uint numSingleValues = getNumSingleValues();
+	if (index < numSingleValues) {
+		return getSingleValue(index);
+	}
+
+	float value = getComboValue(index - numSingleValues);
+	return (int16)(value + (value < 0 ? -0.5f : 0.5f));
+}
+
 void CellPhoneData::synchronize(Common::Serializer &ser) {
 	ser.syncAsByte(noSignal);
 	ser.syncAsByte(batteryLow);
@@ -336,7 +351,7 @@ void CellPhoneData::synchronize(Common::Serializer &ser) {
 	syncLinkArray(ser, searchLinks);
 }
 
-void CellPhoneData::syncLinkArray(Common::Serializer &ser, Common::Array<LinkEntry> &arr) {
+void CellPhoneData::syncLinkArray(Common::Serializer &ser, Common::Array<SearchLink> &arr) {
 	uint16 n = (uint16)arr.size();
 	ser.syncAsUint16LE(n);
 	if (ser.isLoading()) {
@@ -349,6 +364,29 @@ void CellPhoneData::syncLinkArray(Common::Serializer &ser, Common::Array<LinkEnt
 		ser.syncAsSint16LE(arr[i].flag);
 		ser.syncAsSint16LE(arr[i].eventFlag);
 		ser.syncAsByte(arr[i].read);
+	}
+}
+
+void CellPhonePictureData::synchronize(Common::Serializer &ser) {
+	uint16 numPictures = (uint16)pictures.size();
+	ser.syncAsUint16LE(numPictures);
+	if (ser.isLoading()) {
+		pictures.resize(numPictures);
+	}
+
+	for (uint16 i = 0; i < numPictures; ++i) {
+		CapturedPicture &p = pictures[i];
+		ser.syncAsUint16LE(p.width);
+		ser.syncAsUint16LE(p.height);
+		ser.syncAsByte(p.sent);
+
+		uint32 numBytes = (uint32)p.width * p.height * 4;
+		if (ser.isLoading()) {
+			p.pixels.resize(numBytes);
+		}
+		if (numBytes) {
+			ser.syncBytes(p.pixels.data(), numBytes);
+		}
 	}
 }
 
@@ -373,6 +411,33 @@ void TimerData::synchronize(Common::Serializer &ser) {
 			ser.syncAsSint16LE(t.flags[j].label);
 			ser.syncAsByte(t.flags[j].flag);
 		}
+
+		// Nancy 12+ triggers, added in savegame version 6
+		if (ser.getVersion() >= 6) {
+			uint16 numTriggers = (uint16)t.triggers.size();
+			ser.syncAsUint16LE(numTriggers);
+			if (ser.isLoading()) {
+				t.triggers.resize(numTriggers);
+			}
+
+			for (uint j = 0; j < numTriggers; ++j) {
+				TimerData::Trigger &trig = t.triggers[j];
+				ser.syncAsSint32LE(trig.type);
+				ser.syncAsUint32LE(trig.durationMs);
+				ser.syncAsByte(trig.hasFired);
+
+				ser.syncString(trig.sound.name);
+				ser.syncAsUint16LE(trig.sound.channelID);
+				ser.syncAsUint16LE(trig.sound.playCommands);
+				ser.syncAsUint16LE(trig.sound.numLoops);
+				ser.syncAsUint16LE(trig.sound.volume);
+
+				for (uint k = 0; k < ARRAYSIZE(trig.flags); ++k) {
+					ser.syncAsSint16LE(trig.flags[k].label);
+					ser.syncAsByte(trig.flags[k].flag);
+				}
+			}
+		}
 	}
 }
 
@@ -390,8 +455,60 @@ void UIResourceData::synchronize(Common::Serializer &ser) {
 	}
 }
 
+void TaskbarData::synchronize(Common::Serializer &ser) {
+	for (uint i = 0; i < kNumButtons; ++i) {
+		ser.syncAsByte(overrides[i].active);
+		ser.syncAsSint16LE(overrides[i].startScene);
+		ser.syncAsSint16LE(overrides[i].endScene);
+		ser.syncAsUint16LE(overrides[i].clickSoundMode);
+	}
+
+	// Notification badges were added in savegame version 5. Older saves don't
+	// have these bytes; the flags stay at their default (cleared) state.
+	if (ser.getVersion() >= 5) {
+		for (uint i = 0; i < kNumButtons; ++i) {
+			for (uint s = 0; s < kNumNotificationSubCategories; ++s) {
+				ser.syncAsByte(notifications[i][s]);
+			}
+		}
+	}
+}
+
+void WordFindPuzzleData::synchronize(Common::Serializer &ser) {
+	ser.syncAsSint16LE(currentWord);
+}
+
+void HangmanData::synchronize(Common::Serializer &ser) {
+	uint16 count = usedWords.size();
+	ser.syncAsUint16LE(count);
+	if (ser.isLoading()) {
+		usedWords.resize(count);
+	}
+	for (uint i = 0; i < count; ++i) {
+		ser.syncString(usedWords[i]);
+	}
+}
+
+void DrivingData::synchronize(Common::Serializer &ser) {
+	ser.syncAsByte(valid);
+	ser.syncAsSint32LE(carX);
+	ser.syncAsSint32LE(carY);
+	ser.syncAsDoubleLE(heading);
+	ser.syncAsSint32LE(tireDamage);
+	ser.syncAsByte(flatTire);
+	// Added in savegame version 8; older saves default these to 0/false.
+	ser.syncAsDoubleLE(fuelBurnAccum, 8);
+	ser.syncAsByte(infiniteFuel, 8);
+}
+
 PuzzleData *makePuzzleData(const uint32 tag) {
 	switch(tag) {
+	case DrivingData::getTag():
+		return new DrivingData();
+	case WordFindPuzzleData::getTag():
+		return new WordFindPuzzleData();
+	case HangmanData::getTag():
+		return new HangmanData();
 	case SliderPuzzleData::getTag():
 		return new SliderPuzzleData();
 	case RippedLetterPuzzleData::getTag():
@@ -420,10 +537,14 @@ PuzzleData *makePuzzleData(const uint32 tag) {
 		return new TableData();
 	case CellPhoneData::getTag():
 		return new CellPhoneData();
+	case CellPhonePictureData::getTag():
+		return new CellPhonePictureData();
 	case TimerData::getTag():
 		return new TimerData();
 	case UIResourceData::getTag():
 		return new UIResourceData();
+	case TaskbarData::getTag():
+		return new TaskbarData();
 	default:
 		return nullptr;
 	}

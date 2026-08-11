@@ -55,6 +55,8 @@ ChamberEngine::ChamberEngine(OSystem *syst, const ADGameDescription *desc)
 	g_vm = this;
 	_gameDescription = desc;
 
+	initScriptVars();
+
 	const Common::FSNode gameDataDir(ConfMan.getPath("path"));
 
 	// Don't forget to register your random source
@@ -65,6 +67,7 @@ ChamberEngine::ChamberEngine(OSystem *syst, const ADGameDescription *desc)
 	_prioritycommand_1 = false;
 	_prioritycommand_2 = false;
 	_pxiData = NULL;
+	_speaker = nullptr;
 
 	_renderMode = Common::parseRenderMode(ConfMan.get("render_mode"));
 	if (_renderMode == Common::kRenderEGA || _renderMode == Common::kRenderHercG || _renderMode == Common::kRenderHercA)

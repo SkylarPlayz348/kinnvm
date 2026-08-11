@@ -120,6 +120,17 @@ public:
 	void changeScene(const SceneChangeDescription &sceneDescription);
 	void pushScene(int16 itemID = -1);
 	void popScene(bool inventory = false);
+
+	// Nancy 11+ "UI prep scenes": opening a taskbar popup first runs a hidden,
+	// videoless scene whose event-flag-gated ARs populate the popup's content;
+	// a UIPopupPrepScene AR (32) then calls finishUIPrepScene to restore the
+	// prior scene and open the (now populated) popup. startUIPrepScene saves
+	// the current scene and jumps to prepSceneID; uiType (a UIType) selects
+	// which popup finishUIPrepScene opens. No-op if a prep is already running
+	// or prepSceneID is kNoScene.
+	void startUIPrepScene(int16 uiType, int16 prepSceneID);
+	void finishUIPrepScene();
+	bool isUIPrepActive() const { return _uiPrep.active; }
 	uint16 getSceneCounts(int16 hours) const {
 		return _flags.sceneCounts.contains(hours) ? _flags.sceneCounts[hours] : 0;
 	}
@@ -238,6 +249,10 @@ public:
 	State getState() const { return _state; }
 	void setState(State state) { _state = state; }
 
+	// Close every open Nancy 10+ popup. Used before a script auto-opens one
+	// (e.g. the incoming game-over call) so two popups can't stack.
+	void closeActivePopups();
+
 	struct Timers {
 		Time pushedPlayTime;
 		Time lastTotalTime;
@@ -262,13 +277,14 @@ private:
 	// puzzle data) and fires any whose configured duration has just elapsed.
 	void tickSoftwareTimers(uint32 deltaMs);
 	void fireSoftwareTimer(TimerData::Timer &timer);
+	void fireTimerTrigger(TimerData::Trigger &trigger);
 
 	// Rect of the open Nancy 10+ taskbar popup, or empty if none.
 	Common::Rect activePopupConfinement() const;
 
 	void initStaticData();
 
-	void clearSceneData();
+	void clearSceneData(bool nextIsNoArt = false);
 	void clearPuzzleData();
 
 	// Maps an event flag label to its index in the eventFlags array
@@ -322,6 +338,10 @@ private:
 	UI::Taskbar *_taskbar;
 	Time _buttonPressActivationTime;
 
+	// A clicked MENU/HELP taskbar button whose state change is deferred until
+	// its click sound finishes playing (see handleInput). -1 = none pending.
+	int _pendingTaskbarButton;
+
 	UI::ViewportOrnaments *_viewportOrnaments;
 	UI::TextboxOrnaments *_textboxOrnaments;
 	UI::InventoryBoxOrnaments *_inventoryBoxOrnaments;
@@ -357,6 +377,14 @@ private:
 
 	bool _destroyOnExit;
 	bool _isRunningAd;
+
+	// State for a running UI prep scene (see startUIPrepScene).
+	struct UIPrepState {
+		bool active = false;
+		int16 uiType = 0;   // UIType of the popup that requested the prep
+		SceneChangeDescription returnScene;
+		uint32 startMillis = 0;
+	} _uiPrep;
 
 	State _state;
 };

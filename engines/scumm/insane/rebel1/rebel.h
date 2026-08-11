@@ -51,6 +51,53 @@ enum RA1MenuCommand {
 	kRA1MenuCommandSelect6
 };
 
+// UI strings extracted from ASSAULT.EXE so localized releases show their own
+// text. Order must match kRebel1UiFallback in rebel.cpp.
+enum Rebel1UiStringId {
+	kR1StrMainMenuTitle = 0,
+	kR1StrMenuNewGame,
+	kR1StrMenuGameOptions,
+	kR1StrMenuEnterPasscode,
+	kR1StrMenuContinueDemo,
+	kR1StrMenuExitToDos,
+	kR1StrTopPilots,
+	kR1StrEnterPasscodeTitle,
+	kR1StrNewHighScore,
+	kR1StrOptionsTitle,
+	kR1StrOptExitMenu,
+	kR1StrOptRookieFemale,
+	kR1StrOptRookieMale,
+	kR1StrOptMusicOn,
+	kR1StrOptMusicOff,
+	kR1StrOptSfxOn,
+	kR1StrOptSfxOff,
+	kR1StrOptTextOn,
+	kR1StrOptTextOff,
+	kR1StrOptYFlipped,
+	kR1StrOptYNormal,
+	kR1StrOptVolumeFmt,
+	kR1StrOptDiffEasy,
+	kR1StrOptDiffNormal,
+	kR1StrOptDiffHard,
+	kR1StrChapterComplete,
+	kR1StrCompletionBonusFmt,
+	kR1StrBonusFmt,
+	kR1StrPasswordFmt,
+	kR1StrPathHard,
+	kR1StrPathEasy,
+	kR1StrAccuracyPerfect,
+	kR1StrAccuracyFmt,
+	kR1StrPartII,
+	kR1StrPartI,
+	kR1StrTorpedoHit,
+	kR1StrTorpedoMissed,
+	kR1StrTorpedoOnMark,
+	kR1StrShootTargets,
+	kR1StrWalkerFmt,
+	kR1StrTimeFmt,
+	kR1StrUiCount
+};
+
 // Sprite bank for RA1 NUT files.
 struct RA1Sprite {
 	int16 xoffs;
@@ -336,6 +383,8 @@ private:
 	int16 _inputAxisDeltaX;
 	int16 _avgInputX;
 	int16 _avgInputY;
+	int16 _op0BDigitalAxisX;   // parked D-pad/keyboard position for the 0x0B levels
+	int16 _op0BDigitalAxisY;
 	int16 _joystickAxisX;
 	int16 _joystickAxisY;
 	uint32 _lastJoystickAxisEventTime;
@@ -382,6 +431,14 @@ private:
 	int _introTextLevel;
 	void beginLevelTitleOverlay(int level);
 	void drawLevelTitleOverlay(byte *dst, int pitch, int width, int height, int32 curFrame, int32 maxFrame);
+
+	// Localized UI text, loaded from ASSAULT.EXE (falls back to English).
+	Common::String _uiStrings[kR1StrUiCount];
+	Common::String _chapterLabels[15];
+	Common::String _chapterTitles[15];
+	void loadLocalizedUiStrings();
+	const char *uiStr(int id) const;
+	void formatTargetAccuracy(char *dst, size_t dstSize, int kills, int targetCount, bool perfectText) const;
 
 	static const int kChapterSummaryTextSize = 80;
 	struct ChapterSummaryState {
@@ -585,7 +642,8 @@ private:
 	// Secondary held button used by L9 on-foot controls.
 	bool _playerSecondaryHeld;
 	int16 _fireCooldown;
-	int16 _rapidFirePhase;
+	// Rapid-fire cadence counter, re-anchored on each press.
+	int16 _rapidFireCounter;
 	uint16 _gameplayFlags75fe;
 	uint16 _gameplayFlags75ff;
 

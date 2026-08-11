@@ -78,10 +78,11 @@ void Document::readStartupInformation(Chunk &chunk) {
 	debugC(5, kDebugLoading, "%s: sectionType = 0x%x", __func__, static_cast<uint>(sectionType));
 	switch (sectionType) {
 	case kDocumentEntryScreen: {
-		uint entryPointScreenId = chunk.readTypedUint16();
+		uint originalEntryPointScreenId = chunk.readTypedUint16();
 		if (_entryPointScreenId == 0) {
-			// We don't want to reset the overridden screen entry point.
-			_entryPointScreenId = entryPointScreenId;
+			// We don't want to reset the overridden screen entry point,
+			// so only actually set the entry point if it has not already been set.
+			_entryPointScreenId = originalEntryPointScreenId;
 		}
 		break;
 	}
@@ -332,6 +333,21 @@ void Document::contextAlreadyReleased(uint contextId) {
 	arg.setToActorId(contextId);
 	ActorEvent actorEvent(_currentScreenActorId, kContextAlreadyReleasedEvent, arg);
 	g_engine->getEventLoop()->queueEvent(actorEvent);
+}
+
+Common::String Document::getDebugString() {
+	return Common::String::format(
+		"currentScreen: %s\n"
+		"loadingScreen: %s\n"
+		"loadingContext: %s\n"
+		"entryScreen: %s\n"
+		"entryStream: %u",
+		g_engine->formatActorName(_currentScreenActorId).c_str(),
+		g_engine->formatActorName(_loadingScreenActorId).c_str(),
+		g_engine->formatActorName(_loadingContextId).c_str(),
+		g_engine->formatActorName(_entryPointScreenId).c_str(),
+		_entryPointStreamId
+	);
 }
 
 } // End of namespace MediaStation

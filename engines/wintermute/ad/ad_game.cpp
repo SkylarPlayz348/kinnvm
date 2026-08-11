@@ -28,6 +28,7 @@
 #include "engines/wintermute/ad/ad_actor.h"
 #ifdef ENABLE_WME3D
 #include "engines/wintermute/ad/ad_actor_3dx.h"
+#include "engines/wintermute/base/gfx/base_renderer3d.h"
 #endif
 #include "engines/wintermute/ad/ad_game.h"
 #include "engines/wintermute/ad/ad_entity.h"
@@ -54,6 +55,7 @@
 #include "engines/wintermute/base/base_sprite.h"
 #include "engines/wintermute/base/base_viewport.h"
 #include "engines/wintermute/base/base_access_mgr.h"
+#include "engines/wintermute/base/font/base_font_storage.h"
 #include "engines/wintermute/base/particles/part_emitter.h"
 #include "engines/wintermute/base/save_thumb_helper.h"
 #include "engines/wintermute/base/gfx/base_renderer.h"
@@ -533,6 +535,24 @@ bool AdGame::scCallMethod(ScScript *script, ScStack *stack, ScStack *thisStack, 
 	}
 
 	//////////////////////////////////////////////////////////////////////////
+	// QueryWindow
+	//////////////////////////////////////////////////////////////////////////
+	else if (strcmp(name, "QueryWindow") == 0) {
+		stack->correctParams(1);
+		const char *findName = stack->pop()->getString();
+		for (int32 i = 0; i < _windows.getSize(); i++) {
+			if (scumm_stricmp(_windows[i]->_name, findName) == 0) {
+				stack->pushNative(_windows[i], true);
+				return STATUS_OK;
+			}
+		}
+
+		stack->pushNULL();
+
+		return STATUS_OK;
+	}
+
+	//////////////////////////////////////////////////////////////////////////
 	// QueryItem
 	//////////////////////////////////////////////////////////////////////////
 	else if (strcmp(name, "QueryItem") == 0) {
@@ -558,11 +578,45 @@ bool AdGame::scCallMethod(ScScript *script, ScStack *stack, ScStack *thisStack, 
 		return STATUS_OK;
 	}
 
+	//////////////////////////////////////////////////////////////////////////
+	// SetVisitedResponseFonts
+	//////////////////////////////////////////////////////////////////////////
+	else if (strcmp(name, "SetVisitedResponseFonts") == 0) {
+		stack->correctParams(2);
+		ScValue *val1 = stack->pop();
+		ScValue *val2 = stack->pop();
+
+		if (_responseBox) {
+			if (_responseBox->_fontVisited) {
+				_game->_fontStorage->removeFont(_responseBox->_fontVisited);
+			}
+			_responseBox->_fontVisited = _game->_fontStorage->addFont(val1->getString());
+			if (!_responseBox->_fontVisited) {
+				script->runtimeError("Game.SetVisitedResponseFonts: Failed to add visited font");
+				stack->pushNULL();
+				return STATUS_FAILED;
+			}
+
+			if (_responseBox->_fontVisitedHover) {
+				_game->_fontStorage->removeFont(_responseBox->_fontVisitedHover);
+			}
+			_responseBox->_fontVisitedHover = _game->_fontStorage->addFont(val2->getString());
+			if (!_responseBox->_fontVisitedHover) {
+				script->runtimeError("Game.SetVisitedResponseFonts: Failed to add visited hover font");
+				stack->pushNULL();
+				return STATUS_FAILED;
+			}
+		}
+
+		stack->pushNULL();
+
+		return STATUS_OK;
+	}
 
 	//////////////////////////////////////////////////////////////////////////
-	// AddResponse/AddResponseOnce/AddResponseOnceGame
+	// AddResponse/AddVisitedResponse/AddResponseOnce/AddResponseOnceGame
 	//////////////////////////////////////////////////////////////////////////
-	else if (strcmp(name, "AddResponse") == 0 || strcmp(name, "AddResponseOnce") == 0 || strcmp(name, "AddResponseOnceGame") == 0) {
+	else if (strcmp(name, "AddResponse") == 0 || strcmp(name, "AddVisitedResponse") == 0 || strcmp(name, "AddResponseOnce") == 0 || strcmp(name, "AddResponseOnceGame") == 0) {
 		stack->correctParams(6);
 		int id = stack->pop()->getInt();
 		const char *text = stack->pop()->getString();
@@ -591,7 +645,9 @@ bool AdGame::scCallMethod(ScScript *script, ScStack *stack, ScStack *thisStack, 
 					res->setFont(val4->getString());
 				}
 
-				if (strcmp(name, "AddResponseOnce") == 0) {
+				if (strcmp(name, "AddVisitedResponse") == 0) {
+					res->_responseVisitedType = RESPONSE_VISITED_ONCE;
+				} else if (strcmp(name, "AddResponseOnce") == 0) {
 					res->_responseType = RESPONSE_ONCE;
 				} else if (strcmp(name, "AddResponseOnceGame") == 0) {
 					res->_responseType = RESPONSE_ONCE_GAME;
@@ -915,6 +971,21 @@ bool AdGame::scCallMethod(ScScript *script, ScStack *stack, ScStack *thisStack, 
 		if (_sceneViewport) {
 			_sceneViewport->setRect(x, y, x + width, y + height);
 		}
+
+		stack->pushBool(true);
+
+		return STATUS_OK;
+	}
+
+	else if (strcmp(name, "SetBrightness") == 0) {
+		stack->correctParams(1);
+
+		float gamma = stack->pop()->getFloat(0.0f);
+
+#ifdef ENABLE_WME3D
+		if (_renderer3D)
+			_renderer3D->setBrightnessJulia(gamma);
+#endif
 
 		stack->pushBool(true);
 
@@ -2466,6 +2537,14 @@ bool AdGame::displayDebugInfo() {
 //////////////////////////////////////////////////////////////////////////
 Wintermute::TShadowType AdGame::getMaxShadowType(Wintermute::BaseObject *object) {
 	TShadowType ret = BaseGame::getMaxShadowType(object);
+
+	// W/A for 'The Lost Crown - A Ghost-Hunting Adventure'.
+	// Disable flat shadows for the map on table scene in day 4.
+	if (BaseEngine::instance().getGameId() == "thelostcrowngha" &&
+	    _scene && _scene->_filename &&
+		scumm_stricmp(_scene->_filename, "scenes\\maptable\\maptableday4\\maptableday4.scene") == 0) {
+		return SHADOW_NONE;
+	}
 
 	return MIN(ret, _scene->_maxShadowType);
 }

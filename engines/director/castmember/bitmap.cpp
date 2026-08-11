@@ -344,8 +344,8 @@ Graphics::MacWidget *BitmapCastMember::createWidget(Common::Rect &bbox, Channel 
 
 	// _ditheredImg should contain a cached copy of the bitmap after any expensive
 	// colourspace transformations (e.g. palette remapping or dithering).
-	// We also want to make sure that
-	if (isModified() || (((srcBpp == 1) || (srcBpp > 1 && dstBpp == 1)) && !previouslyDithered)) {
+
+	if (isModified() || !previouslyDithered) {
 		if (_ditheredImg) {
 			_ditheredImg->free();
 			delete _ditheredImg;
@@ -356,14 +356,7 @@ Graphics::MacWidget *BitmapCastMember::createWidget(Common::Rect &bbox, Channel 
 		if (dstBpp == 1) {
 			// ScummVM using 8-bit video
 
-			if (srcBpp > 1
-			// At least early directors were not remapping 8bpp images. But in case it is
-			// needed, here is the code
-#if 0
-			|| (srcBpp == 1 &&
-				memcmp(g_director->_wm->getPalette(), _img->_palette, _img->_paletteSize))
-#endif
-				) {
+			if (srcBpp > 1) {
 
 				_ditheredImg = _picture->_surface.convertTo(g_director->_wm->_pixelformat, nullptr, 0, g_director->_wm->getPalette(), g_director->_wm->getPaletteSize());
 
@@ -373,12 +366,13 @@ Graphics::MacWidget *BitmapCastMember::createWidget(Common::Rect &bbox, Channel 
 			}
 		} else {
 			// ScummVM using RGB video
-			//if (srcBpp > 1 && srcFmt != dstFmt) {
-				// non-indexed surface, convert to 32-bit
-			//	_ditheredImg = _picture->_surface.convertTo(g_director->_wm->_pixelformat, nullptr, 0, g_director->_wm->getPalette(), g_director->_wm->getPaletteSize());
+			if (srcBpp > 1 && srcFmt != dstFmt) {
+				// non-indexed surface, convert to destination format.
+				// it's important that we check the formats instead of the Bpp;
+				// 16-bit can have 565 and 555 formatted images
+				_ditheredImg = _picture->_surface.convertTo(g_director->_wm->_pixelformat, nullptr, 0, g_director->_wm->getPalette(), g_director->_wm->getPaletteSize());
 
-			//} else
-			if (srcBpp == 1) {
+			} else if (srcBpp == 1) {
 				_ditheredImg = getDitherImg();
 			}
 		}
@@ -477,9 +471,14 @@ Graphics::Surface *BitmapCastMember::getDitherImg() {
 		// Only redither 8-bit images in 8-bit mode if we have the remap palette flag set, or it is external
 		if (targetBpp == 1 && !movie->_remapPalettesWhenNeeded && !_external)
 			break;
-		// If we're in RGB mode, and not in puppet palette mode, then "redither" as well.
-		if (targetBpp != 1 && score->_puppetPalette && !_external)
+		if (targetBpp != 1 && score->_puppetPalette && !_external) {
+			// we're in true colour mode, rendering a paletted image, and the puppet palette has been set
+			// use the score palette
+			const byte *palPtr = currentPalette->palette;
+			int palCount = currentPalette->length;
+			dither = _picture->_surface.convertTo(g_director->_wm->_pixelformat, palPtr, palCount, dstPalette, dstPaletteCount, Graphics::kDitherNaive);
 			break;
+		}
 		if (_external || (targetBpp != 1) || (castPaletteId != currentPaletteId && !isColorCycling)) {
 			const auto pals = g_director->getLoadedPalettes();
 			CastMemberID palIndex = pals.contains(castPaletteId) ? castPaletteId : CastMemberID(kClutSystemMac, -1);
@@ -828,7 +827,11 @@ void BitmapCastMember::load() {
 
 	// dumpFile("LoadedBitmap", _castId, MKTAG('B', 'I', 'T', 'D'), (byte *)img->getSurface()->getPixels(), img->getSurface()->h * img->getSurface()->w);
 
+	// setPicture() marks us dirty so the renderer refreshes, but loading
+	// itself is not a runtime change: restore the change-tracking state
+	bool wasChanged = _isChanged;
 	setPicture(*img, true);
+	_isChanged = wasChanged;
 
 	if (ConfMan.getBool("dump_scripts")) {
 
@@ -1136,6 +1139,11 @@ uint32 BitmapCastMember::getCastDataSize() {
 	return dataSize;
 }
 
+bool BitmapCastMember::canWriteCastData() {
+	// writeCastData() only knows the D4/D5 layout
+	return _cast->_version >= kFileVer400 && _cast->_version < kFileVer600;
+}
+
 void BitmapCastMember::writeCastData(Common::SeekableWriteStream *writeStream) {
 	writeStream->writeUint16BE(_pitch);
 
@@ -1144,8 +1152,6 @@ void BitmapCastMember::writeCastData(Common::SeekableWriteStream *writeStream) {
 
 	writeStream->writeUint16BE(_regY);
 	writeStream->writeUint16BE(_regX);
-
-	warning("BitmapCastMember::writeCastData(): TODO process D6+");
 
 	if (_bitsPerPixel != 0) {
 		writeStream->writeByte(0);		// Skip one byte (not stored)
@@ -1194,23 +1200,10 @@ uint32 BitmapCastMember::writeBITDResource(Common::SeekableWriteStream *writeStr
 	}
 
 	// No compression for now
-	// pixels.size() == bytes needed
 	Graphics::Surface pixels;
 	Graphics::PixelFormat format;
-
-	if (_bitsPerPixel >> 3) {
-		format.bytesPerPixel = _bitsPerPixel >> 3;
-		pixels.create(_picture->_surface.w, _picture->_surface.h, format);
-	} else {
-		format.bytesPerPixel = 1;
-		pixels.create(_pitch, _picture->_surface.h, format);
-	}
-
-	offset = 0;
-
-	if (_bitsPerPixel == 8 && _picture->_surface.w < (int)(_pitch * _picture->_surface.h / _picture->_surface.h)) {
-		offset = (_pitch - _picture->_surface.w) % 2;
-	}
+	format.bytesPerPixel = 1;
+	pixels.create(_pitch, _picture->_surface.h, format);
 
 	debugC(5, kDebugSaving, "BitmapCastMember::writeBITDResource: Saving 'BITD' Resource: bitsPerPixel: %d, castId: %d", _bitsPerPixel, _castId);
 	for (int y = 0; y < _picture->_surface.h; y++) {
@@ -1242,7 +1235,7 @@ uint32 BitmapCastMember::writeBITDResource(Common::SeekableWriteStream *writeStr
 				break;
 
 			case 8:
-				*(ptr + (y * offset)) = *((byte *)_picture->_surface.getBasePtr(x, y));
+				*ptr = *((byte *)_picture->_surface.getBasePtr(x, y));
 				ptr++; x++;
 				break;
 
@@ -1274,6 +1267,7 @@ uint32 BitmapCastMember::writeBITDResource(Common::SeekableWriteStream *writeStr
 	if (debugChannelSet(7, kDebugSaving)) {
 		dumpFile("BitmapData", _castId, MKTAG('B', 'I', 'T', 'D'), (byte *)pixels.getPixels(), _picture->_surface.h * _pitch);
 	}
+	pixels.free();
 	return 0;
 }
 

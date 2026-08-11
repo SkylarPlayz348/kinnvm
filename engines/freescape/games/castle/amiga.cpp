@@ -96,6 +96,33 @@ const CastleIntroLayout kAmigaIntroLayout = {
 	0
 };
 
+// The other two Amiga releases hold the same intro, moved by a constant: 0x9b6
+// for the Domark build, 0x308 for the one packed with The Crypt. The language
+// tables were checked as well, their pointers move by the same amount.
+const CastleIntroLayout kAmigaDomarkIntroLayout = {
+	0x2e32, 0x371a, 0x501a,
+	0x655a, 0x65c2,
+	0x159aa, 0x1b62a,
+	0x79c2, 0xde62, 0x11262, 0x137a2, 0x14092,
+	0x27dc, 0x286e, 0x2900,
+	0x2a0a, 0x2c0c, 0x2b66,
+	0x277c, 0x279c, 0x27bc,
+	0x26a8, 0x26e4, 0x2720,
+	0
+};
+
+const CastleIntroLayout kAmigaIncentiveIntroLayout = {
+	0x2784, 0x306c, 0x496c,
+	0x5eac, 0x5f14,
+	0x152fc, 0x1af7c,
+	0x7314, 0xd7b4, 0x10bb4, 0x130f4, 0x139e4,
+	0x212e, 0x21c0, 0x2252,
+	0x235c, 0x255e, 0x24b8,
+	0x20ce, 0x20ee, 0x210e,
+	0x1ffa, 0x2036, 0x2072,
+	0
+};
+
 const CastleIntroLayout kAtariIntroLayout = {
 	0x22, 0x90a, 0x220a,
 	0x374a, 0x37b2,
@@ -108,6 +135,95 @@ const CastleIntroLayout kAtariIntroLayout = {
 	1
 };
 
+// Where each asset sits in the game image. The three Amiga releases share the
+// same data, but the text moves independently of the rest, so every offset is
+// listed rather than derived from a single delta.
+const CastleAmigaLayout kAmigaLayout = {
+	0x99ac, 0xa476, 0x998e, 0x11540, 0x147fa, 0x13cf2, 0x158fa, 0x2b4ea,
+	0x2c5ca, 0x49c8, 0x3473a, 0x3620a, 0x37fa6, 0x38136, 0x379fa, 0x38186,
+	0x38c36, 0x38e16, 0x3b706, 0x3b9b0, 0x3bd4a, 0x3bd6a, 0x39136, 0x3a156,
+	0x3cbfa, 0x3ab7e
+};
+
+// "Castle Master" by Domark, which ships the game as a plain "x"
+const CastleAmigaLayout kAmigaDomarkLayout = {
+	0xa22a, 0xad18, 0xa20c, 0x11ff2, 0x152ac, 0x147a4, 0x163ac, 0x2bf9c,
+	0x2d07c, 0x40aa, 0x351ec, 0x36cbc, 0x38a58, 0x38be8, 0x384ac, 0x38c38,
+	0x396e8, 0x398c8, 0x3c1b8, 0x3c462, 0x3c7fc, 0x3c81c, 0x39be8, 0x3ac08,
+	0x3d6ac, 0x3b630
+};
+
+// "Castle Master & The Crypt" by Incentive, which packs the game into
+// "cmstr.com" with the same packer the Atari ST release uses
+const CastleAmigaLayout kAmigaIncentiveLayout = {
+	0xa1f6, 0xace4, 0xa1d8, 0x11fca, 0x15284, 0x1477c, 0x16384, 0x2bf74,
+	0x2d054, 0x4086, 0x351c4, 0x36c94, 0x38a30, 0x38bc0, 0x38484, 0x38c10,
+	0x396c0, 0x398a0, 0x3c190, 0x3c43a, 0x3c7d4, 0x3c7f4, 0x39bc0, 0x3abe0,
+	0x3d684, 0x3b608
+};
+
+// "The Crypt", the other game on the Incentive disc, packed the same way into
+// "crypt.com". It carries the Castle Master interface artwork and the music
+// module byte for byte, 0xf740 lower in the image; it has no riddles, and the
+// global area 255 is listed in the area table rather than sitting on its own.
+const CastleAmigaLayout kAmigaCryptLayout = {
+	0x09d1c, 0, 0x09c4a, 0x10dd8, 0x14092, 0x1358a, 0x15192,
+	0, 0x1d914, 0x04086, 0x25a84, 0x27554, 0x292f0, 0x29480,
+	0x28d44, 0x294d0, 0x29f80, 0x2a160, 0x2ca50, 0x2ccfa, 0x2d094, 0x2d0b4,
+	0x2a480, 0x2b4a0, 0x2df44, 0x2bec8
+};
+
+// "thecrypt.neo" ships without a palette; the intro program that displays it
+// holds this one at offset 0x20ca.
+byte kAmigaCryptTitlePalette[16][3] = {
+	{0x00, 0x00, 0x00}, {0x22, 0x44, 0x66}, {0x66, 0x11, 0xaa}, {0x22, 0x22, 0x44},
+	{0x44, 0x44, 0x88}, {0x66, 0x66, 0xaa}, {0x22, 0x22, 0x44}, {0x22, 0x22, 0x66},
+	{0x66, 0x44, 0x88}, {0x88, 0x88, 0xcc}, {0x22, 0x22, 0x66}, {0x44, 0x22, 0x88},
+	{0x44, 0x22, 0x88}, {0x44, 0x66, 0x88}, {0xff, 0xff, 0xff}, {0x00, 0x00, 0x22}
+};
+
+// The game image, either read as is or unpacked, with the matching layout
+Common::SeekableReadStream *CastleEngine::openAmigaGameFile(const CastleAmigaLayout *&layout) {
+	Common::File file;
+	Common::SeekableReadStream *stream = nullptr;
+
+	if (isCastleMaster2()) {
+		if (!file.open("crypt.com"))
+			error("Failed to open 'crypt.com'");
+		stream = decompressCastle(&file, 0);
+		if (stream->size() != 290098) {
+			delete stream;
+			error("Unknown Castle Master 2 (Amiga) build");
+		}
+		layout = &kAmigaCryptLayout;
+		return stream;
+	}
+
+	if (file.open("x"))
+		stream = file.readStream(file.size());
+	else if (file.open("cmstr.com"))
+		stream = decompressCastle(&file, 0);
+	else
+		error("Failed to open 'x' or 'cmstr.com'");
+
+	switch (stream->size()) {
+	case 349975:
+		layout = &kAmigaLayout;
+		break;
+	case 353774:
+		layout = &kAmigaDomarkLayout;
+		break;
+	case 353735:
+		layout = &kAmigaIncentiveLayout;
+		break;
+	default:
+		delete stream;
+		error("Unknown Castle Master (Amiga) build");
+	}
+
+	return stream;
+}
+
 class CastleAmigaIntroPlayer {
 public:
 	CastleAmigaIntroPlayer(CastleEngine *engine, const Common::Array<byte> &introText,
@@ -118,8 +234,31 @@ public:
 		reset();
 	}
 
+	// Refuse to play rather than read past the data when the layout does not
+	// belong to this build of the intro
+	bool layoutFits() const {
+		const int offsets[] = {
+			_l.scrollPlaneA, _l.scrollPlaneB, _l.staticPlane, _l.fillBands, _l.overlay,
+			_l.logo, _l.foreground, _l.sprite1, _l.sprite2, _l.selSprite, _l.objSprite,
+			_l.objArrow, _l.char1Slot, _l.char2Slot, _l.motionSlot, _l.motionStatic1,
+			_l.motionSelect, _l.motionLoop, _l.palBlack, _l.palMain, _l.palSelect,
+			_l.langTableEN, _l.langTableFR, _l.langTableDE
+		};
+
+		for (int i = 0; i < ARRAYSIZE(offsets); i++) {
+			if (offsets[i] < 0 || (uint32)offsets[i] + 64 > _data.size())
+				return false;
+		}
+		return true;
+	}
+
 	bool run(bool &selectedPrincess) {
 		selectedPrincess = false;
+
+		if (!layoutFits()) {
+			warning("Castle Master: the intro data does not match any known layout");
+			return false;
+		}
 
 		clearDrawBuffer();
 		drawBaseScreen();
@@ -884,6 +1023,9 @@ private:
 		if (_renderMode == 1 && _frameCounter <= 10)
 			return;
 
+		if (_motionPtr < 0 || (uint32)_motionPtr + 6 > _data.size())
+			_motionPtr = _l.motionLoop;
+
 		if (READ_BE_UINT32(_data.data() + _motionPtr) == 0xffffffff) {
 			_phaseDone = 1;
 			_motionPtr = _l.motionLoop;
@@ -1082,6 +1224,49 @@ Graphics::ManagedSurface *CastleEngine::loadFrameFromPlanesInterleaved(Common::S
 	return surface;
 }
 
+// Two lightning bolts of 2 words x 85 rows, one picked at random per strike. The
+// original stencils them onto the sky, keeping only the pixels where the screen
+// already holds color 15, so the color 15 of the bolt is its transparency.
+void CastleEngine::loadThunderFramesAmiga(Common::SeekableReadStream *file, int offset) {
+	file->seek(offset);
+	for (int i = 0; i < 2; i++) {
+		Graphics::ManagedSurface *frame = loadFrameFromPlanesInterleaved(file, 2, 85);
+		for (int y = 0; y < frame->h; y++) {
+			for (int x = 0; x < frame->w; x++) {
+				if (frame->getPixel(x, y) == 15)
+					frame->setPixel(x, y, 0);
+			}
+		}
+		_thunderCLUT8Frames.push_back(frame);
+	}
+}
+
+// The bolt is drawn into the viewport, so it takes the colors of the current area
+void CastleEngine::updateThunderFramesPalette() {
+	if (_thunderCLUT8Frames.empty() || !_gfx->_palette)
+		return;
+
+	while (_thunderFrames.size() < _thunderCLUT8Frames.size())
+		_thunderFrames.push_back(nullptr);
+
+	for (uint i = 0; i < _thunderCLUT8Frames.size(); i++) {
+		if (_thunderFrames[i]) {
+			_thunderFrames[i]->free();
+			delete _thunderFrames[i];
+		}
+
+		Graphics::ManagedSurface *frame = new Graphics::ManagedSurface();
+		frame->copyFrom(*_thunderCLUT8Frames[i]);
+		frame->convertToInPlace(_gfx->_texturePixelFormat, _gfx->_palette, 16);
+		_thunderFrames[i] = frame;
+	}
+
+	// Uploaded once, so drop them to have them rebuilt recolored
+	for (uint i = 0; i < _thunderTextures.size(); i++)
+		delete _thunderTextures[i];
+	_thunderTextures.clear();
+}
+
 void CastleEngine::loadAssetsAmigaDemo() {
 	Common::File file;
 	file.open("x");
@@ -1173,25 +1358,26 @@ void CastleEngine::loadAssetsAmigaDemo() {
 	_spiritsMeterIndicatorFrame = loadFrameFromPlanesInterleaved(&file, 1, 10);
 	_spiritsMeterIndicatorFrame->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
 
-	// Strength weight sprites (file 0x395F2, 1 word x 14 rows x 4 frames)
-	file.seek(0x395f2);
+	// Weight discs of the strength barbell (memory 0x395C6): 4 frames of
+	// 1 word x 15 rows, i.e. 120 bytes each.
+	file.seek(0x395e2);
 	for (int i = 0; i < 4; i++) {
-		Graphics::ManagedSurface *frame = loadFrameFromPlanesInterleaved(&file, 1, 14);
+		Graphics::ManagedSurface *frame = loadFrameFromPlanesInterleaved(&file, 1, 15);
 		frame->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
 		_strenghtWeightsFrames.push_back(frame);
 	}
 
-	// Strength background with bar (file 0x397B2, 5 words x 20 rows)
-	//file.seek(0x397b2);
-	//_strenghtBackgroundFrame = loadFrameFromPlanesInterleaved(&file, 5, 4);
-	//_strenghtBackgroundFrame->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
+	// Barbell shaft (memory 0x397A6): 5 words x 3 rows.
+	file.seek(0x397c2);
+	_strenghtBarFrame = loadFrameFromPlanesInterleaved(&file, 5, 3);
+	_strenghtBarFrame->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
 
-	// Eye icon sprites (memory 0x3C096, 12 frames, 16x7 each, interleaved 4-plane)
-	// Used for strength/compass display at screen (224, 164). Header at 0x3C08E.
-	// TODO: load as separate eye icon member, not _keysBorderFrames
-	file.seek(0x3c0b2);
-	for (int i = 0; i < 12; i++) {
-		Graphics::ManagedSurface *frame = loadFrameFromPlanesInterleaved(&file, 1, 7);
+	loadThunderFramesAmiga(&file, 0x38b32); // Memory 0x38B16
+
+	// Ten collected-key sprites, 2 words x 16 rows each
+	file.seek(0x3b52a);
+	for (int i = 0; i < 10; i++) {
+		Graphics::ManagedSurface *frame = loadFrameFromPlanesInterleaved(&file, 2, 16);
 		frame->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
 		_keysBorderFrames.push_back(frame);
 	}
@@ -1402,9 +1588,10 @@ void CastleEngine::loadAssetsAmigaDemo() {
 		}
 	}
 
-	// Load synthesized sound effects from command table
-	// Table at file offset 0x1469E (memory 0x14682), 30 entries
-	_sound = loadSoundsAmigaDemo(&file, 0x1469E, 30, 0x3D5A6);
+	// Sound effect command table at file offset 0x1469E (memory 0x14682). The
+	// demo disk ships no sample bank, so only the extra slot taken from the
+	// music module is available and the sampled effects are square waves.
+	_sound = loadSoundsAmiga(&file, 0x1469E, 36, Common::Path(), 0x3D5A6);
 
 	// Load embedded ProTracker module for background music
 	// Module is at file offset 0x3D5A6 (memory 0x3D58A), ~86260 bytes
@@ -1426,16 +1613,16 @@ void CastleEngine::loadAssetsAmigaDemo() {
 }
 
 void CastleEngine::loadAssetsAmigaFullGame() {
-	Common::File file;
-	file.open("x");
-	if (!file.isOpen())
-		error("Failed to open 'x' file");
+	const CastleAmigaLayout *layout = nullptr;
+	Common::SeekableReadStream *stream = openAmigaGameFile(layout);
+	Common::SeekableReadStream &file = *stream;
 
 	_viewArea = Common::Rect(40, 29, 280, 154);
-	loadMessagesVariableSize(&file, 0x99ac, 178);
-	loadRiddles(&file, 0xa476, 19);
+	loadMessagesVariableSize(&file, layout->messages, isCastleMaster2() ? 165 : 178);
+	if (layout->riddles)
+		loadRiddles(&file, layout->riddles, 19);
 
-	file.seek(0x11540);
+	file.seek(layout->fonts);
 	Common::Array<Graphics::ManagedSurface *> chars;
 	Common::Array<Graphics::ManagedSurface *> charsRiddle;
 	for (int i = 0; i < 90; i++) {
@@ -1456,8 +1643,10 @@ void CastleEngine::loadAssetsAmigaFullGame() {
 	_fontRiddle = Font(charsRiddle);
 	_fontRiddle.setCharWidth(9);
 
-	load8bitBinary(&file, 0x158fa, 16);
-	for (int i = 0; i < 3; i++) {
+	// Castle Master has 3 areas trailing the pointer table; The Crypt lists all
+	// of its 49, the global 255 included.
+	load8bitBinary(&file, layout->areaDB, 16);
+	for (int i = 0; i < (isCastleMaster2() ? 0 : 3); i++) {
 		debugC(1, kFreescapeDebugParser, "Continue to parse area index %d at offset %x", _areaMap.size() + i + 1, (int)file.pos());
 		Area *newArea = load8bitArea(&file, 16);
 		if (newArea) {
@@ -1470,76 +1659,95 @@ void CastleEngine::loadAssetsAmigaFullGame() {
 		}
 	}
 
-	loadPalettes(&file, 0x147fa);
+	loadPalettes(&file, layout->palettes);
 
 	// COLOR15 cycling table: same format as the demo, terminated by 0xFFFF.
-	file.seek(0x998e);
+	file.seek(layout->colorCycling);
 	while (true) {
 		uint16 val = file.readUint16BE();
 		if (val == 0xFFFF) break;
 		_gfx->_colorCyclingTable.push_back(val);
 	}
 
-	file.seek(0x2b4ea); // Area 255
-	_areaMap[255] = load8bitArea(&file, 16);
+	if (layout->area255) {
+		file.seek(layout->area255);
+		_areaMap[255] = load8bitArea(&file, 16);
+	}
 
 	// Border NEO image (demo loaded at 0x2cf28 + 0x28 - 0x2 + 0x28 = 0x2cf76)
-	file.seek(0x2c5ca);
+	file.seek(layout->border);
 	_border = loadFrameFromPlanesVertical(&file, 160, 200);
 	_border->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
+
+	// The Crypt's loading screen, shown by the intro program before the game.
+	Common::File titleFile;
+	if (isCastleMaster2() && titleFile.open("thecrypt.neo")) {
+		_title = loadFrameFromPlanesVertical(&titleFile, 160, 200);
+		_title->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCryptTitlePalette, 16);
+		titleFile.close();
+	}
 
 	// End-game throne picture. The original executable opens "W" during the
 	// escaped ending and displays the first 114 rows as a 16-word-wide
 	// interleaved Amiga bitplane image.
 	Common::File endGameFile;
-	if (endGameFile.open("w")) {
+	if (!isCastleMaster2() && endGameFile.open("w")) {
 		_endGameBackgroundFrame = loadFrameFromPlanesInterleaved(&endGameFile, 16, 114);
 		_endGameBackgroundFrame->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
 		endGameFile.close();
 	}
 
 	// Mountains panorama (63 words × 22 rows × 4 planes, interleaved).
-	file.seek(0x49c8);
+	file.seek(layout->mountains);
 	_background = loadFrameFromPlanesInterleaved(&file, 63, 22);
 	_background->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
 
 	// Info menu image (14 words × 116 rows).
-	file.seek(0x3473a);
+	file.seek(layout->menu);
 	_menu = loadFrameFromPlanesInterleaved(&file, 14, 116);
 	_menu->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
 
 	// Additional 224×54 menu-related block.
-	file.seek(0x3620a);
+	file.seek(layout->menuButtons);
 	_menuButtons = loadFrameFromPlanesInterleaved(&file, 14, 54);
 	_menuButtons->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
 
-	file.seek(0x37fa6); // Spirit meter indicator background
+	file.seek(layout->spiritMeterBg);
 	_spiritsMeterIndicatorBackgroundFrame = loadFrameFromPlanesInterleaved(&file, 5, 10);
 	_spiritsMeterIndicatorBackgroundFrame->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
 
-	file.seek(0x38136); // Spirit meter indicator
+	file.seek(layout->spiritMeter);
 	_spiritsMeterIndicatorFrame = loadFrameFromPlanesInterleaved(&file, 1, 10);
 	_spiritsMeterIndicatorFrame->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
 
-	// Strength weight sprites: 4 frames × 1 word × 14 rows.
-	file.seek(0x38c46);
+	// Weight discs of the strength barbell (memory 0x38C1A): 4 frames of
+	// 1 word × 15 rows, i.e. 120 bytes each.
+	file.seek(layout->weights);
 	for (int i = 0; i < 4; i++) {
-		Graphics::ManagedSurface *frame = loadFrameFromPlanesInterleaved(&file, 1, 14);
+		Graphics::ManagedSurface *frame = loadFrameFromPlanesInterleaved(&file, 1, 15);
 		frame->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
 		_strenghtWeightsFrames.push_back(frame);
 	}
 
-	// Eye icon sprites: 12 frames × 1 word × 7 rows. Header at 0x3b6fe.
-	file.seek(0x3b706);
-	for (int i = 0; i < 12; i++) {
-		Graphics::ManagedSurface *frame = loadFrameFromPlanesInterleaved(&file, 1, 7);
+	// Barbell shaft (memory 0x38DFA): 5 words × 3 rows.
+	file.seek(layout->bar);
+	_strenghtBarFrame = loadFrameFromPlanesInterleaved(&file, 5, 3);
+	_strenghtBarFrame->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
+
+	loadThunderFramesAmiga(&file, layout->thunder);
+
+	// Ten collected-key sprites, 2 words x 16 rows each. The blit routine
+	// indexes them by key ID with a 0x100 stride (mem $7688).
+	file.seek(layout->keys);
+	for (int i = 0; i < 10; i++) {
+		Graphics::ManagedSurface *frame = loadFrameFromPlanesInterleaved(&file, 2, 16);
 		frame->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
 		_keysBorderFrames.push_back(frame);
 	}
 
 	// Crawl/Walk/Run + Sound indicators: 5 frames × 3 words × 12 rows,
 	// preceded by a 6-byte header and a 6-byte mask (skipped here).
-	file.seek(0x379fa + 6 + 6);
+	file.seek(layout->indicators + 6 + 6);
 	{
 		_menuCrawlIndicator = loadFrameFromPlanesInterleaved(&file, 3, 12);
 		_menuCrawlIndicator->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
@@ -1604,7 +1812,7 @@ void CastleEngine::loadAssetsAmigaFullGame() {
 	}
 
 	// Flag animation: 5 frames × 2 words × 11 rows.
-	file.seek(0x3b9b0);
+	file.seek(layout->flag);
 	for (int i = 0; i < 5; i++) {
 		Graphics::ManagedSurface *frame = loadFrameFromPlanesInterleaved(&file, 2, 11);
 		frame->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
@@ -1612,12 +1820,12 @@ void CastleEngine::loadAssetsAmigaFullGame() {
 	}
 
 	// Riddle mask + frames (see demo loader for layout details).
-	file.seek(0x3bd4a);
+	file.seek(layout->riddleMask);
 	uint16 riddleMask[16];
 	for (int i = 0; i < 16; i++)
 		riddleMask[i] = file.readUint16BE();
 
-	file.seek(0x3bd6a);
+	file.seek(layout->riddleTop);
 	_riddleTopFrame = loadFrameFromPlanesInterleaved(&file, 16, 20);
 	_riddleBackgroundFrame = loadFrameFromPlanesInterleaved(&file, 16, 1);
 	_riddleBottomFrame = loadFrameFromPlanesInterleaved(&file, 16, 8);
@@ -1653,9 +1861,9 @@ void CastleEngine::loadAssetsAmigaFullGame() {
 		byte pixelData[kTotalSrcRows * kPixelBytesPerRow];
 		byte maskData[kTotalSrcRows * kMaskBytesPerRow];
 
-		file.seek(0x39136);
+		file.seek(layout->gatePixels);
 		file.read(pixelData, sizeof(pixelData));
-		file.seek(0x3a156);
+		file.seek(layout->gateMask);
 		file.read(maskData, sizeof(maskData));
 
 		uint32 keyColor = _gfx->_texturePixelFormat.ARGBToColor(0xFF, 0x00, 0x24, 0xA5);
@@ -1724,13 +1932,11 @@ void CastleEngine::loadAssetsAmigaFullGame() {
 		}
 	}
 
-	// Sound effects command table (30 entries). Pass the full-game MOD
-	// offset so DMA sample extraction reads from the right place — the
-	// demo's 0x3D5A6 hardcoded default is wrong for the full binary.
-	_sound = loadSoundsAmigaDemo(&file, 0x13cf2, 30, 0x3cbfa);
+	// Sound effect command table at file offset 0x13cf2 (memory 0x13cd6)
+	_sound = loadSoundsAmiga(&file, layout->soundTable, 36, "cmsnds2", -1);
 
 	// Embedded ProTracker module for background music.
-	static const int kModOffset = 0x3cbfa;
+	const int kModOffset = layout->mod;
 	file.seek(0, SEEK_END);
 	int fileSize = file.pos();
 	int modSize = fileSize - kModOffset;
@@ -1740,7 +1946,7 @@ void CastleEngine::loadAssetsAmigaFullGame() {
 		file.read(_modData.data(), modSize);
 	}
 
-	file.close();
+	delete stream;
 
 	_areaMap[2]->_groundColor = 1;
 	for (auto &it : _areaMap)
@@ -1801,8 +2007,15 @@ bool CastleEngine::playAmigaIntro() {
 			_mixer->playStream(Audio::Mixer::kMusicSoundType, &introMusicHandle, musicStream);
 	}
 
+	// Each release holds the intro at its own offsets
+	const CastleIntroLayout *introLayout = &kAmigaIntroLayout;
+	if (introText.size() == 0x1cfd0)
+		introLayout = &kAmigaDomarkIntroLayout;
+	else if (introText.size() == 0x1c920)
+		introLayout = &kAmigaIncentiveIntroLayout;
+
 	bool selectedPrincess = false;
-	CastleAmigaIntroPlayer player(this, introText);
+	CastleAmigaIntroPlayer player(this, introText, *introLayout);
 	bool played = player.run(selectedPrincess);
 	if (played)
 		_selectedPrincess = selectedPrincess;
@@ -1891,7 +2104,22 @@ void CastleEngine::drawAmigaAtariSTUI(Graphics::Surface *surface) {
 		}
 	}
 
-	// TODO: Draw collected keys - key sprites location in binary still unknown
+	// Collected keys, from the loop at mem $7660: the first goes at (76, 179)
+	// and each one after it three pixels further left, so they overlap into a
+	// fan. The sprite is picked by key ID, which the table indexes from 1.
+	//
+	// Each frame is 16 rows of a 16 byte stride, but the blit only ever reads
+	// the first 8 of those - one word per plane - so the key is the left half
+	// and the rest is padding.
+	for (int i = 0; i < int(_keysCollected.size()); i++) {
+		int frame = _keysCollected[i] - 1;
+		if (frame < 0 || frame >= int(_keysBorderFrames.size()) || !_keysBorderFrames[frame])
+			continue;
+
+		Graphics::ManagedSurface *key = _keysBorderFrames[frame];
+		surface->copyRectToSurfaceWithKey(*key, 76 - 3 * i, 179,
+			Common::Rect(0, 0, MIN<int>(16, key->w), key->h), black);
+	}
 
 	// Draw flag animation at (288, 5)
 	if (!_flagFrames.empty()) {

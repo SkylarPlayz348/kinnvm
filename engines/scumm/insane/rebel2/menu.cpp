@@ -37,10 +37,11 @@
 #include "scumm/smush/rebel/smush_multi_font.h"
 
 #include "scumm/insane/rebel2/rebel.h"
+#include "scumm/insane/rebel2/shared.h"
 
 namespace Scumm {
 
-static void setRebel2MixerVolume(ScummEngine_v7 *vm, int volumeLevel) {
+void setRebel2MixerVolume(ScummEngine_v7 *vm, int volumeLevel) {
 	const int mixerVolume = CLIP<int>(volumeLevel * 2, 0, (int)Audio::Mixer::kMaxMixerVolume);
 	vm->_mixer->setVolumeForSoundType(Audio::Mixer::kMusicSoundType, mixerVolume);
 	vm->_mixer->setVolumeForSoundType(Audio::Mixer::kSFXSoundType, mixerVolume);
@@ -120,41 +121,14 @@ int InsaneRebel2::processMenuInput() {
 		switch (event.type) {
 		case Common::EVENT_KEYDOWN:
 			_menuInactivityTimer = 0;
-
-			switch (event.kbd.keycode) {
-			case Common::KEYCODE_UP:
-				_menuSelection--;
-				if (_menuSelection < 0) {
-					_menuSelection = _menuItemCount - 1;
-				}
-				_menuRepeatDelay = 3;
-				debugC(DEBUG_INSANE, "Menu: Selection changed to %d (UP)", _menuSelection);
-				break;
-
-			case Common::KEYCODE_DOWN:
-				_menuSelection++;
-				if (_menuSelection >= _menuItemCount) {
-					_menuSelection = 0;
-				}
-				_menuRepeatDelay = 3;
-				debugC(DEBUG_INSANE, "Menu: Selection changed to %d (DOWN)", _menuSelection);
-				break;
-
-			case Common::KEYCODE_RETURN:
-			case Common::KEYCODE_KP_ENTER:
-				if (_menuSelection >= 0 && _menuSelection < _menuItemCount) {
-					result = _menuSelection;
-					debugC(DEBUG_INSANE, "Menu: Item %d selected (ENTER)", _menuSelection);
-				}
-				break;
-
-			case Common::KEYCODE_ESCAPE:
-				result = _menuItemCount - 1;
-				debugC(DEBUG_INSANE, "Menu: Back action - selecting quit (item %d)", result);
-				break;
-
-			default:
-				break;
+			{
+				const Rebel2MenuCommand command = getRebel2MenuCommand(event.kbd);
+				const int oldSelection = _menuSelection;
+				result = applyRebel2MenuCommand(command, _menuItemCount, _menuSelection);
+				if (result == kRebel2MenuResultCancel)
+					result = _menuItemCount - 1;
+				if (_menuSelection != oldSelection)
+					_menuRepeatDelay = 3;
 			}
 			break;
 
@@ -178,8 +152,7 @@ int InsaneRebel2::processMenuInput() {
 				int mouseY = event.mouse.y;
 				for (int i = 0; i < _menuItemCount; i++) {
 					int itemY = baseY + i * itemSpacing;
-					if (mouseY >= itemY - itemHitTop - 3 * (highRes ? 2 : 1) &&
-							mouseY < itemY - itemHitTop + itemHitHeight - 3 * (highRes ? 2 : 1)) {
+					if (mouseY >= itemY - itemHitTop && mouseY < itemY - itemHitTop + itemHitHeight) {
 						if (i != _menuSelection) {
 							_menuSelection = i;
 							debugC(DEBUG_INSANE, "Menu: Hover selection changed to %d (mouseY=%d)", _menuSelection, mouseY);
@@ -318,17 +291,21 @@ int InsaneRebel2::getMenuStringWidth(const char *str) const {
 	if (!defaultFont)
 		return 0;
 
+	const char *end = str + strlen(str);
+	const bool useCJK = _vm->_language == Common::JA_JPN;
 	int w = 0;
 	NutRenderer *curFont = defaultFont;
 	int dummyColor = 0;
-	while (*str) {
+	while (str < end) {
 		int fc = parseFormatCode(str, dummyColor);
 		if (fc >= 0) { curFont = (fonts[fc] ? fonts[fc] : defaultFont); continue; }
 		if (fc == -2) continue;
-		byte c = (byte)*str++;
+		uint charLen;
+		uint16 c = decodeRebel2Char(str, end - str, charLen, useCJK);
+		str += charLen;
 		if (c >= 'a' && c <= 'z') c = c - 'a' + 'A';
-		if (curFont && c < curFont->getNumChars())
-			w += curFont->getCharWidth(c);
+		if (curFont && (c > 0xff || c < curFont->getNumChars()))
+			w += curFont->getCharWidth((byte)c);
 	}
 	return w;
 }
@@ -342,16 +319,20 @@ void InsaneRebel2::drawMenuString(byte *renderBitmap, const char *str, int x, in
 	Common::Rect clipRect(0, 0, _vm->_screenWidth, _vm->_screenHeight);
 	int pitch = _vm->_screenWidth;
 
+	const char *end = str + strlen(str);
+	const bool useCJK = _vm->_language == Common::JA_JPN;
 	NutRenderer *curFont = defaultFont;
 	int curColor = defaultColor;
-	while (*str) {
+	while (str < end) {
 		int fc = parseFormatCode(str, curColor);
 		if (fc >= 0) { curFont = (fonts[fc] ? fonts[fc] : defaultFont); continue; }
 		if (fc == -2) continue;
-		byte c = (byte)*str++;
+		uint charLen;
+		uint16 c = decodeRebel2Char(str, end - str, charLen, useCJK);
+		str += charLen;
 		if (c >= 'a' && c <= 'z') c = c - 'a' + 'A';
-		if (!curFont || c >= curFont->getNumChars()) continue;
-		int charW = curFont->getCharWidth(c);
+		if (!curFont || (c <= 0xff && c >= curFont->getNumChars())) continue;
+		int charW = curFont->getCharWidth((byte)c);
 		if (x >= 0 && y >= 0 && charW > 0)
 			drawRebel2Char(curFont, renderBitmap, clipRect, x, y, pitch, curColor, c);
 		x += charW;
@@ -663,6 +644,7 @@ int InsaneRebel2::runChapterSelect() {
 				}
 			}
 			_passwordInput.clear();
+			playSfx(3, 127, 0);
 			debugC(DEBUG_INSANE, "Password rejected for chapter %d", _chapterSelection + 1);
 		}
 	}
@@ -770,8 +752,7 @@ int InsaneRebel2::processChapterSelectInput() {
 
 				for (int i = 0; i < _chapterItemCount; i++) {
 					int itemY = baseY + i * itemSpacing;
-					if (mouseY >= itemY - itemHitTop - 3 * (highRes ? 2 : 1) &&
-							mouseY < itemY - itemHitTop + itemHitHeight - 3 * (highRes ? 2 : 1)) {
+					if (mouseY >= itemY - itemHitTop && mouseY < itemY - itemHitTop + itemHitHeight) {
 						if (i != _chapterSelection) {
 							_chapterSelection = i;
 							_previewOffsetY = _chapterSelection * -50 + 75;
@@ -1057,12 +1038,7 @@ int InsaneRebel2::runLevelSelect() {
 		debugC(DEBUG_INSANE, "Pilot selection: %d (numPilots=%d)", _levelSelection, _numPilots);
 
 		if (_levelSelection < _numPilots) {
-			_activePilot = _levelSelection;
-			_difficulty = _pilots[_activePilot].difficulty;
-
-			for (int i = 0; i < 16; i++) {
-				_chapterUnlocked[i] = _debugUnlockAll || (_pilots[_activePilot].damage[i] < 0xFF);
-			}
+			selectPilot(_levelSelection);
 
 			debugC(DEBUG_INSANE, "Pilot '%s' selected (slot %d, difficulty %d)",
 			      _pilots[_activePilot].name, _activePilot, _difficulty);
@@ -1245,8 +1221,7 @@ int InsaneRebel2::processLevelSelectInput() {
 			_vm->_mouse.y = event.mouse.y;
 			for (int i = 0; i < itemCount; i++) {
 				int itemY = itemBaseY + i * itemSpacing;
-				if (event.mouse.y >= itemY - itemHitTop - 3 * (highRes ? 2 : 1) &&
-						event.mouse.y < itemY - itemHitTop + itemHitHeight - 3 * (highRes ? 2 : 1)) {
+				if (event.mouse.y >= itemY - itemHitTop && event.mouse.y < itemY - itemHitTop + itemHitHeight) {
 					selection = i;
 					break;
 				}
@@ -1349,6 +1324,40 @@ void InsaneRebel2::drawLevelSelectOverlay(byte *renderBitmap, int pitch, int wid
 	}
 
 	drawMenuItems(renderBitmap, pitch, width, height, pilotItems, _numPilots + 4, _levelSelection);
+
+	drawPilotInfoLines(renderBitmap);
+}
+
+// Difficulty and current chapter of the highlighted pilot, at the bottom left.
+void InsaneRebel2::drawPilotInfoLines(byte *renderBitmap) {
+	if (_pilotMenuMode != kPilotModeSelect || _levelSelection < 0 || _levelSelection >= _numPilots)
+		return;
+
+	SmushPlayer *splayer = ((ScummEngine_v7 *)_vm)->_splayer;
+	if (!splayer)
+		return;
+
+	const PilotData &pilot = _pilots[_levelSelection];
+	const int scale = isHiRes() ? 2 : 1;
+
+	const char *diffFmt = splayer->getString(25);
+	if (!diffFmt || !diffFmt[0])
+		diffFmt = "^f01^c248Difficulty: %s";
+	const char *diffName = splayer->getString(111 + CLIP<int>(pilot.difficulty, 0, 5));
+	if (diffName && strlen(diffName) > 9) {
+		// Skip the ^f01^c005 prefix so the name inherits the line's color.
+		Common::String line = Common::String::format(diffFmt, diffName + 9);
+		drawMenuString(renderBitmap, line.c_str(), 30 * scale, 180 * scale);
+	}
+
+	int chapterIdx = 15;
+	while (chapterIdx > 0 && pilot.damage[chapterIdx] >= 0xFF)
+		chapterIdx--;
+	const char *chapFmt = splayer->getString(26);
+	if (!chapFmt || !chapFmt[0])
+		chapFmt = "^f01^c248Chapter:    %hd";
+	Common::String line = Common::String::format(chapFmt, (short)(chapterIdx + 1));
+	drawMenuString(renderBitmap, line.c_str(), 30 * scale, 190 * scale);
 }
 
 void InsaneRebel2::initDefaultRankings() {
@@ -1587,6 +1596,8 @@ int InsaneRebel2::processOptionsInput() {
 					break;
 				case 5:
 					_optRapidFire = !_optRapidFire;
+					ConfMan.setBool("rebel2_rapid_fire", _optRapidFire);
+					ConfMan.flushToDisk();
 					break;
 				case 6:
 					break;

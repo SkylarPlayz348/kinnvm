@@ -137,6 +137,7 @@ public:
 	int16 _previewOffsetY;
 
 	void drawChapterInfoLine(byte *renderBitmap, int pitch, int width, int height);
+	void drawPilotInfoLines(byte *renderBitmap);
 	Common::String getRankString(int rating);
 	Common::String getChapterPassword(int level, int difficulty);
 
@@ -219,6 +220,13 @@ public:
 
 	void updatePilotProgress(int levelIndex, int32 score, int32 lives, int32 damage, int32 rating);
 
+	// Activates a pilot and derives its unlocked chapters, as the pilot menu does.
+	bool selectPilot(int index);
+
+	// Loading a pilot drops straight into the chapter selection.
+	Common::Error loadGameState(int slot, bool startupLoad = false);
+	bool _pilotLoadRequested;
+
 	enum LevelSelectResult {
 		kLevelSelectBack = 0,
 		kLevelSelectPlay = 1,
@@ -269,7 +277,9 @@ public:
 	Common::String getLevelPrefix(int levelId);
 
 	// Per-level handlers.
+	class Level1Handler;
 	int runLevel1();
+	class Level2Handler;
 	int runLevel2();
 	int runLevel3();
 	int runLevel4();
@@ -363,6 +373,7 @@ public:
 
 	int _currentPhase;
 	int _deathFrame;
+	int _rebelDeathCause;   // 0 = enemy shot, 1 = direct hit, 2 = collision; picks the death video
 	bool _skipSectionRequested;
 
 	// Resources and fonts.
@@ -456,7 +467,7 @@ public:
 	void renderGameplayPostFrame(byte *renderBitmap, int pitch, int width, int height,
 								 int videoWidth, int videoHeight, int statusBarY, int32 curFrame);
 	void updateGameplayDamageEffects(byte *renderBitmap, int pitch, int width, int height);
-	void updateGameplayDamageRecovery(int32 curFrame);
+	void updateGameplayTimedTick(int32 curFrame);
 	void checkGameplayPostRenderCollisions(byte *renderBitmap, int pitch, int width, int height, int32 curFrame);
 
 	void renderTurretHudOverlays(byte *renderBitmap, int pitch, int width, int height, int32 curFrame);
@@ -537,6 +548,7 @@ public:
 		int id;
 		int type;
 		Common::Rect rect;
+		int velX, velY;   // last per-frame motion, feeds the death explosion drift
 		bool active;
 		bool destroyed;
 		int explosionFrame;
@@ -583,6 +595,7 @@ public:
 		int width, height;
 		int counter;
 		int scale;
+		int dx, dy;   // carries the victim's last motion (flight buffer space)
 		bool active;
 	};
 
@@ -592,7 +605,7 @@ public:
 	};
 
 	Explosion _explosions[5];
-	void spawnExplosion(int x, int y, int objectHalfWidth);
+	void spawnExplosion(int x, int y, int objectHalfWidth, int dx = 0, int dy = 0);
 
 	// Collision zones registered by IACT opcode 5.
 	struct CollisionZone {
@@ -640,6 +653,8 @@ public:
 	void checkHandler7BoundaryZones(uint16 &warningMask);
 	void renderHandler7WarningCues(byte *renderBitmap, int pitch, int width, int height, int32 curFrame, uint16 warningMask);
 	void updateLevel7Fork(int32 curFrame);
+	void updateLevel15TypeSwitch(int32 curFrame);
+	void updateLevel9WaveReset(int32 curFrame);
 
 	int16 _playerDamage;
 	int16 _playerShield;
@@ -678,6 +693,9 @@ public:
 
 	int _rebelWaveState;
 	int _rebelPhaseState;
+	// Kills and misses banked across the phases of a level 2 style attempt.
+	int _totalKills;
+	int _totalMisses;
 
 	int _rebelAutopilot;
 	int _rebelDamageLevel;
@@ -692,20 +710,23 @@ public:
 	int _rebelViewMode1;
 	int _rebelViewMode2;
 
+	// Turret (0x26) gauge groups, addressed by value 100-109 or bitmask > 0x3ff (bit k-1 -> slot k); surfaces show while nonzero, then blink out.
 	short _rebelValueCounters[10];
-	short _rebelMaskCounters[10];
+	short _rebelGaugeBlink[10];
 	int _rebelLastCounter;
 
-	// Shield hit-point gauge: opcode-2 sets up a per-target counter; destroying a tracked
-	// target decrements it, and the looping attack run ends when it reaches 0.
-	int8 _rebelGaugeSlot[512];
+	// Turret dodge-fail view-shake impulses, ring-filtered into the scroll offset.
+	int16 _turretShakeRingX[15];
+	int16 _turretShakeRingY[15];
+
 	bool _rebelShieldGateActive;
 	bool _rebelShieldDestroyed;
 	bool _rebelReactorMode;
 	bool _rebelGaugeArmed;
 	int _rebelLastArmedSlot;
-	bool _rebelGaugeCleared[10];
+	void resetGaugeCounters();
 	void resetShieldGauge();
+	void decrementGaugeGroup(int slot, int targetId);
 
 	// Handler-specific shot state.
 	struct TurretShot {
@@ -802,6 +823,9 @@ public:
 	bool _shipFiring;
 	uint32 _prevMouseButtons;
 
+	// Rapid-fire cadence counter, re-anchored on each press.
+	int16 _rapidFireCounter;
+
 	int16 _shipDirectionIndex;
 	int16 _shipDirectionH;
 	int16 _shipDirectionV;
@@ -877,7 +901,10 @@ public:
 
 	static const LevelDifficultyParams kDifficultyTable[6][17];
 
+	int getDifficultyRow() const;
 	LevelDifficultyParams getDifficultyParams() const;
+	int16 getWaveBudgetBase(int phase) const;
+	bool _level15SecondHalf;
 
 	void addScore(int points);
 	void renderScoreHUD(byte *renderBitmap, int pitch, int width, int height, int statusBarY);

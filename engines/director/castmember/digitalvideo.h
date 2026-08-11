@@ -30,6 +30,8 @@ class VideoDecoder;
 
 namespace Director {
 
+class XtraCastMember;
+
 enum DigitalVideoType {
 	kDVQuickTime,
 	kDVVideoForWindows,
@@ -45,6 +47,8 @@ public:
 
 	CastMember *duplicate(Cast *cast, uint16 castId) override { return (CastMember *)(new DigitalVideoCastMember(cast, castId, *this)); }
 
+	static CastMember *createFromXtra(Cast *cast, uint16 castId, XtraCastMember *xtra);
+
 	bool isModified() override;
 	Graphics::MacWidget *createWidget(Common::Rect &bbox, Channel *channel, SpriteType spriteType) override;
 
@@ -54,12 +58,18 @@ public:
 	void startVideo();
 	void stopVideo();
 	void rewindVideo();
+	bool endOfVideo();
 
+	uint getTimeScale();
 	uint getMovieCurrentTime();
+	uint getMovieCurrentTimeMillis();
 	uint getDuration();
 	uint getMovieTotalTime();
+	uint getMovieTotalTimeMillis();
 	void seekMovie(int stamp);
+	void setStartTime(int stamp);
 	void setStopTime(int stamp);
+	void setMovieTime(int units);
 	void setMovieRate(double rate);
 	void setFrameRate(int rate);
 
@@ -69,11 +79,13 @@ public:
 
 	Common::String formatInfo() override;
 
+	Common::Rect getInitialRect() override;
 	Common::Point getRegistrationOffset() override;
 	Common::Point getRegistrationOffset(int16 width, int16 height) override;
 
 	uint32 getCastDataSize() override;
 	void writeCastData(Common::SeekableWriteStream *writeStream) override;
+	bool canWriteCastData() override;
 
 	Common::String _filename;
 
@@ -85,6 +97,7 @@ public:
 	bool _crop;
 	bool _center;
 	bool _preload;
+	int _scaleX, _scaleY;	// D7+: playback size percentages [x, y]; [100, 100] = original size
 	bool _showControls;
 	bool _directToStage;
 	bool _avimovie, _qtmovie;
@@ -97,7 +110,6 @@ public:
 
 	uint16 _frameRate;
 	bool _getFirstFrame;
-	int _duration;
 
 	Video::VideoDecoder *_video;
 	Graphics::Surface *_lastFrame;

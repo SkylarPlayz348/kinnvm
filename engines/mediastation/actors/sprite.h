@@ -74,9 +74,14 @@ public:
 	virtual void readParameter(Chunk &chunk, ActorHeaderSectionType paramType) override;
 	virtual void loadIsComplete() override;
 	virtual ScriptValue callMethod(BuiltInMethod methodId, Common::Array<ScriptValue> &args) override;
+	virtual bool isActive() const override { return _isPlaying; }
 
 	virtual void onEvent(const ActorEvent &event) override;
 	virtual void timerEvent(const TimerEvent &event) override;
+
+	bool activateNextFrame();
+	bool activatePreviousFrame();
+	void setCurrentClip(uint clipId);
 
 private:
 	const uint DEFAULT_FORWARD_CLIP_ID = 0x4B0;
@@ -95,10 +100,6 @@ private:
 
 	void play();
 	void stop();
-	void setCurrentClip(uint clipId);
-
-	bool activateNextFrame();
-	bool activatePreviousFrame();
 
 	void dirtyIfVisible();
 	void setCurrentFrameToInitial();

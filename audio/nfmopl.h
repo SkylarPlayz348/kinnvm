@@ -61,7 +61,7 @@ class OPL : public ::OPL::OPL, public Audio::RealChip {
 private:
 	Config::OplType _type;
 	OplDevice _deviceType;
-	sOplInterface _iface;
+	sFmInterface _iface;
 	funcPtrOplWrite _oplWrite;
 	funcPtrOplWrite _oplEnqueWrite;
 	funcPtrOplFlush _oplFlush;
@@ -86,7 +86,7 @@ public:
 
 protected:
 
-	virtual void onTimer() override final;
+	void onTimer() override final;
 };
 };  // End of namespace RealChip
 
@@ -95,7 +95,7 @@ class OPL : public ::OPL::OPL, public Audio::EmulatedChip {
 private:
 	Config::OplType _type;
 	OplDevice _deviceType;
-	sOplInterface _iface;
+	sFmInterface _iface;
 	funcPtrOplWrite _oplWrite;
 	funcPtrOplWrite _oplEnqueWrite;
 	funcPtrOplFlush _oplFlush;

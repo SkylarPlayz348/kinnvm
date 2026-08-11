@@ -27,6 +27,7 @@
 #include "common/memstream.h"
 
 #include "graphics/paletteman.h"
+#include "graphics/blit.h"
 
 #include "image/png.h"
 
@@ -73,7 +74,7 @@ void Screen::drawIbassIcon() {
 			// get the current animation frame
 			Graphics::Surface *currentFrame = _uiIcon[i]._anim->_frames[_uiIcon[i]._curFrame];
 			if ((_uiIcon[i]._x + currentFrame->w) <= _screen32.w)
-				_screen32.copyRectToSurfaceWithKey(*currentFrame, _uiIcon[i]._x, _uiIcon[i]._y, Common::Rect(currentFrame->w, currentFrame->h), _screen32.format.ARGBToColor(0x00, 0xFF, 0xFF, 0xFF));
+				Graphics::alphaBlit((byte *)_screen32.getBasePtr(_uiIcon[i]._x, _uiIcon[i]._y), (const byte *)currentFrame->getPixels(), _screen32.pitch, currentFrame->pitch, currentFrame->w, currentFrame->h, _screen32.format, currentFrame->format, 0, 255);
 		}
 
 	}
@@ -167,7 +168,6 @@ Screen::Screen(OSystem *pSystem, Disk *pDisk, SkyCompact *skyCompact) {
 	_skyDisk = pDisk;
 	_skyCompact = skyCompact;
 
-	int i;
 	uint8 tmpPal[VGA_COLORS * 3];
 
 	_gameGrid = (uint8 *)malloc(GRID_X * GRID_Y * 2);
@@ -182,7 +182,7 @@ Screen::Screen(OSystem *pSystem, Disk *pDisk, SkyCompact *skyCompact) {
 	memset(tmpPal, 0, GAME_COLORS * 3);
 
 	//set the remaining colors
-	for (i = 0; i < (VGA_COLORS-GAME_COLORS); i++) {
+	for (int i = 0; i < (VGA_COLORS-GAME_COLORS); i++) {
 		tmpPal[3 * GAME_COLORS + i * 3 + 0] = (_top16Colors[i * 3 + 0] << 2) + (_top16Colors[i * 3 + 0] >> 4);
 		tmpPal[3 * GAME_COLORS + i * 3 + 1] = (_top16Colors[i * 3 + 1] << 2) + (_top16Colors[i * 3 + 1] >> 4);
 		tmpPal[3 * GAME_COLORS + i * 3 + 2] = (_top16Colors[i * 3 + 2] << 2) + (_top16Colors[i * 3 + 2] >> 4);
@@ -197,7 +197,7 @@ Screen::Screen(OSystem *pSystem, Disk *pDisk, SkyCompact *skyCompact) {
 	_seqInfo.seqData = _seqInfo.seqDataPos = NULL;
 	_seqInfo.running = false;
 
-	for (i = 0; i < NUM_UI_ICONS; i++) {
+	for (int i = 0; i < NUM_UI_ICONS; i++) {
 		_uiIcon[i]._visible = false;
 		_uiIcon[i]._anim = nullptr;
 		_uiIcon[i]._x = 0;
@@ -205,7 +205,7 @@ Screen::Screen(OSystem *pSystem, Disk *pDisk, SkyCompact *skyCompact) {
 		_uiIcon[i]._alpha = 0.0f;
 	}
 
-	for (i = 0; i < NUM_PROXIMITY_ICONS; i++) {
+	for (int i = 0; i < NUM_PROXIMITY_ICONS; i++) {
 		_proximityIcon[i]._visible = false;
 		_proximityIcon[i]._anim = nullptr;
 		_proximityIcon[i]._x = 0;
@@ -213,7 +213,7 @@ Screen::Screen(OSystem *pSystem, Disk *pDisk, SkyCompact *skyCompact) {
 		_proximityIcon[i]._alpha = 0.0f;
 	}
 
-	for (i = 0; i < NUM_INV_ICONS; i++) {
+	for (int i = 0; i < NUM_INV_ICONS; i++) {
 		_invIcon[i]._visible = false;
 		_invIcon[i]._anim = nullptr;
 		_invIcon[i]._x = 0;
@@ -221,7 +221,7 @@ Screen::Screen(OSystem *pSystem, Disk *pDisk, SkyCompact *skyCompact) {
 		_invIcon[i]._alpha = 0.0f;
 	}
 
-	for (i = 0; i < NUM_INV_ANIMS; i++) {
+	for (int i = 0; i < NUM_INV_ANIMS; i++) {
 		char invTexFile[64];
 		Common::sprintf_s(invTexFile, "%d.tex", invIconId[i]);
 
@@ -723,29 +723,22 @@ void Screen::processSequence() {
 			}
 		} while (nrToDo == 0xFF);
 	} while (screenPos < (GAME_SCREEN_WIDTH * GAME_SCREEN_HEIGHT));
-	uint8 *gridPtr = _seqGrid; uint8 *scrPtr = _currentScreen; uint8 *rectPtr = NULL;
-	uint8 rectWid = 0, rectX = 0, rectY = 0;
+	uint8 *gridPtr = _seqGrid;
+	uint8 rectWid = 0;
 	for (uint8 cnty = 0; cnty < 12; cnty++) {
 		for (uint8 cntx = 0; cntx < 20; cntx++) {
 			if (*gridPtr) {
-				if (!rectWid) {
-					rectX = cntx;
-					rectY = cnty;
-					rectPtr = scrPtr;
-				}
 				rectWid++;
 			} else if (rectWid) {
 				renderFinalFrame();
 				rectWid = 0;
 			}
-			scrPtr += 16;
 			gridPtr++;
 		}
 		if (rectWid) {
 			renderFinalFrame();
 			rectWid = 0;
 		}
-		scrPtr += 15 * GAME_SCREEN_WIDTH;
 	}
 	_system->updateScreen();
 	_seqInfo.framesLeft--;

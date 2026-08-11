@@ -62,7 +62,7 @@ void InventoryPopup::init() {
 
 	Common::Rect bounds = _screenPosition;
 	bounds.moveTo(0, 0);
-	_drawSurface.create(bounds.width(), bounds.height(), g_nancy->_graphics->getInputPixelFormat());
+	_drawSurface.create(bounds.width(), bounds.height(), g_nancy->_graphics->getScreenPixelFormat());
 
 	setActiveFilterIndex(0);
 
@@ -87,6 +87,9 @@ void InventoryPopup::open() {
 
 	setVisible(true);
 
+	g_nancy->_cursor->warpCursor(Common::Point(_screenPosition.left + _screenPosition.width() / 2,
+												_screenPosition.top + _screenPosition.height() / 2));
+
 	NancySceneState.getTaskbar()->clearAllNotifications(kTaskButtonInventory);
 
 	if (!_uiivData->header.sounds[0].name.empty()) {
@@ -110,6 +113,10 @@ void InventoryPopup::close() {
 void InventoryPopup::refreshGrid() {
 	rebuildVisibleList();
 
+	// The whole grid is redrawn below with every slot in its plain state, so
+	// any previous hover highlight is gone.
+	_hoveredSlot = -1;
+
 	drawBackground();
 	drawFilterTabs();
 	drawFilterCaption();
@@ -124,39 +131,93 @@ void InventoryPopup::refreshGrid() {
 	_needsRedraw = true;
 }
 
+bool InventoryPopup::itemMatchesFilter(int16 itemID) const {
+	const INV::ItemDescription &desc = _invData->itemDescriptions[itemID];
+
+	switch (_activeFilterIndex) {
+	case kFilterViewable:
+		return desc.keepItem == 3;
+	case kFilterPortable:
+		return desc.keepItem <= 2;
+	case kFilterAll:
+	default:
+		return true;
+	}
+}
+
+bool InventoryPopup::syncOrderWithInventory() {
+	const uint16 numItems = MIN<uint16>(g_nancy->getStaticData().numItems,
+										_invData->itemDescriptions.size());
+	const int16 heldItem = NancySceneState.getHeldItem();
+	Common::Array<int16> &order = NancySceneState.getInventoryBox().getOrder();
+
+	bool changed = false;
+
+	// Drop entries that are out of range, not owned, or being carried
+	// (`hasItem` reports the held item as owned, so exclude it explicitly).
+	for (uint i = 0; i < order.size();) {
+		const int16 id = order[i];
+		if (id < 0 || id >= (int16)numItems || id == heldItem ||
+				NancySceneState.hasItem(id) != g_nancy->_true) {
+			order.remove_at(i);
+			changed = true;
+		} else {
+			++i;
+		}
+	}
+
+	// Append any owned items missing from the list, in item-ID order.
+	for (uint16 id = 0; id < numItems; ++id) {
+		if ((int16)id == heldItem || NancySceneState.hasItem(id) != g_nancy->_true)
+			continue;
+
+		bool inOrder = false;
+		for (uint i = 0; i < order.size(); ++i) {
+			if (order[i] == (int16)id) {
+				inOrder = true;
+				break;
+			}
+		}
+		if (!inOrder) {
+			order.push_back(id);
+			changed = true;
+		}
+	}
+
+	return changed;
+}
+
 void InventoryPopup::rebuildVisibleList() {
 	_visibleItems.clear();
+
+	// Make sure the persisted order list holds exactly the items the player
+	// owns before reading from it. This heals older saves (or any desync) in
+	// one pass, instead of waiting for the player to pick up and drop each
+	// item individually.
+	syncOrderWithInventory();
 
 	const uint16 numItems = MIN<uint16>(g_nancy->getStaticData().numItems,
 										_invData->itemDescriptions.size());
 
 	const int16 heldItem = NancySceneState.getHeldItem();
 
-	for (uint16 id = 0; id < numItems; ++id) {
-		if (NancySceneState.hasItem(id) != g_nancy->_true)
+	// The grid follows the shared, save-persisted inventory order (see
+	// Scene::addItemToInventory), so the sequence in which items are picked
+	// up and dropped is preserved rather than always sorting by item ID.
+	const Common::Array<int16> &order = NancySceneState.getInventoryBox().getOrder();
+
+	for (uint i = 0; i < order.size(); ++i) {
+		const int16 id = order[i];
+		if (id < 0 || id >= (int16)numItems)
 			continue;
 
 		// `hasItem` reports the held item as owned; the player is already
 		// carrying it, so don't list it in the grid too.
-		if ((int16)id == heldItem)
+		if (id == heldItem || NancySceneState.hasItem(id) != g_nancy->_true)
 			continue;
 
-		const INV::ItemDescription &desc = _invData->itemDescriptions[id];
-
-		switch (_activeFilterIndex) {
-		case kFilterViewable:
-			if (desc.keepItem == 3)
-				_visibleItems.push_back(id);
-			break;
-		case kFilterPortable:
-			if (desc.keepItem <= 2)
-				_visibleItems.push_back(id);
-			break;
-		case kFilterAll:
-		default:
+		if (itemMatchesFilter(id))
 			_visibleItems.push_back(id);
-			break;
-		}
 	}
 }
 
@@ -281,7 +342,16 @@ void InventoryPopup::setActiveFilterIndex(uint index) {
 	_activeFilterIndex = index;
 }
 
-void InventoryPopup::drawSlot(uint slotIndex, int16 itemId) {
+void InventoryPopup::playButtonClickSound(const UIButtonRecord &button) {
+	SoundDescription sound = button.clickSound;
+	if (sound.name.empty() || sound.name.equalsIgnoreCase("NO SOUND"))
+		return;
+
+	g_nancy->_sound->loadSound(sound);
+	g_nancy->_sound->playSound(sound);
+}
+
+void InventoryPopup::drawSlot(uint slotIndex, int16 itemId, bool highlighted) {
 	if (slotIndex >= _uiivData->slotDestRects.size())
 		return;
 
@@ -289,13 +359,20 @@ void InventoryPopup::drawSlot(uint slotIndex, int16 itemId) {
 		return;
 
 	const INV::ItemDescription &desc = _invData->itemDescriptions[itemId];
-	if (desc.sourceRect.isEmpty())
+
+	// Hovering an item shows its highlighted sprite (the icon with a blue glow
+	// baked in) instead of the plain one. Both are opaque and cell-sized, so
+	// one fully overwrites the other. Fall back to the plain sprite if the game
+	// has no highlighted variant.
+	const Common::Rect &src = (highlighted && !desc.highlightedSourceRect.isEmpty())
+									? desc.highlightedSourceRect : desc.sourceRect;
+	if (src.isEmpty())
 		return;
 
 	const Common::Point chunkOrigin(_uiivData->header.normalDestRect.left,
 									_uiivData->header.normalDestRect.top);
 	const Common::Rect &slotDst = _uiivData->slotDestRects[slotIndex];
-	_drawSurface.blitFrom(_itemIcons, desc.sourceRect,
+	_drawSurface.blitFrom(_itemIcons, src,
 							Common::Point(slotDst.left - chunkOrigin.x,
 											slotDst.top - chunkOrigin.y));
 }
@@ -307,13 +384,6 @@ void InventoryPopup::handleInput(NancyInput &input) {
 	const Common::Point chunkMouse(
 		input.mousePos.x - _screenPosition.left + _uiivData->header.normalDestRect.left,
 		input.mousePos.y - _screenPosition.top  + _uiivData->header.normalDestRect.top);
-
-	// Item slots use kHotspot: the highlighted magnifier, which also blends a
-	// held-item sprite on Nancy 10+, so it works in both "empty hand" (plain
-	// magnifier) and "carrying" (magnifier + item) states. The popup chrome
-	// (close button, scrollbar, filter tabs) uses kHotspotArrow instead, like
-	// the other Nancy 10+ popups.
-	const CursorManager::CursorType slotCursor = CursorManager::kHotspot;
 
 	// Scrollbar interaction takes priority while dragging.
 	const UISliderRecord &slider = _uiivData->header.slider;
@@ -337,9 +407,16 @@ void InventoryPopup::handleInput(NancyInput &input) {
 
 			const int newThumbTop = chunkMouse.y - _scrollbarGrabOffset;
 			const int clamped = CLIP<int>(newThumbTop, track.top, track.top + travel);
-			_scrollPos = travel > 0 ? (float)(clamped - track.top) / (float)travel : 0.0f;
-			updatePageFromScroll();
-			refreshGrid();
+			const float newScrollPos = travel > 0 ? (float)(clamped - track.top) / (float)travel : 0.0f;
+
+			// Only re-render when the thumb actually moves to a new page.
+			// refreshGrid() redraws the whole item grid, so re-running it on every
+			// drag frame is wasted work.
+			if (newScrollPos != _scrollPos) {
+				_scrollPos = newScrollPos;
+				updatePageFromScroll();
+				refreshGrid();
+			}
 
 			if (input.input & NancyInput::kLeftMouseButtonUp) {
 				_scrollbarDragging = false;
@@ -386,6 +463,7 @@ void InventoryPopup::handleInput(NancyInput &input) {
 		if (overClose) {
 			g_nancy->_cursor->setCursorType(CursorManager::kHotspotArrow);
 			if (input.input & NancyInput::kLeftMouseButtonUp) {
+				playButtonClickSound(closeBtn);
 				input.eatMouseInput();
 				close();
 				return;
@@ -393,72 +471,89 @@ void InventoryPopup::handleInput(NancyInput &input) {
 		}
 	}
 
-	// If the player is already holding an item, any click on the slot grid
-	// puts it back into the inventory. Otherwise a click on an occupied
-	// slot picks that item up (or navigates to its close-up scene).
 	const int16 heldItem = NancySceneState.getHeldItem();
 
+	// While the player is carrying an item, the whole popup acts as a single
+	// drop zone: a click anywhere inside it drops the held item back into the
+	// inventory (appended to the end of the list) and keeps the popup open, so
+	// the player never has to carefully target one of the slot squares. The
+	// close button, handled above, still closes without dropping.
+	if (heldItem != -1) {
+		if (_screenPosition.contains(input.mousePos)) {
+			// kHotspot keeps the carried-item sprite showing on Nancy 10+.
+			g_nancy->_cursor->setCursorType(CursorManager::kHotspot);
+
+			if (input.input & NancyInput::kLeftMouseButtonUp) {
+				NancySceneState.addItemToInventory(heldItem);
+				// Dropping a held item back plays the button-down sound
+				// layered over the item-added sound.
+				g_nancy->_sound->playSound("BUDE");
+			}
+			input.eatMouseInput();
+		}
+		return;
+	}
+
+	// Empty-handed: a click on an occupied slot picks that item up (or
+	// navigates to its close-up scene). Hovering an item uses the yellow
+	// hotspot arrow rather than the magnifier.
 	int hoveredSlot = -1;
 	for (uint i = 0; i < kSlotsPerPage; ++i) {
 		if (i >= _uiivData->slotDestRects.size())
 			break;
 		if (!_uiivData->slotDestRects[i].contains(chunkMouse))
 			continue;
-		if (heldItem == -1 && _slotItemIDs[i] < 0)
+		if (_slotItemIDs[i] < 0)
 			continue;
 		hoveredSlot = (int)i;
 		break;
 	}
 
+	// Swap the glow between slots when the hovered slot changes: restore the
+	// slot we left to its plain sprite and draw the newly hovered one with its
+	// highlighted sprite.
+	if (hoveredSlot != _hoveredSlot) {
+		if (_hoveredSlot != -1)
+			drawSlot((uint)_hoveredSlot, _slotItemIDs[_hoveredSlot], false);
+		if (hoveredSlot != -1)
+			drawSlot((uint)hoveredSlot, _slotItemIDs[hoveredSlot], true);
+		_hoveredSlot = hoveredSlot;
+		_needsRedraw = true;
+	}
+
 	if (hoveredSlot != -1) {
-		g_nancy->_cursor->setCursorType(slotCursor);
+		g_nancy->_cursor->setCursorType(CursorManager::kHotspotArrow);
 
 		if (input.input & NancyInput::kLeftMouseButtonUp) {
-			if (heldItem != -1) {
-				const int16 slotItem = _slotItemIDs[hoveredSlot];
-
-				// Empty slot: drop the held item back into the inventory
-				// and keep the popup open. Occupied slot: swap — held
-				// item goes into the inventory, the clicked item becomes
-				// the new held item.
-				NancySceneState.addItemToInventory(heldItem);
-				if (slotItem >= 0 && slotItem != heldItem) {
-					NancySceneState.removeItemFromInventory(slotItem, true);
-				}
-				refreshGrid();
-				input.eatMouseInput();
-				return;
-			}
-
 			const int16 itemID = _slotItemIDs[hoveredSlot];
-			if (itemID >= 0) {
-				const INV::ItemDescription &item = _invData->itemDescriptions[itemID];
-				const byte disabled = NancySceneState.getItemDisabledState(itemID);
+			const INV::ItemDescription &item = _invData->itemDescriptions[itemID];
+			const byte disabled = NancySceneState.getItemDisabledState(itemID);
 
-				if (disabled) {
-					if (disabled == 2) {
-						NancySceneState.playItemCantSound(itemID);
-					}
-					input.eatMouseInput();
-					return;
+			if (disabled) {
+				if (disabled == 2) {
+					NancySceneState.playItemCantSound(itemID);
 				}
-
-				const bool pickUp = item.keepItem != kInvItemNewSceneView;
-				NancySceneState.removeItemFromInventory(itemID, pickUp);
-
-				if (item.keepItem == kInvItemNewSceneView) {
-					// Close-up view: stash the item and warp to its scene.
-					NancySceneState.pushScene(itemID);
-					SceneChangeDescription sceneChange;
-					sceneChange.sceneID = item.sceneID;
-					sceneChange.continueSceneSound = item.sceneSoundFlag;
-					NancySceneState.changeScene(sceneChange);
-				}
-
-				close();
 				input.eatMouseInput();
 				return;
 			}
+
+			const bool pickUp = item.keepItem != kInvItemNewSceneView;
+			NancySceneState.removeItemFromInventory(itemID, pickUp);
+
+			if (item.keepItem == kInvItemNewSceneView) {
+				// Close-up view: stash the item and warp to its scene, which
+				// dismisses the popup. A normal pickup keeps the popup open.
+				g_nancy->_sound->playSound("BUOK");
+				NancySceneState.pushScene(itemID);
+				SceneChangeDescription sceneChange;
+				sceneChange.sceneID = item.sceneID;
+				sceneChange.continueSceneSound = item.sceneSoundFlag;
+				NancySceneState.changeScene(sceneChange);
+				close();
+			}
+
+			input.eatMouseInput();
+			return;
 		}
 	}
 
@@ -489,6 +584,7 @@ void InventoryPopup::handleInput(NancyInput &input) {
 		drawFilterTab(i, true);
 
 		if (input.input & NancyInput::kLeftMouseButtonUp) {
+			playButtonClickSound(filter.button);
 			setActiveFilterIndex(i);
 			_currentPage = 0;
 			_scrollPos = 0.0f;
@@ -497,7 +593,6 @@ void InventoryPopup::handleInput(NancyInput &input) {
 			input.eatMouseInput();
 			return;
 		}
-		break;
 	}
 
 	if (_filterHovered || wasHovered)

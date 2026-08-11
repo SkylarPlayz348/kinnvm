@@ -28,6 +28,7 @@
 #include "common/savefile.h"
 #include "common/util.h"
 #include "graphics/paletteman.h"
+#include "graphics/thumbnail.h"
 
 #include "audio/mixer.h"
 
@@ -44,6 +45,7 @@
 #include "scumm/smush/rebel/font_rebel2.h"
 
 #include "scumm/insane/rebel2/rebel.h"
+#include "scumm/insane/rebel2/shared.h"
 
 #include "common/config-manager.h"
 #include "audio/audiostream.h"
@@ -191,6 +193,7 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	_enemies.clear();
 	_rebelHandler = 0;
 	_rebelLevelType = 0;
+	_level15SecondHalf = false;
 	_rebelStatusBarSprite = 0;
 	_introCursorPushed = false;
 
@@ -229,6 +232,8 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	_rebelAutoPlay = false;
 	_rebelWaveState = 0;
 	_rebelPhaseState = 0;
+	_totalKills = 0;
+	_totalMisses = 0;
 
 	_rebelAutopilot = 0;
 	_rebelDamageLevel = 0;
@@ -244,19 +249,19 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 
 	for (int i = 0; i < 10; ++i) {
 		_rebelValueCounters[i] = 0;
-		_rebelMaskCounters[i] = 0;
+		_rebelGaugeBlink[i] = 0;
+	}
+	for (int i = 0; i < 15; ++i) {
+		_turretShakeRingX[i] = 0;
+		_turretShakeRingY[i] = 0;
 	}
 	_rebelLastCounter = 0;
 
-	for (int i = 0; i < 512; ++i)
-		_rebelGaugeSlot[i] = -1;
 	_rebelShieldGateActive = false;
 	_rebelShieldDestroyed = false;
 	_rebelReactorMode = false;
 	_rebelGaugeArmed = false;
 	_rebelLastArmedSlot = -1;
-	for (int i = 0; i < 10; ++i)
-		_rebelGaugeCleared[i] = false;
 
 	_difficulty = 1;
 	_targetLockTimer = 0;
@@ -427,6 +432,7 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	_flyControlMode = 0;
 	_shipFiring = false;
 	_prevMouseButtons = 0;
+	_rapidFireCounter = 0;
 	_shipDirectionH = 2;
 	_shipDirectionV = 3;
 	_shipDirectionIndex = 2 * 7 + 3;
@@ -508,6 +514,7 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 
 	_numPilots = 0;
 	_activePilot = 0;
+	_pilotLoadRequested = false;
 	for (i = 0; i < kMaxPilots; i++) {
 		_pilots[i].init();
 	}
@@ -535,7 +542,8 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	// "subtitles" key, which the text-render paths gate on.
 	_optTextEnabled = ConfMan.getBool("subtitles");
 	_optControlsFlipped = false;
-	_optRapidFire = false;
+	// Unlike the original, this defaults to on.
+	_optRapidFire = ConfMan.hasKey("rebel2_rapid_fire") ? ConfMan.getBool("rebel2_rapid_fire") : true;
 	_optVolumeLevel = _vm->_mixer->getVolumeForSoundType(Audio::Mixer::kMusicSoundType) / 2;
 
 	_menuInputActive = false;
@@ -559,6 +567,7 @@ InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 
 	_currentPhase = 1;
 	_deathFrame = 0;
+	_rebelDeathCause = 0;
 	_skipSectionRequested = false;
 
 	_vm->_system->getEventManager()->getEventDispatcher()->registerObserver(this, 1, false);
@@ -1078,7 +1087,10 @@ bool InsaneRebel2::notifyEvent(const Common::Event &event) {
 		switch (event.kbd.keycode) {
 		case Common::KEYCODE_ESCAPE:
 			if (splayer) {
-				if (_gameState == kStateGameplay && _rebelHandler != 0) {
+				// _gameplaySectionActive also covers a gameplay video's startup, before
+				// its first IACT sets _rebelHandler; otherwise ESC there skips the segment
+				// (e.g. spamming ESC after a Level 6 phase-2 death skipped phase 2).
+				if (_gameState == kStateGameplay && (_rebelHandler != 0 || _gameplaySectionActive)) {
 					debugC(DEBUG_INSANE, "ESC pressed during gameplay - opening global menu");
 					openGameplayMainMenu(splayer);
 				} else {
@@ -1281,29 +1293,26 @@ const InsaneRebel2::LevelDifficultyParams InsaneRebel2::kDifficultyTable[6][17] 
 	},
 };
 
-InsaneRebel2::LevelDifficultyParams InsaneRebel2::getDifficultyParams() const {
-	int diff = CLIP(_difficulty, 0, 5);
-	int lvIdx = 0;
-
+int InsaneRebel2::getDifficultyRow() const {
 	// Index mapping reconstructed from level handlers:
 	//   Lv1->0, Lv2->1, Lv3->2, Lv4->3, Lv5->4,
 	//   Lv6A->5, Lv6B->6, Lv7->7 ... Lv14->14, Lv15A->15, Lv15B->16.
 	// Our Level 6 phase flow sets _currentPhase to 1/2 accordingly.
-	// Level 15 phase switch to 16 is currently approximated by _currentPhase >= 2.
-	if (_selectedLevel <= 0) {
-		lvIdx = CLIP((int)_rebelLevelType, 0, 16);
-	} else if (_selectedLevel <= 5) {
-		lvIdx = _selectedLevel - 1;
-	} else if (_selectedLevel == 6) {
-		lvIdx = (_currentPhase >= 2) ? 6 : 5;
-	} else if (_selectedLevel <= 14) {
-		lvIdx = _selectedLevel;
-	} else { // _selectedLevel == 15
-		lvIdx = (_currentPhase >= 2) ? 16 : 15;
-	}
+	// Level 15 hardens at frame 0x21e (updateLevel15TypeSwitch). Do not key on
+	// _rebelLevelType here: the turret opcode-6 overwrites it with the ship type.
+	if (_selectedLevel <= 0)
+		return CLIP((int)_rebelLevelType, 0, 16);
+	if (_selectedLevel <= 5)
+		return _selectedLevel - 1;
+	if (_selectedLevel == 6)
+		return (_currentPhase >= 2) ? 6 : 5;
+	if (_selectedLevel <= 14)
+		return _selectedLevel;
+	return _level15SecondHalf ? 16 : 15;   // _selectedLevel == 15
+}
 
-	lvIdx = CLIP(lvIdx, 0, 16);
-	return kDifficultyTable[diff][lvIdx];
+InsaneRebel2::LevelDifficultyParams InsaneRebel2::getDifficultyParams() const {
+	return kDifficultyTable[CLIP(_difficulty, 0, 5)][getDifficultyRow()];
 }
 
 bool InsaneRebel2::applyPlayerDamage(int damage) {
@@ -1330,6 +1339,7 @@ void InsaneRebel2::addScore(int points) {
 		int newMilestone = (_playerScore + points) / threshold;
 		if (oldMilestone < newMilestone) {
 			_playerLives++;
+			playSfx(5, 127, 0);
 			debugC(DEBUG_INSANE, "BONUS LIFE! Score crossed %d threshold. Lives=%d", threshold, _playerLives);
 		}
 	}
@@ -1365,6 +1375,51 @@ void InsaneRebel2::renderScoreHUD(byte *renderBitmap, int pitch, int width, int 
 const uint32 kPilotSaveMagic = MKTAG('R', 'A', '2', 'P');
 const uint16 kPilotSaveVersion = 2;
 
+// Pilots occupy the regular ScummVM save slots, so they need the standard SCUMM
+// header too: without it every slot reads as an invalid savegame.
+const uint32 kPilotScummSaveVersion = 124;
+
+bool writeRebel2SavegameHeader(Common::WriteStream *out, const Common::String &desc) {
+	char name[32];
+	memset(name, 0, sizeof(name));
+	Common::strlcpy(name, desc.c_str(), sizeof(name));
+
+	out->writeUint32BE(MKTAG('S', 'C', 'V', 'M'));
+	out->writeUint32LE(0);
+	out->writeUint32LE(kPilotScummSaveVersion);
+	out->write(name, sizeof(name));
+	return !out->err();
+}
+
+// A stream starting with the pilot magic is a pre-header file; rewind it.
+bool readRebel2SavegameHeader(Common::SeekableReadStream *in, uint32 *version) {
+	const uint32 tag = in->readUint32BE();
+	if (tag == kPilotSaveMagic) {
+		in->seek(0);
+		if (version)
+			*version = 0;
+		return true;
+	}
+	if (tag != MKTAG('S', 'C', 'V', 'M'))
+		return false;
+
+	in->readUint32LE(); // size, unused
+	uint32 hdrVersion = in->readUint32LE();
+	if (hdrVersion > 0xFFFFFF)
+		hdrVersion = SWAP_BYTES_32(hdrVersion);
+	if (hdrVersion < VER(52) || hdrVersion > kPilotScummSaveVersion)
+		return false;
+
+	char name[32];
+	in->read(name, sizeof(name));
+	if (in->err())
+		return false;
+
+	if (version)
+		*version = hdrVersion;
+	return true;
+}
+
 bool InsaneRebel2::loadPilots() {
 	_numPilots = 0;
 
@@ -1373,6 +1428,25 @@ bool InsaneRebel2::loadPilots() {
 		Common::InSaveFile *sf = _vm->_saveFileMan->openForLoading(filename);
 		if (!sf)
 			break; // Slots are contiguous
+
+		uint32 scummVersion = 0;
+		if (!readRebel2SavegameHeader(sf, &scummVersion)) {
+			delete sf;
+			break;
+		}
+
+		// Only present once the slot carries a SCUMM header.
+		if (scummVersion >= VER(52) && !Graphics::skipThumbnail(*sf)) {
+			delete sf;
+			break;
+		}
+		if (scummVersion >= VER(56)) {
+			SaveStateMetaInfos infos;
+			if (!_vm->loadInfos(sf, &infos)) {
+				delete sf;
+				break;
+			}
+		}
 
 		uint32 magic = sf->readUint32BE();
 		if (magic != kPilotSaveMagic) {
@@ -1416,6 +1490,14 @@ bool InsaneRebel2::savePilots() {
 			ok = false;
 			continue;
 		}
+
+		// The pilot name doubles as the save description in the load screen.
+		Common::String desc(_pilots[i].name);
+		if (desc.empty())
+			desc = Common::String::format("Pilot %d", i + 1);
+		writeRebel2SavegameHeader(sf, desc);
+		Graphics::saveThumbnail(*sf);
+		_vm->saveInfos(sf);
 
 		sf->writeUint32BE(kPilotSaveMagic);
 		sf->writeUint16LE(kPilotSaveVersion);
@@ -1492,12 +1574,57 @@ void InsaneRebel2::updatePilotProgress(int levelIndex, int32 score, int32 lives,
 		return;
 
 	PilotData &pilot = _pilots[_activePilot];
+
+	// Entry `levelIndex` holds the state the next level starts from; damage
+	// below 0xFF means it was already reached, so a replay has nothing to add.
+	if (pilot.damage[levelIndex] < 0xFF) {
+		debugC(DEBUG_INSANE, "RA2: level %d replayed, keeping score %d/lives %d over %d/%d",
+			levelIndex, pilot.score[levelIndex], pilot.lives[levelIndex], score, lives);
+		return;
+	}
+
 	pilot.score[levelIndex] = score;
 	pilot.lives[levelIndex] = lives;
 	pilot.damage[levelIndex] = damage;
 	pilot.rating[levelIndex] = rating;
 
 	savePilots();
+}
+
+bool InsaneRebel2::selectPilot(int index) {
+	if (index < 0 || index >= _numPilots)
+		return false;
+
+	_activePilot = index;
+	_difficulty = _pilots[_activePilot].difficulty;
+
+	// 0xFF is PilotData::init()'s "never played" marker.
+	for (int i = 0; i < 16; i++)
+		_chapterUnlocked[i] = _debugUnlockAll || (_pilots[_activePilot].damage[i] < 0xFF);
+
+	return true;
+}
+
+Common::Error InsaneRebel2::loadGameState(int slot, bool startupLoad) {
+	// Re-read so a slot written by another session is picked up.
+	loadPilots();
+
+	if (!selectPilot(slot)) {
+		warning("RA2: slot %d does not hold a pilot", slot);
+		return Common::kReadingFailed;
+	}
+
+	_pilotLoadRequested = true;
+
+	// Unwind the running menu video so runGame() reaches the chapter selection.
+	if (!startupLoad) {
+		_menuSelectionConfirmed = false;
+		_vm->_smushVideoShouldFinish = true;
+	}
+
+	debugC(DEBUG_INSANE, "RA2: loaded pilot '%s' from slot %d (difficulty %d)",
+		_pilots[_activePilot].name, slot, _difficulty);
+	return Common::kNoError;
 }
 
 int32 InsaneRebel2::processMouse() {
@@ -1511,6 +1638,7 @@ int32 InsaneRebel2::processMouse() {
 
 	bool leftPressed = (currentButtons & 1) != 0;
 	bool leftWasPressed = (_prevMouseButtons & 1) != 0;
+	const bool leftEdge = leftPressed && !leftWasPressed;
 	bool rightPressed = (currentButtons & 2) != 0;
 	bool rightWasPressed = (_prevMouseButtons & 2) != 0;
 
@@ -1520,7 +1648,7 @@ int32 InsaneRebel2::processMouse() {
 		if (rightPressed && !rightWasPressed) {
 			_rebelControlMode |= 2;
 		}
-		if (leftPressed && !leftWasPressed) {
+		if (leftEdge) {
 			_rebelControlMode |= 1;
 		}
 	} else {
@@ -1542,7 +1670,8 @@ int32 InsaneRebel2::processMouse() {
 	if (autoFire)
 		_rebelControlMode |= 1;
 
-	bool triggerShot = ((_rebelHandler == 25) ? (leftPressed && !leftWasPressed) : leftPressed) || autoFire;
+	const bool triggerShot = updateRebel2Fire(leftPressed, leftWasPressed,
+			!_rebelAutoPlay && _optRapidFire, autoFire, _rapidFireCounter);
 	if (_rebelHandler == 8) {
 		_shipFiring = triggerShot && canShoot;
 	}
@@ -1597,7 +1726,7 @@ int32 InsaneRebel2::processMouse() {
 				if (_rebelHandler != 8 && _rebelHandler != 25) {
 					spawnExplosion((it->rect.left + it->rect.right) / 2,
 								   (it->rect.top + it->rect.bottom) / 2,
-								   explosionHalfWidth);
+								   explosionHalfWidth, it->velX, it->velY);
 				} else if (_rebelHandler == 8 && it->type == 0) {
 					spawnExplosion((it->rect.left + it->rect.right) / 2,
 								   (it->rect.top + it->rect.bottom) / 2,
@@ -1610,25 +1739,18 @@ int32 InsaneRebel2::processMouse() {
 
 				setBit(it->id);
 
-				// Shield hit-point gauge: if this target feeds a gauge counter, destroying it
-				// decrements that counter; the shield is destroyed when it reaches 0.
-				if (_rebelShieldGateActive && it->id >= 0 && it->id < 512 && _rebelGaugeSlot[it->id] >= 0) {
-					int slot = _rebelGaugeSlot[it->id];
-					short *counter = (slot < 10) ? &_rebelValueCounters[slot]
-					                             : &_rebelMaskCounters[slot - 10];
-					if (*counter > 0) {
-						(*counter)--;
-						_rebelLastCounter = *counter;
-						if (*counter == 0) {
-							if (slot < 10)
-								_rebelGaugeCleared[slot] = true;
-							if (!_rebelReactorMode) {
-								_rebelShieldDestroyed = true;
-								debugC(DEBUG_INSANE, "Shield destroyed (gauge slot %d depleted by target %d)", slot, it->id);
-							}
+				// Shield hit-point gauge (handler 0x26): the target's type field addresses
+				// the gauge group(s) it feeds — 100-109 directly, > 0x3ff as a bitmask —
+				// and destroying it decrements each of them.
+				if (_rebelHandler == 0x26) {
+					if (it->type >= 100 && it->type < 110) {
+						decrementGaugeGroup(it->type - 100, it->id);
+					} else if (it->type > 0x3ff) {
+						for (int slot = 1; slot <= 9; ++slot) {
+							if ((it->type & (1 << (slot - 1))) != 0)
+								decrementGaugeGroup(slot, it->id);
 						}
 					}
-					_rebelGaugeSlot[it->id] = -1;
 				}
 
 				if (it->type > 0 && it->type < 32) {

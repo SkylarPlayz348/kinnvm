@@ -41,7 +41,7 @@ public:
 private:
 	// This is not the number of recursive calls, it is as far is the script call stack is
 	// ever allowed to get.
-	static const uint MAX_CALL_DEPTH = 0x0f;
+	static const uint MAX_CALL_DEPTH = 0x20;
 
 	void skipNextBlock();
 
@@ -77,7 +77,47 @@ private:
 
 	// Debug output indentation tracking.
 	uint _debugIndentLevel = 0;
-	Common::String makeDebugIndent() const;
+};
+
+// These decompilation methods are intended to directly mirror the relevant code chunk
+// methods from the original. While this does duplicate some opcode parsing and such,
+// given that this part of the engine is pretty stable, the additional complexity
+// (and departure from the disassembly) of a full decoder/visitor pattern was judged
+// to not be worth it.
+//
+// The decompiled script format is based on the scripts shipped as debug statements
+// in If You Give a Mouse a Cookie, which debug-printed every script line before executing
+// the bytecode.
+class CodeChunkDecompiler {
+public:
+	CodeChunkDecompiler(ParameterReadStream *bytecode, uint indentLevel = 0);
+
+	Common::String decompileNextBlock();
+
+private:
+	Common::String decompileExpression();
+	Common::String decompileExpression(ExpressionType expressionType);
+	Common::String decompileOperation();
+	Common::String decompileValue();
+	Common::String decompileVariable();
+
+	Common::String decompileIf();
+	Common::String decompileIfElse();
+	Common::String decompileAssign();
+	Common::String decompileBinaryOperation(Opcode op);
+	Common::String decompileUnaryOperation();
+	Common::String decompileFunctionCall(bool isIndirect = false);
+	Common::String decompileFunctionCall(uint functionId, uint paramCount);
+	Common::String decompileMethodCall(bool isIndirect = false);
+	Common::String decompileMethodCall(BuiltInMethod method, uint paramCount);
+	void appendDecompiledParameterList(Common::String &result, uint paramCount);
+	Common::String decompileDeclareLocals();
+	Common::String decompileReturn();
+	Common::String decompileReturnNoValue();
+	Common::String decompileWhileLoop();
+
+	uint _indentLevel = 0;
+	ParameterReadStream *_bytecode = nullptr;
 };
 
 } // End of namespace MediaStation

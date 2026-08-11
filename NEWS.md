@@ -3,12 +3,36 @@ For a more comprehensive changelog of the latest experimental code, see:
 
 #### 2026.4.0 (2026-10-XX)
 
+ New games:
+   - Added support for Mortadelo y Filemón: Una Aventura de Cine Edición Original.
+   - Added support for Mortadelo y Filemón: Dos vaqueros chapuceros.
+   - Added support for Mortadelo y Filemón: Terror, Espanto y Pavor.
+   - Added support for Mortadelo y Filemón: La Sexta Secta.
+   - Added support for Mortadelo y Filemón: Operación Moscú.
+   - Added support for Mortadelo y Filemón: El Escarabajo de Cleopatra.
+   - Added support for Mortadelo y Filemón: La Banda de Corvino.
+   - Added support for Mortadelo y Filemón: Balones y Patadones.
+   - Added support for Mortadelo y Filemón: Mamelucos a la Romana.
+   - Added support for Dracula: Resurrection.
+   - Added support for Dracula 2: The Last Sanctuary.
+   - Added support for Nancy Drew: The Secret of Shadow Ranch.
+   - Added support for Nancy Drew: Curse of Blackmoor Manor.
+   - Added support for Chamber of the Sci-Mutant Priestess.
+   - Added support for Star Wars: Rebel Assault.
+   - Added support for Star Wars: Rebel Assault II: The Hidden Empire.
+
  General:
    - Optimised mixing and rate converters, for better performance.
    - Implemented ImGui-based interface for the Event Recorder.
    - Fixed bug with inability to specify game overrides for MIDI and MT-32
      devices.
    - Switched Nuked-OPL3 AdLib emulator to Nuked-OPL3-fast fork.
+
+ AWE:
+   - Fix sound code crash in OpenBSD.
+
+ Bagel:
+   - Fix saving options for Hodj n' Podj's Th Gesng Gme.
 
  GLK:
    - Fixed saved font selections not being applied correctly in some games.
@@ -17,12 +41,32 @@ For a more comprehensive changelog of the latest experimental code, see:
  Freescape:
    - Added support for loading ZX Spectrum games directly from TAP/TZX tape images.
 
+ Hopkins:
+   - Added the missing underwater base 3D first-person shooter
+
+ Kyra:
+   - Added support for Korean fan-translation of kyra1 (added in 2026.3.0).
+   - Restored non-Korean kyra1 games which got broken ("You're missing the 'KYRA.DAT'
+     engine data file or it got corrupted..." message).
+
+ Lure:
+   - Improved character pathfinding.
+   - Fix being unable to talk to characters after a one-sided conversation.
+
+ M4:
+   - Numerous Riddle of Master Lu fixes for crashes, missing functionality, and game bugs.
+   - Fixed original game bug where conversations with Wolf could freeze the game.
+   - Added original game cheat codes for bypassing the maze.
+
  MM:
    - Fix multiple M&M1 classic combat crashes.
    - Implement M&M1 classic PC speaker sound.
    - Fix stale view close handling causing crash.
    - Fix M&M1 spelling mistakes.
    - Improved M&M1 Enhanced mouse support, character generation, and general in-game UI.
+   - Fixed cutscene subtitle rendering.
+   - Added Xeen French translation.
+   - Fix Pharoah voice line repeating in Dark Side of Xeen intro.
 
  NANCY:
    - Generic flags are no longer cleared when saving or auto-saving. Clearing
@@ -31,6 +75,9 @@ For a more comprehensive changelog of the latest experimental code, see:
 
  SCUMM:
    - Improved cursor scale in early Windows HE games.
+
+ Sherlock:
+   - Vertical movement delta fix for Rose Tattoo
 
  SLUDGE:
    - Added detection for Shape-Shift Escape.

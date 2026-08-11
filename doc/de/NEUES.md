@@ -3,11 +3,36 @@ Umfangreichere Informationen über die Änderungen des aktuellen Codes findest D
 
 #### 2026.4.0 "TBD" (XX.10.2026)
 
+ Neue Spiele:
+   - Unterstützung für Mortadelo y Filemón: Una Aventura de Cine Edición Original hinzugefügt.
+   - Unterstützung für Mortadelo y Filemón: Dos vaqueros chapuceros hinzugefügt.
+   - Unterstützung für Mortadelo y Filemón: Terror, Espanto y Pavor hinzugefügt.
+   - Unterstützung für Mortadelo y Filemón: La Sexta Secta hinzugefügt.
+   - Unterstützung für Mortadelo y Filemón: Operación Moscú hinzugefügt.
+   - Unterstützung für Mortadelo y Filemón: El Escarabajo de Cleopatra hinzugefügt.
+   - Unterstützung für Mortadelo y Filemón: La Banda de Corvino hinzugefügt.
+   - Unterstützung für Mortadelo y Filemón: Balones y Patadones hinzugefügt.
+   - Unterstützung für Mortadelo y Filemón: Mamelucos a la Romana hinzugefügt.
+   - Unterstützung für Dracula: Resurrection hinzugefügt.
+   - Unterstützung für Dracula 2: The Last Sanctuary hinzugefügt.
+   - Unterstützung für Nancy Drew: The Secret of Shadow Ranch hinzugefügt.
+   - Unterstützung für Nancy Drew: Curse of Blackmoor Manor hinzugefügt.
+   - Unterstützung für Chamber of the Sci-Mutant Priestess hinzugefügt.
+   - Unterstützung für Star Wars: Rebel Assault hinzugefügt.
+   - Unterstützung für Star Wars: Rebel Assault II: The Hidden Empire hinzugefügt.
+
  Allgemein:
    - Zur Verbesserung der Perforamcen wurden die Audio-Mixer und -Konverter optimiert.
    - ImGui-basierte Oberfläche für den Event-Recorder implementiert.
    - Fehler korrigiert, durch den MIDI- und MT-32-Geräte in den Spiel-Optionen
-     nicht überschrieben werden konnten.
+     nicht überschrieben werden konnten
+   - Der Nuked-OPL3 AdLib-Emulator wurden durch den Nuked-OPL3-fast-Fork ausgetauscht.
+
+ AWE:
+   - Absturz des Audio-Codes in OpenBSD korrigiert.
+
+ Bagel:
+   - Speicher-Optionen in Hodj n' Podj's Th Gesng Gme korrigiert.
 
  GLK:
    - Fehler korrigiert, durch den ausgewählte Schriftarten nicht korrekt angewendet wurden.
@@ -16,6 +41,20 @@ Umfangreichere Informationen über die Änderungen des aktuellen Codes findest D
  Freescape:
    - Unterstützung für das Laden von ZX Spectrum-Spielen von TAP/TZX-Tape-Images hinzugefügt.
 
+ Kyra:
+   - Unterstützung für die koreanische Fan-Übersetzung in Kyra1 hinzugefügt (in ScummVM 2026.3.0).
+   - Fehlerhafte nicht-koreanische kyra1-Spiele (Fehlermeldung "You're missing the 'KYRA.DAT'
+     engine data file or it got corrupted...) wiederhergestellt.
+
+ Lure:
+   - Charakter-Wegfindung optimiert.
+   - Fehler korrigiert, durch den Charaktere nach einer einseitigen Konversation nicht mehr angesprochen werden konnten.
+
+ M4:
+   - Mehrere Fehlerkorrekturen für Riddle of Master Lu, einschließlich Abstürzen, fehlender Funktionen und Spiel-Fehler.
+   - Fehler im Originalspiel korrigiert, der dafür sorgt, dass bei einer Unterhaltung mit Wolf das Spiel einfriert.
+   - Unterstützung für originale Cheat-Codes hinzugefügt.
+
  MM:
    - Mehrere Abstürze in Kämpfen in M&M1 korrigiert.
    - Unterstützung für PC-Speaker in M&M1 implementiert.
@@ -23,11 +62,20 @@ Umfangreichere Informationen über die Änderungen des aktuellen Codes findest D
    - Schreibfehler in M&M1 korrigiert.
    - Verbesserung des erweiterten Maus-Modus, der Charakter-Erzeugung und der Spiel-Oberfläche
      in M&M1.
+   - Darstellung der Untertitel in Zwischensequenzen korrigiert.
+   - Unterstützung für die französische Übersetzung von Xeen hinzugefügt.
+   - Die Stimme des Pharao wird im Intro von Dark Side of Xeen jetzt nicht wiederholt.
 
  NANCY:
    - Allgemeine Flags werden nicht mehr gelöscht, wenn das Spiel (automatisch) gespeichert
      wird. Das Löschen der Flags hat in einigen Szenen zu Problemen geführt.
    - Spielstände können jetzt über den GMM geladen werden, bevor eine neue Szene gestartet wird.
+
+ SCUMM:
+   - Cursor-Skalierung in frühen Windows HE-Spielen korrigiert.
+
+ SLUDGE:
+   - Shape-Shift Escape wurde zur Spiele-Datenbank hinzugefügt.
 
  Atari-Portierung:
    - Unterstützung für die nFM-Bibliothek hinzugefügt.

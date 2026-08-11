@@ -28,6 +28,7 @@
 #include "director/sprite.h"
 #include "director/castmember/castmember.h"
 #include "director/castmember/digitalvideo.h"
+#include "director/castmember/movie.h"
 #include "director/castmember/shape.h"
 #include "director/castmember/text.h"
 
@@ -41,6 +42,7 @@ Sprite::Sprite(Frame *frame) {
 	_matte = nullptr;
 	_puppet = false;
 	_autoPuppet = kAPNone; // Based on Director in a Nutshell, page 15
+	_cast = nullptr;
 	reset();
 }
 
@@ -63,7 +65,10 @@ void Sprite::reset() {
 	if (_matte)
 		delete _matte;
 	_matte = nullptr;
-	_cast = nullptr;
+	if (_cast) {
+		_cast->decRefCount();
+		_cast = nullptr;
+	}
 
 	_thickness = 0;
 	_width = 0;
@@ -112,6 +117,8 @@ Sprite& Sprite::operator=(const Sprite &sprite) {
 	_trails = sprite._trails;
 
 	_cast = sprite._cast;
+	if (_cast)
+		_cast->incRefCount();
 
 	if (_matte)
 		delete _matte;
@@ -168,8 +175,15 @@ Sprite::Sprite(const Sprite &sprite) {
 }
 
 Sprite::~Sprite() {
-	if (_matte)
+	if (_cast) {
+		_cast->decRefCount();
+		_cast = nullptr;
+	}
+
+	if (_matte) {
 		delete _matte;
+		_matte = nullptr;
+	}
 }
 
 bool Sprite::isQDShape() {
@@ -192,7 +206,7 @@ void Sprite::createQDMatte() {
 	Common::Rect srcRect(_width, _height);
 
 	Common::Rect fillAreaRect((int)srcRect.width(), (int)srcRect.height());
-	Graphics::MacPlotData plotFill(&tmp, nullptr, &g_director->getPatterns(), getPattern(), 0, 0, 1, g_director->_wm->_colorBlack);
+	Graphics::MacPlotData plotFill(&tmp, nullptr, &g_director->getPatterns(), getPattern(), 0, 0, {1, 1}, g_director->_wm->_colorBlack);
 
 	Graphics::Primitives &primitives = g_director->_wm->getDrawPrimitives();
 
@@ -341,6 +355,11 @@ bool Sprite::respondsToMouse() {
 	if (_cast && _cast->_type == kCastButton)
 		return true;
 
+	// A movie cast member is interactive only when its scripts are enabled:
+	// its embedded movie may then have mouse handlers to route clicks into.
+	if (_cast && _cast->_type == kCastMovie)
+		return ((MovieCastMember *)_cast)->_enableScripts;
+
 	// TODO: Check if we need to check against individual events like below
 	if (g_director->getVersion() >= 600) {
 		if (_behaviors.size() > 0)
@@ -349,8 +368,8 @@ bool Sprite::respondsToMouse() {
 
 	ScriptContext *spriteScript = _movie->getScriptContext(kScoreScript, _scriptId);
 	if (spriteScript && (spriteScript->_eventHandlers.contains(kEventGeneric)
-					  || spriteScript->_eventHandlers.contains(kEventMouseDown)
-					  || spriteScript->_eventHandlers.contains(kEventMouseUp)))
+					|| spriteScript->_eventHandlers.contains(kEventMouseDown)
+					|| spriteScript->_eventHandlers.contains(kEventMouseUp)))
 		return true;
 
 	ScriptContext *castScript = _movie->getScriptContext(kCastScript, _castId);
@@ -369,7 +388,7 @@ bool Sprite::isActive() {
 		return true;
 
 	return (_movie->getScriptContext(kScoreScript, _scriptId) != nullptr)
-			|| (_movie->getScriptContext(kCastScript, _castId) != nullptr);
+		|| (_movie->getScriptContext(kCastScript, _castId) != nullptr);
 }
 
 bool Sprite::shouldHilite() {
@@ -458,6 +477,24 @@ bool Sprite::getAutoPuppet(AutoPuppetProperty property) {
 	return (_autoPuppet & (1 << property)) != 0;
 }
 
+// Predicates mirror the auto-puppet checks in replaceFrom().
+void Sprite::releaseAutoPuppet(uint32 copyBackMask) {
+	static const struct { AutoPuppetProperty property; uint32 mask; } releases[] = {
+		{ kAPInk,       kSCBInk },
+		{ kAPForeColor, kSCBForeColor },
+		{ kAPBackColor, kSCBBackColor },
+		{ kAPCast,      kSCBCastId },
+		{ kAPLoc,       kSCBStartPoint },
+		{ kAPHeight,    kSCBCastId | kSCBHeight },
+		{ kAPWidth,     kSCBCastId | kSCBWidth },
+		{ kAPMoveable,  kSCBMoveable }
+	};
+
+	for (auto &release : releases)
+		if (copyBackMask & release.mask)
+			setAutoPuppet(release.property, false);
+}
+
 void Sprite::setWidth(int w) {
 	_width = MAX<int>(w, 0);
 
@@ -544,12 +581,16 @@ void Sprite::setCast(CastMemberID memberID, bool replaceDims) {
 	 */
 
 	_castId = memberID;
+	if (_cast) {
+		_cast->decRefCount();
+	}
 	_cast = _movie->getCastMember(_castId);
 	//As QDShapes don't have an associated cast, we must not change their _SpriteType.
 	if (g_director->getVersion() >= 400 && !isQDShape() && _castId != CastMemberID(0, 0))
 		_spriteType = kCastMemberSprite;
 
 	if (_cast) {
+		_cast->incRefCount();
 		if (g_director->getVersion() >= 400) {
 			// Set the sprite type to be more specific ONLY for bitmap or text.
 			// Others just use the generic kCastMemberSprite in D4.
@@ -588,6 +629,14 @@ void Sprite::setCast(CastMemberID memberID, bool replaceDims) {
 			switch (_cast->_type) {
 			case kCastShape:
 			case kCastText:
+				break;
+			case kCastDigitalVideo:
+				// A video the score sizes to 0x0 is intentionally invisible (a
+				// hidden timing/audio clock); keep it, don't force native size.
+				if (_width > 0 && _height > 0) {
+					_width = dims.width();
+					_height = dims.height();
+				}
 				break;
 			case kCastBitmap:
 			default:
@@ -667,7 +716,11 @@ void Sprite::replaceFrom(Sprite *nextSprite) {
 	if (!getAutoPuppet(kAPCast)) {
 		if (nextSprite->_copyBackMask & kSCBCastId) {
 			_castId = nextSprite->_castId;
+			if (_cast)
+				_cast->decRefCount();
 			_cast = nextSprite->_cast;
+			if (_cast)
+				_cast->incRefCount();
 		}
 		if (nextSprite->_copyBackMask & kSCBSpriteListIdx)
 			_spriteListIdx = nextSprite->_spriteListIdx;

@@ -25,8 +25,8 @@
 
 #include "audio/audiostream.h"
 #include "image/bmp.h"
-#include "video/bink_decoder.h"
 
+#include "engines/nancy/movieplayer.h"
 #include "engines/nancy/nancy.h"
 #include "engines/nancy/console.h"
 #include "engines/nancy/resource.h"
@@ -58,6 +58,7 @@ NancyConsole::NancyConsole() : GUI::Debugger() {
 	registerCmd("load_scene", WRAP_METHOD(NancyConsole, Cmd_loadScene));
 	registerCmd("scene_id", WRAP_METHOD(NancyConsole, Cmd_sceneID));
 	registerCmd("list_actionrecords", WRAP_METHOD(NancyConsole, Cmd_listActionRecords));
+	registerCmd("actionrecord_export", WRAP_METHOD(NancyConsole, Cmd_actionRecordExport));
 	registerCmd("scan_ar_type", WRAP_METHOD(NancyConsole, Cmd_scanForActionRecordType));
 	registerCmd("get_eventflags", WRAP_METHOD(NancyConsole, Cmd_getEventFlags));
 	registerCmd("set_eventflags", WRAP_METHOD(NancyConsole, Cmd_setEventFlags));
@@ -76,31 +77,20 @@ NancyConsole::~NancyConsole() {}
 void NancyConsole::postEnter() {
 	GUI::Debugger::postEnter();
 	if (!_videoFile.empty()) {
-		Common::Path withExt = _videoFile;
-		Video::VideoDecoder *dec = new AVFDecoder();
+		MoviePlayer player;
 
-		if (!dec->loadFile(withExt.append(".avf"))) {
-			// No AVF found, try Bink
-			delete dec;
-			dec = new Video::BinkDecoder();
-
-			if (!dec->loadFile(withExt.append(".bik"))) {
-				debugPrintf("Failed to load video '%s'\n", _videoFile.toString(Common::Path::kNativeSeparator).c_str());
-				delete dec;
-				dec = nullptr;
-			}
-		}
-
-		if (dec) {
+		if (!player.loadFile(_videoFile)) {
+			debugPrintf("Failed to load video '%s'\n", _videoFile.toString(Common::Path::kNativeSeparator).c_str());
+		} else {
 			Graphics::ManagedSurface surf;
 
 			if (!_paletteFile.empty()) {
 				GraphicsManager::loadSurfacePalette(surf, _paletteFile);
 			}
 
-			dec->start();
+			player.start();
 			Common::EventManager *ev = g_system->getEventManager();
-			while (!g_nancy->shouldQuit() && !dec->endOfVideo()) {
+			while (!g_nancy->shouldQuit() && !player.endOfVideo()) {
 				Common::Event event;
 				if (ev->pollEvent(event)) {
 					if (event.type == Common::EVENT_CUSTOM_ENGINE_ACTION_END && event.customType == InputManager::kNancyActionLeftClick) {
@@ -108,8 +98,8 @@ void NancyConsole::postEnter() {
 					}
 				}
 
-				if (dec->needsUpdate()) {
-					const Graphics::Surface *frame = dec->decodeNextFrame();
+				if (player.needsUpdate()) {
+					const Graphics::Surface *frame = player.decodeNextFrame();
 					if (frame) {
 						GraphicsManager::copyToManaged(*frame, surf, !_paletteFile.empty());
 						g_nancy->_graphics->debugDrawToScreen(surf);
@@ -124,7 +114,6 @@ void NancyConsole::postEnter() {
 
 		_videoFile.clear();
 		_paletteFile.clear();
-		delete dec;
 	}
 
 	if (!_imageFile.empty()) {
@@ -165,13 +154,13 @@ void NancyConsole::postEnter() {
 }
 
 bool NancyConsole::Cmd_cifExport(int argc, const char **argv) {
-	if (argc < 2 || argc > 3) {
+	if (argc != 2) {
 		debugPrintf("Exports the specified resource to .cif file\n");
-		debugPrintf("Usage: %s <name> [cal]\n", argv[0]);
+		debugPrintf("Usage: %s <name>\n", argv[0]);
 		return true;
 	}
 
-	if (!g_nancy->_resource->exportCif((argc == 2 ? "" : argv[2]), argv[1]))
+	if (!g_nancy->_resource->exportCif(argv[1]))
 		debugPrintf("Failed to export '%s'\n", argv[1]);
 
 	return true;
@@ -425,6 +414,11 @@ bool NancyConsole::Cmd_playSound(int argc, const char **argv) {
 		return true;
 	}
 
+	if (g_nancy->_sound->isCommonSound(argv[1])) {
+		g_nancy->_sound->playSound(argv[1]);
+		return true;
+	}
+
 	Common::File *f = new Common::File;
 	if (!f->open(Common::Path(argv[1]).appendInPlace(".his"))) {
 		debugPrintf("Failed to open '%s.his'\n", argv[1]);
@@ -488,6 +482,10 @@ void NancyConsole::printActionRecord(const Action::ActionRecord *record, bool no
 		record->getRecordTypeName().c_str(),
 		record->_execType == Action::ActionRecord::kRepeating ? "kRepeating" : "kOneShot");
 
+	Common::String extraInfo = record->getRecordExtraInfo();
+	if (!extraInfo.empty())
+		debugPrintf("\n\textraInfo: %s", extraInfo.c_str());
+
 	if (!noDependencies && record->_dependencies.children.size()) {
 		debugPrintf("\n\tDependencies:");
 
@@ -510,7 +508,9 @@ void NancyConsole::recursePrintDependencies(const Action::DependencyRecord &reco
 		case DependencyType::kInventory:
 			debugPrintf("kInventory, item %u, %s, %s",
 				dep.label,
-				inventoryData->itemDescriptions[dep.label].name.c_str(),
+				(uint16)dep.label < inventoryData->itemDescriptions.size() ?
+					inventoryData->itemDescriptions[dep.label].name.c_str() :
+					"Invalid",
 				dep.condition == g_nancy->_true ? "true" : "false");
 			break;
 		case DependencyType::kEvent:
@@ -667,6 +667,68 @@ bool NancyConsole::Cmd_listActionRecords(int argc, const char **argv) {
 	} else {
 		debugPrintf("Invalid input\n");
 	}
+
+	return true;
+}
+
+bool NancyConsole::Cmd_actionRecordExport(int argc, const char **argv) {
+	using namespace Action;
+
+	if (argc < 2) {
+		debugPrintf("Exports an action record of the current or a specified scene to a file\n");
+		debugPrintf("Usage: %s <actionRecordID> <sceneID>\n", argv[0]);
+		return true;
+	}
+
+	int recordId = atoi(argv[1]);
+	uint16 sceneId = 0;
+
+	if (argc == 2) {
+		// Export the record from the current scene
+		if (g_nancy->getState() != NancyState::kScene) {
+			debugPrintf("Not in the kScene state\n");
+			return true;
+		}
+
+		sceneId = NancySceneState.getSceneInfo().sceneID;
+	} else if (argc == 3) {
+		// Export a record from a different scene. We need to load all records into a temporary array and read from it
+		sceneId = (uint16)atoi(argv[2]);
+	}
+
+	Common::String s = Common::String::format("S%u", sceneId);
+
+	IFF *sceneIFF = g_nancy->_resource->loadIFF(Common::Path(s));
+	if (!sceneIFF) {
+		debugPrintf("Invalid scene S%s\n", argv[1]);
+		return true;
+	}
+
+	Common::SeekableReadStream *chunk = sceneIFF->getChunkStream("ACT", recordId);
+	if (chunk) {
+		char descBuf[48];
+		chunk->read(descBuf, 48);
+		descBuf[47] = '\0';
+		Common::String desc(descBuf);
+		desc.replace('/', '-');
+		desc.replace('\\', '-');
+		desc.replace('>', '_');
+		desc.replace('<', '_');
+		byte ARType = chunk->readByte();
+		chunk->skip(1); // execType
+
+		Common::DumpFile f;
+		Common::String filename = Common::String::format("%s_ar_%d_scene_%d_%d_%s.dat", g_nancy->getGameId(), ARType, sceneId, recordId, desc.c_str());
+		f.open(Common::Path(filename));
+		f.writeStream(chunk, chunk->size() - 50);
+		f.close();
+		debugPrintf("Exported record %d (%s) from scene S%u to %s\n", recordId, descBuf, sceneId, filename.c_str());
+	} else {
+		debugPrintf("Invalid record ID %d\n", recordId);
+	}
+	delete chunk;
+
+	delete sceneIFF;
 
 	return true;
 }

@@ -47,7 +47,7 @@ public:
 	/**
 	 * Gets and processes SDL events.
 	 */
-	virtual bool pollEvent(Common::Event &event);
+	bool pollEvent(Common::Event &event) override;
 
 	/**
 	 * Emulates a mouse movement that would normally be caused by a mouse warp
@@ -216,6 +216,20 @@ protected:
 	 * window is not focused).
 	 */
 	Common::Event _fakeMouseMove;
+
+	/**
+	 * WORKAROUND: Whether stale mouse positions on macOS 26 are corrected in
+	 * handleMouseMotion(). Enabled by default; the testbed engine disables it
+	 * at runtime, through OSystem::kFeatureStaleMousePositionWorkaround, to
+	 * check whether the underlying bug still occurs.
+	 */
+	bool _staleMousePositionWorkaround = true;
+
+public:
+	void setStaleMousePositionWorkaround(bool enable) { _staleMousePositionWorkaround = enable; }
+	bool getStaleMousePositionWorkaround() const { return _staleMousePositionWorkaround; }
+
+protected:
 
 	uint8 _lastHatPosition;
 

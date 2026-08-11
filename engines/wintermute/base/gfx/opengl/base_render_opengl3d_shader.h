@@ -181,6 +181,7 @@ private:
 	GLuint _rectangleVBO{};
 	GLuint _simpleShadowVBO{};
 	GLuint _postfilterVBO{};
+	GLuint _brightnessVBO{};
 	OpenGL::Shader *_spriteShader{};
 	OpenGL::Shader *_fadeShader{};
 	OpenGL::Shader *_xmodelShader{};
@@ -190,6 +191,8 @@ private:
 	OpenGL::Shader *_shadowVolumeShader{};
 	OpenGL::Shader *_lineShader{};
 	OpenGL::Shader *_postfilterShader{};
+	OpenGL::Shader *_brightnessShaderOknytt{};
+	OpenGL::Shader *_brightnessShaderJulia{};
 	GLuint _postfilterTexture;
 };
 

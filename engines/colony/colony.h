@@ -47,6 +47,7 @@ class Cursor;
 class Font;
 class FrameLimiter;
 class MacMenu;
+struct MacMenuItem;
 class MacWindowManager;
 class ManagedSurface;
 }
@@ -276,7 +277,10 @@ enum ObjColor {
 	kColorSoldierEye = 110,
 	kColorQueenBody = 111,
 	kColorQueenEye = 112,
-	kColorQueenWingRed = 113
+	kColorQueenWingRed = 113,
+	// The monolith is cBLACK in the DOS table but has its own Mac entry
+	// (c_monolith), so it cannot share the generic kColorBlack mapping.
+	kColorMonolith = 114
 };
 
 enum {
@@ -301,6 +305,14 @@ enum MenuAction {
 	kMenuActionCrosshair,
 	kMenuActionPolyFill,
 	kMenuActionCursorShoot
+};
+
+// Menu bar order, matching inits.c:43-48 (myMenus[0..3]).
+enum MenuIndex {
+	kMenuApple = 0,
+	kMenuFile,
+	kMenuEdit,
+	kMenuOptions
 };
 
 static const int kBaseObject = 20;
@@ -448,6 +460,7 @@ public:
 	Common::Error saveGameStream(Common::WriteStream *stream, bool isAutosave = false) override;
 	Common::Error loadGameStream(Common::SeekableReadStream *stream) override;
 	void pauseEngineIntern(bool pause) override;
+	void applyGameSettings() override;
 	Common::Platform getPlatform() const { return _gameDescription->platform; }
 	bool isSoundEnabled() const { return _soundOn; }
 	const Graphics::Surface *getSavedScreen() const { return _savedScreen; }
@@ -472,6 +485,7 @@ public:
 	void cCommand(int xnew, int ynew, bool allowInteraction);
 	bool scrollInfo(const Graphics::Font *macFont = nullptr);
 	bool checkSkipRequested();
+	bool checkClickRequested();
 	bool waitForInput();
 	void checkCenter();
 	void fallThroughHole();
@@ -482,6 +496,8 @@ public:
 	void printMessage(const char *text[], bool hold);
 	void makeMessageRect(Common::Rect &r);
 	int runMacEndgameDialog(const Common::String &message);
+	int runMacSaveQuery();
+	void runMacAbout();
 
 private:
 	const ADGameDescription *_gameDescription;
@@ -505,6 +521,8 @@ private:
 	Graphics::FrameLimiter *_frameLimiter = nullptr;
 	Common::RenderMode _renderMode;
 	Graphics::Surface *_savedScreen = nullptr;
+	Graphics::Surface *_flIconSurf[5] = {};
+	bool _flIconsLoaded = false;
 
 
 	int _tsin = 0, _tcos = 0;
@@ -514,6 +532,7 @@ private:
 	int _width, _height;
 	float _mouseSensitivity;
 	bool _mouseLocked;
+	bool _invertY;
 	bool _soundOn = true;
 	bool _showDashBoard;
 	bool _crosshair;
@@ -607,6 +626,9 @@ private:
 	void loadMacCursorResources();
 	void handleMenuAction(int action);
 	static void menuCommandsCallback(int action, Common::String &text, void *data);
+	// getSubMenuItem() indexes a submenu; our ids are actions. Look up by action.
+	Graphics::MacMenuItem *macMenuItemForAction(int menuIndex, int action);
+	bool showSaveDialog();
 
 	int _frntxWall = 0, _frntyWall = 0;
 	int _sidexWall = 0, _sideyWall = 0;
@@ -674,19 +696,10 @@ private:
 	int occupiedObjectAt(int xnew, int ynew, int x, int y, const Locate *pobject);
 	void interactWithObject(int objNum);
 
-	// Convert a mouse coord delivered by the event manager into engine
-	// logical coords. With kSupportsArbitraryResolutions declared, the
-	// framework rewrites _currentState.gameWidth to the overlay (window)
-	// pixel size in recalculateDisplayAreas() — so g_system->getWidth()
-	// no longer matches our _width, and mouse events arrive in window
-	// pixels. The engine's hit-test math (whichSprite, _screenR) is in
-	// logical coords, so we have to scale back. Same pattern Freescape
-	// uses in mousePosToCrossairPos (freescape.cpp:593-597).
+	// Mouse events (and warpMouse) speak window pixels, because we declare
+	// kSupportsArbitraryResolutions; the hit-test math (whichSprite, _screenR)
+	// is in logical coords. Convert both ways.
 	Common::Point eventMouseToLogical(const Common::Point &p) const;
-	// Inverse of eventMouseToLogical: warp the mouse to a position
-	// expressed in engine-logical coords. _system->warpMouse expects
-	// virtual-screen coords, which with kSupportsArbitraryResolutions
-	// is window pixels.
 	void warpMouseLogical(int x, int y);
 
 	// shoot.c: shooting and power management
@@ -753,6 +766,7 @@ private:
 	int automapWallFeature(int fx, int fy, int dir);
 	void automapDrawWallWithFeature(const Common::Rect &vp, int wx1, int wy1, int wx2, int wy2, int feat, int lExt, uint32 color);
 	void drawForkliftOverlay();
+	void loadForkliftIcons();
 	void drawCrosshair();
 	bool clipLineToRect(int &x1, int &y1, int &x2, int &y2, const Common::Rect &clip) const;
 	void wallLine(const float corners[4][3], float u1, float v1, float u2, float v2, uint32 color);
@@ -799,6 +813,20 @@ private:
 	Common::Array<int16> _animBMColors;
 	bool _animationRunning;
 	int _animationResult;
+	bool _animExitPressed = false;
+	bool _animExitInside = false;
+	Common::Rect _animExitStrip;
+	Common::Rect _animExitButton;
+	int _coderPick[4] = {};
+	int _coderCursor = 0;
+	int _coderPressed = -1;
+	bool _coderPressInside = false;
+	Image *_coderTiles[4] = {};
+	Image *_coderBtnUp = nullptr;
+	Image *_coderBtnDown = nullptr;
+	bool _coderTilesLoaded = false;
+	Common::Rect _coderWin;
+	Common::Rect _coderIconRects[4];
 	bool _doorOpen;
 	int _liftObject = 0;  // sprite index for the carried object in lift animation
 	bool _liftUp = false;     // current lift state: true=raised, false=lowered
@@ -817,11 +845,16 @@ private:
 	bool loadAnimation(const Common::String &name);
 	void deleteAnimation();
 	void takeOff();
+	void fullOfStars();
 	void gameOver(bool kill);
 	int countSavedCryos() const;
 	void playAnimation();
 	void updateAnimation();
 	void drawAnimation();
+	void drawAnimationExitButton(int ox, int oy);
+	void drawColonyCoder(int animOx, int animOy);
+	void loadCoderTiles();
+	bool handleColonyCoderClick(const Common::Point &pt);
 	void drawComplexSprite(int index, int ox, int oy);
 	void drawAnimationImage(Image *img, Image *mask, int x, int y, uint32 fillColor,
 			Graphics::Surface *&bakedCache, uint64 &bakedCacheKey);

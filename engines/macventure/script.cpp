@@ -475,7 +475,7 @@ bool ScriptEngine::runFunc(EngineFrame *frame) {
 				break;
 			case 0xde: //update screen
 				opdeUPSC(state, frame);
-				break;
+				return true;
 			case 0xdf: //flash main window
 				opdfFMAI(state, frame);
 				return true;
@@ -1147,7 +1147,8 @@ void ScriptEngine::opd8WIN(EngineState *state, EngineFrame *frame) {
 
 void ScriptEngine::opd9SLEEP(EngineState *state, EngineFrame *frame) {
 	int16 ticks = state->pop();
-	g_system->delayMillis((ticks / 60) * 1000);
+	if (ticks > 0)
+		g_system->delayMillis((ticks * 1000) / 60);
 	_engine->preparedToRun();
 }
 
@@ -1170,11 +1171,13 @@ void ScriptEngine::opddRTQ(EngineState *state, EngineFrame *frame) {
 
 void ScriptEngine::opdeUPSC(EngineState *state, EngineFrame *frame) {
 	_engine->updateState(true);
+	_engine->preparedToRun();
 }
 
 void ScriptEngine::opdfFMAI(EngineState *state, EngineFrame *frame) {
 	int16 ticks = state->pop();
-	g_system->delayMillis((ticks / 60) * 1000);
+	if (ticks > 0)
+		g_system->delayMillis((ticks * 1000) / 60);
 	_engine->revert();
 }
 

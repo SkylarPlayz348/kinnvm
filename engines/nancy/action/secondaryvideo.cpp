@@ -38,7 +38,7 @@ void PlaySecondaryVideo::init() {
 		_decoder.close();
 	}
 
-	if (!_decoder.loadFile(_filename.append(".avf"))) {
+	if (!_decoder.loadFile(_filename)) {
 		error("Couldn't load video file %s", _filename.toString().c_str());
 	}
 
@@ -63,7 +63,7 @@ void PlaySecondaryVideo::updateGraphics() {
 		return;
 	}
 
-	if (_isInFrame && _decoder.isPlaying() ? _decoder.needsUpdate() || _decoder.atEnd() : true) {
+	if (_isInFrame && _decoder.isPlaying() ? _decoder.needsUpdate() || _decoder.endOfVideo() : true) {
 		int lastAnimationFrame = -1;
 		switch (_hoverState) {
 		case kNoHover:
@@ -115,7 +115,7 @@ void PlaySecondaryVideo::updateGraphics() {
 			}
 
 			if (lastAnimationFrame > -1 &&
-					(_decoder.atEnd() ||
+					(_decoder.endOfVideo() ||
 					 _decoder.getCurFrame() == lastAnimationFrame)) {
 				if (_hoverState == kNoHover) {
 					_decoder.seekToFrame(_loopFirstFrame);
@@ -207,7 +207,7 @@ void PlaySecondaryVideo::readData(Common::SeekableReadStream &stream) {
 
 	_videoDescs.resize(numVideoDescs);
 	for (uint i = 0; i < numVideoDescs; ++i) {
-		_videoDescs[i].readData(stream);
+		_videoDescs[i].readData(stream, true);
 	}
 
 	// Nancy 10+ stores the record's dependency block right after the video

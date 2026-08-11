@@ -33,8 +33,25 @@
 
 #include "common/serializer.h"
 
+#include "graphics/font.h"
+
 namespace Nancy {
 namespace Action {
+
+// Nancy12 repurposes the kElapsedPlayerDay dependency as a UI-resource check (fuel/tire).
+// An overlay gated by one - a gas/tire gauge - has a visibility that changes at runtime as
+// the resource does, unlike the usual set-once event-flag overlays.
+static bool hasResourceDependency(const DependencyRecord &dep) {
+	if (dep.type == DependencyType::kElapsedPlayerDay) {
+		return true;
+	}
+	for (uint i = 0; i < dep.children.size(); ++i) {
+		if (hasResourceDependency(dep.children[i])) {
+			return true;
+		}
+	}
+	return false;
+}
 
 void Overlay::init() {
 	// Autotext overlays need special handling when blitting
@@ -74,6 +91,17 @@ void Overlay::handleInput(NancyInput &input) {
 }
 
 void Overlay::updateGraphics() {
+	// A static overlay gated by a resource dependency - a Nancy12 gas/tire gauge, one of a
+	// set of sprites each shown for a different resource range - must be visible only while
+	// its dependency currently holds, so track _isActive every frame. This is limited to
+	// resource-gated overlays: ordinary static overlays manage their own per-viewport-frame
+	// visibility in execute() (e.g. appearing only on some frames of a 360 panorama), which
+	// forcing setVisible() here would override.
+	if (g_nancy->getGameType() >= kGameTypeNancy12 && _state == kRun &&
+			_overlayType == kPlayOverlayStatic && hasResourceDependency(_dependencies)) {
+		setVisible(_isActive);
+	}
+
 	// Update inactive animated overlays
 	if (!_isActive && _state == kRun && !_blitDescriptions.empty() && _overlayType == kPlayOverlayAnimated) {
 		uint16 newFrame = NancySceneState.getSceneInfo().frameID;
@@ -103,7 +131,7 @@ void Overlay::readData(Common::SeekableReadStream &stream) {
 	ser.skip(2); // VIDEO_STOP_RENDERING or VIDEO_CONTINUE_RENDERING
 	ser.syncAsUint16LE(_transparency);
 	ser.syncAsUint16LE(_hasSceneChange);
-	ser.syncAsUint16LE(_enableHotspot, kGameTypeNancy2, kGameTypeNancy2);
+	ser.syncAsUint16LE(_enableHotspotNancy2, kGameTypeNancy2, kGameTypeNancy2);
 	ser.syncAsUint16LE(_z, kGameTypeNancy2);
 	ser.syncAsUint16LE(_overlayType, kGameTypeNancy2);
 	ser.syncAsUint16LE(numSrcRects, kGameTypeNancy2);
@@ -121,12 +149,6 @@ void Overlay::readData(Common::SeekableReadStream &stream) {
 	}
 
 	ser.syncAsUint16LE(_z, kGameTypeNancy1, kGameTypeNancy1);
-
-	if (ser.getVersion() > kGameTypeNancy2) {
-		if (_overlayType == kPlayOverlayStatic) {
-			_enableHotspot = (_hasSceneChange == kPlayOverlaySceneChange) ? kPlayOverlayWithHotspot : kPlayOverlayNoHotspot;
-		}
-	}
 
 	if (_isInterruptible) {
 			ser.syncAsSint16LE(_interruptCondition.label);
@@ -201,9 +223,16 @@ void Overlay::execute() {
 							moveTo(_blitDescriptions[i].dest);
 							setVisible(true);
 
-							if (_enableHotspot == kPlayOverlayWithHotspot) {
-								_hotspot = _screenPosition;
-								_hasHotspot = true;
+							if (g_nancy->getGameType() <= kGameTypeNancy2) {
+								if (_enableHotspotNancy2 == kPlayOverlayWithHotspot) {
+									_hotspot = _screenPosition;
+									_hasHotspot = true;
+								}
+							} else {
+								if (_blitDescriptions[i].hasHotspot == kPlayOverlayWithHotspot) {
+									_hotspot = _screenPosition;
+									_hasHotspot = true;
+								}
 							}
 
 							break;
@@ -253,7 +282,7 @@ void Overlay::execute() {
 				}
 
 				_drawSurface.create(_fullSurface, srcRect);
-				setTransparent(_transparency == kPlayOverlayTransparent);
+				setTransparent(_transparency >= kPlayOverlayTransparent);
 
 				_currentFrame = nextFrame;
 				_needsRedraw = true;
@@ -329,7 +358,7 @@ void Overlay::execute() {
 
 						if (blitsForThisFrame.size() == 1) {
 							_drawSurface.create(_fullSurface, srcRect);
-							setTransparent(_transparency == kPlayOverlayTransparent);
+							setTransparent(_transparency >= kPlayOverlayTransparent);
 						} else {
 							Common::Rect d = _blitDescriptions[blitsForThisFrame[i]].dest;
 							d.translate(-destRect.left, -destRect.top);
@@ -340,7 +369,7 @@ void Overlay::execute() {
 
 						if (g_nancy->getGameType() <= kGameTypeNancy2) {
 							// In nancy2, the presence of a hotspot relies on whether the Overlay has a scene change
-							if (_enableHotspot == kPlayOverlayWithHotspot) {
+							if (_enableHotspotNancy2 == kPlayOverlayWithHotspot) {
 								_hotspot = _screenPosition;
 								_hasHotspot = true;
 							}
@@ -402,9 +431,15 @@ void OverlayStaticTerse::readData(Common::SeekableReadStream &stream) {
 	readRect(stream, dest);
 	readRect(stream, src);
 
-	_srcRects.push_back(src);
+	// The source rect only supplies the top-left offset into the image; the overlay
+	// is blitted 1:1, so the source region takes the destination's dimensions. Using
+	// the source rect's own (smaller) size here would scale the image to fit the destination.
+	Common::Rect srcRect(dest.width(), dest.height());
+	srcRect.moveTo(src.left, src.top);
+
+	_srcRects.push_back(srcRect);
 	_blitDescriptions.resize(1);
-	_blitDescriptions[0].src = Common::Rect(src.width(), src.height());
+	_blitDescriptions[0].src = Common::Rect(dest.width(), dest.height());
 	_blitDescriptions[0].dest = dest;
 
 	_overlayType = kPlayOverlayStatic;
@@ -462,6 +497,65 @@ void TableIndexOverlay::execute() {
 	if (_state != kBegin) {
 		Overlay::execute();
 	}
+}
+
+void TextLineOverlay::readData(Common::SeekableReadStream &stream) {
+	_fontID = stream.readUint16LE();
+	_textColor = stream.readUint16LE();
+	_position.x = stream.readSint16LE();
+	stream.skip(2);
+	_position.y = stream.readSint16LE();
+	stream.skip(2);
+	readFilename(stream, _textKey);
+	_tableIndex = stream.readSint16LE();
+}
+
+void TextLineOverlay::execute() {
+	if (_isDone) {
+		return;
+	}
+
+	const Graphics::Font *font = g_nancy->_graphics->getFont(_fontID);
+	if (!font) {
+		return;
+	}
+
+	Common::String text;
+	if (!_textKey.empty()) {
+		text = _textKey;
+	} else {
+		TableData *playerTable = (TableData *)NancySceneState.getPuzzleData(TableData::getTag());
+		assert(playerTable);
+
+		int16 value = playerTable->getValue(_tableIndex);
+
+		// An unset value is displayed as zero
+		if (value == kNoTableValue) {
+			value = 0;
+		}
+
+		text = Common::String::format("%d", value);
+	}
+
+	uint width = font->getStringWidth(text);
+	uint height = font->getFontHeight();
+	if (!width || !height) {
+		_isDone = true;
+		return;
+	}
+
+	_drawSurface.create(width, height, g_nancy->_graphics->getInputPixelFormat());
+	_drawSurface.clear(g_nancy->_graphics->getTransColor());
+	font->drawString(&_drawSurface, text, 0, 0, width, _textColor);
+
+	// The stored y is the baseline (bottom) of the text, so anchor the surface's
+	// bottom edge there rather than its top
+	moveTo(Common::Rect(_position.x, _position.y - (int16)height, _position.x + (int16)width, _position.y));
+	setTransparent(true);
+	setVisible(true);
+	registerGraphics();
+
+	_isDone = true;
 }
 
 } // End of namespace Action

@@ -13,6 +13,7 @@ MODULE_OBJS = \
 	actors/movie.o \
 	actors/palette.o \
 	actors/path.o \
+	actors/printer.o \
 	actors/screen.o \
 	actors/sound.o \
 	actors/sprite.o \
@@ -26,6 +27,7 @@ MODULE_OBJS = \
 	context.o \
 	cursors.o \
 	datafile.o \
+	debugger.o \
 	events.o \
 	graphics.o \
 	mediascript/codechunk.o \
@@ -36,6 +38,11 @@ MODULE_OBJS = \
 	mediascript/scriptvalue.o \
 	mediastation.o \
 	metaengine.o \
+	minigames/checkers.o \
+	minigames/dotgame.o \
+	minigames/sophie.o \
+	minigames/stalkingzazu.o \
+	minigames/maze.o \
 	profile.o
 
 # This module can be built as a plugin

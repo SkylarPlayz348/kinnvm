@@ -169,6 +169,7 @@ public:
 	Common::Platform getPlatform() const;
 	Common::Language getLanguage() const;
 	uint32 getGameFlags() const;
+	bool isDemo() const;
 	Common::String getTargetName() { return _targetName; }
 	const char *getExtra();
 	Common::String getRawEXEName() const;
@@ -181,6 +182,7 @@ public:
 	Window *getCurrentWindow() const { return _currentWindow; }
 	Window *getOrCreateWindow(Common::String &name);
 	void forgetWindow(Window *window);
+	bool isWindowRegistered(Window *window) const;
 	void setCurrentWindow(Window *window);
 	Window *getCursorWindow() const { return _cursorWindow; }
 	void setCursorWindow(Window *window) { _cursorWindow = window; }
@@ -250,6 +252,7 @@ public:
 	Common::Array<Common::Event> _injectedEvents;
 
 	// game-quirks.cpp
+	bool lingoOpenWrapper(const char *target, Common::Platform platform, const Common::String &whichApplication, const Common::String &whichDocument);
 	void gameQuirks(const char *target, Common::Platform platform);
 	void loadSlowdownCooloff(uint32 delay = 2000);
 
@@ -297,6 +300,7 @@ public:
 	uint16 _wmWidth;
 	uint16 _wmHeight;
 	CastMemberID _lastPalette;
+	CastMemberID _lastPuppetPalette;
 
 	// used for quirks
 	byte _fpsLimit;
@@ -305,6 +309,10 @@ public:
 	uint32 _loadSlowdownCooldownTime;
 	int _fileIOType;
 	bool _vfwPaletteHack;
+
+	uint16 _key;
+	int _keyCode;
+	byte _keyFlags;
 
 private:
 	byte _currentPalette[768];

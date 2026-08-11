@@ -42,11 +42,17 @@ public:
 
 	void init() override;
 	void registerGraphics() override;
+	void updateGraphics() override;
 	void handleInput(NancyInput &input);
 
 	void open();
 	void close();
 	void toggle() { if (_isVisible) close(); else open(); }
+
+	// Nancy 11+ lazily populates the notebook via a hidden "prep scene" run when
+	// it opens. Returns that scene ID (UINB header.linkbackScene), or kNoScene
+	// (9999) for games without one (e.g. Nancy 10), which populate inline.
+	int16 getPrepSceneID() const;
 
 	// Re-render the active tab's text content into the text rect.
 	// Called automatically on open() and on tab switch; Scene also
@@ -66,12 +72,30 @@ private:
 	void drawBackground();
 	void drawTabs();
 	void drawTab(uint index, bool drawHover = false);
+	// Blit the active tab's title image ("CASE JOURNAL" / "TASKS") into the
+	// header strip above the text area.
+	void drawCaption();
+	// Full content rebuild: lay the active tab's text out into the scratch
+	// surface, then paint the visible slice. Expensive; only call when the text
+	// itself changes (open, tab switch, checkbox toggle, ModifyListEntry).
 	void drawContent();
+	// Lay the active tab's text out into _fullSurface (the expensive step).
+	void layoutText();
+	// Blit the currently-visible vertical slice of _fullSurface into the popup
+	// and rebuild the checkbox hit rects. Cheap; safe to call every scroll step.
+	void paintVisibleText();
+	// Re-composite the whole popup at the current scroll position without
+	// re-laying out the text. Used while dragging the scrollbar.
+	void redrawScroll();
 	// Paint foreground widgets (close button, scrollbar) on top of the
 	// already-drawn background + content layers.
 	void drawForeground();
 	void drawCloseButton(bool hovered);
 	void drawScrollbar(UIButtonState state);
+
+	// Play a popup button's click sound (close X and the tab buttons), like the
+	// inventory popup. Falls back to the shared button-click slot in the header.
+	void playButtonClickSound(const UIButtonRecord &button);
 
 	// Returns the on-popup-surface bounding rect of the slider thumb at
 	// the current scroll position (in popup-local coords).
@@ -81,9 +105,26 @@ private:
 	Common::Rect toPopupLocal(const Common::Rect &chunkRect, bool useGameFrame) const;
 	Common::Point popupLocalMouse(const Common::Point &screenMouse) const;
 
+	// The UINB tab id of the Journal (book) tab. Nancy 13 renumbered the tab
+	// ids from {1,2} to {0,1}, so the Journal id dropped from 1 to 0.
+	uint16 notebookJournalTabId() const;
+
+	// Clear the taskbar badge for the active tab (Journal = sub 0, Tasks = sub 1).
+	void clearActiveTabNotification();
+
 	// Populate HypertextParser's text-line list with the active tab's
 	// entries.
 	void buildTextLines();
+
+	// Tasklist checkboxes. Rebuild the popup-local hit rects for the clickable
+	// (unchecked) checkboxes from the mark hotspots recorded during drawContent.
+	void buildCheckboxRects(const Common::Rect &localTextRect, int scrollY, int visibleH);
+	// Check off a task if its completion event flag is set, else play the
+	// "not finished yet" line.
+	void toggleCheckbox(uint entryIndex);
+	// Play a random checkbox voice line: actionable = "finished with that",
+	// !actionable = "can't check that off yet".
+	void playCheckboxSound(bool actionable);
 
 	const UINB *_uinbData;
 
@@ -99,6 +140,18 @@ private:
 	bool _scrollbarDragging = false;
 	bool _scrollbarHovered = false;
 	int _scrollbarGrabOffset = 0;
+
+	// Deferred "I'm finished with that" voice: checking a task off plays an
+	// immediate click, then this fires the spoken line a beat later (0 = none).
+	uint32 _completeVoiceTime = 0;
+
+	// Tasklist checkboxes: popup-local hit rects for the clickable (unchecked)
+	// boxes and the task-entry index each maps to. Rebuilt every drawContent().
+	Common::Array<Common::Rect> _checkboxRects;
+	Common::Array<uint> _checkboxEntryIndices;
+	// Task-entry index for each mark buildTextLines emits, in draw order, so
+	// the recorded mark hotspots can be mapped back to their entries.
+	Common::Array<uint> _markEntryIndices;
 
 	// journalEntries HashMap keys: _surfaceID = 3 holds task entries,
 	// _surfaceID = 4 holds journal entries.

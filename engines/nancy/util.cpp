@@ -21,6 +21,11 @@
 #include "engines/nancy/enginedata.h"
 #include "engines/nancy/nancy.h"
 #include "engines/nancy/util.h"
+
+#include "engines/nancy/state/scene.h"
+#include "engines/nancy/ui/textbox.h"
+
+#include "common/config-manager.h"
 #include "common/system.h"
 
 namespace Nancy {
@@ -344,36 +349,40 @@ void assembleTextLine(char *rawCaption, Common::String &output, uint size) {
 	}
 }
 
-Common::String getTextFromCaseInsensitiveKey(Common::HashMap<Common::String, Common::String> texts, Common::String &key) {
-	if (texts.contains(key)) {
-		return texts[key];
-	} else {
-		// Nancy10+ searched keyed texts in a key insensitive way, but
-		// the possible permutations involve mainly the last character
-		// being upper or lower case, so just try that before giving up.
-		if (key[key.size() - 1] == toupper(key[key.size() - 1]))
-			key[key.size() - 1] = tolower(key[key.size() - 1]);
-		else
-			key[key.size() - 1] = toupper(key[key.size() - 1]);
-
-		if (texts.contains(key))
-			return texts[key];
-
-		// Try all uppercase
-		key.toUppercase();
-
-		if (texts.contains(key))
-			return texts[key];
-
-		// Check for lowercase cases for the second to last character, for Nancy11+
-		key[key.size() - 2] = tolower(key[key.size() - 2]);
-
-		if (texts.contains(key))
-			return texts[key];
+Common::String resolveSubtitleText(const Common::String &keyOrText, const Common::String &fallback, const char *tableID) {
+	if (!keyOrText.empty()) {
+		const CVTX *table = (const CVTX *)g_nancy->getEngineData(tableID);
+		if (table && table->texts.contains(keyOrText)) {
+			return table->texts[keyOrText];
+		}
 	}
 
-	warning("Key not found: %s", key.c_str());
-	return "";
+	return fallback;
+}
+
+Common::String readSubtitleText(Common::SeekableReadStream &stream) {
+	char buf[30];
+	stream.read(buf, sizeof(buf));
+	buf[sizeof(buf) - 1] = '\0';
+	Common::String text(buf);
+
+	return resolveSubtitleText(text, text);
+}
+
+void showSubtitle(const Common::String &text, bool forceRedraw, int overrideFontID) {
+	if (text.empty() || !ConfMan.getBool("subtitles")) {
+		return;
+	}
+
+	UI::Textbox &textbox = NancySceneState.getTextbox();
+	textbox.clear();
+	if (overrideFontID >= 0) {
+		textbox.setOverrideFont(overrideFontID);
+	}
+	textbox.addTextLine(text);
+	if (forceRedraw) {
+		textbox.drawTextbox();
+	}
 }
 
 bool DeferredLoader::load(uint32 endTime) {

@@ -46,6 +46,7 @@ class Cast;
 class ScriptContext;
 class DirectorEngine;
 class Frame;
+class Window;
 class LingoCompiler;
 struct Breakpoint;
 
@@ -262,6 +263,7 @@ struct CFrame {	/* proc/func call stack frame */
 	Datum			defaultRetVal;		/* default return value */
 	int				paramCount;			/* original number of arguments submitted */
 	Common::Array<Datum> paramList;		/* original argument list */
+	Window			*retWindow = nullptr;	/* window to restore on return */
 };
 
 struct LingoEvent {
@@ -287,6 +289,9 @@ struct LingoEvent {
 		mousePos = mp;
 		behaviorIndex = bi;
 		scriptInstance = nullptr;
+
+		debugC(7, kDebugEvents, "LingoEvent: event=%s, eventId=%d, scriptType=%d, passByDefault=%d, scriptId=(%d,%d), mousePos=(%d,%d), behaviorIndex=%d",
+			leventType2str(event), eventId, scriptType, passByDefault, scriptId.member, scriptId.castLib, mousePos.x, mousePos.y, behaviorIndex);
 	}
 
 	LingoEvent(LEvent e, int ei, EventHandlerSourceType ehst, bool pass, Common::Point mp = Common::Point(-1, -1), uint16 ci = 0, int bi = -1) {
@@ -300,6 +305,9 @@ struct LingoEvent {
 		mousePos = mp;
 		behaviorIndex = bi;
 		scriptInstance = nullptr;
+
+		debugC(7, kDebugEvents, "LingoEvent: event=%s, eventId=%d, eventHandlerSourceType=%s, passByDefault=%d, channelId=%d, mousePos=(%d,%d), behaviorIndex=%d",
+			leventType2str(event), eventId, eventHandlerSourceType2str(eventHandlerSourceType), passByDefault, channelId, mousePos.x, mousePos.y, behaviorIndex);
 	}
 };
 
@@ -488,6 +496,7 @@ public:
 	int _traceLoad; // internal Director verbosity level
 	bool _updateMovieEnabled;
 	bool _romanLingo;
+	Common::String _soundDevice;
 
 	Datum getTheEntity(int entity, Datum &id, int field);
 	void setTheEntity(int entity, Datum &id, int field, Datum &d);

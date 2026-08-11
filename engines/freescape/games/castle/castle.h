@@ -21,6 +21,24 @@
 
 namespace Freescape {
 
+// Offsets of the assets inside a Castle Master Amiga game image
+struct CastleAmigaLayout {
+	int messages, riddles, colorCycling, fonts, palettes, soundTable, areaDB;
+	int area255, border, mountains, menu, menuButtons, spiritMeterBg, spiritMeter;
+	int indicators, thunder, weights, bar, eyeIcons, flag, riddleMask, riddleTop;
+	int gatePixels, gateMask, mod, keys;
+};
+
+// The same, for a decompressed Atari ST game program. Castle Master and its
+// sequel share the layout; riddles, extraAreas and area255 are zero when the
+// release has no such block.
+struct CastleAtariLayout {
+	int messages, messageCount, riddles, colorCycling, fonts, palettes, areaDB;
+	int extraAreas, area255, border, mountains, spiritMeterBg, spiritMeter;
+	int thunder, weights, bar, gatePixels, gateMask, eyeIcons, flag;
+	int riddleMask, riddleTop, mod, soundTable, soundBank, keys;
+};
+
 class MusicPlayer;
 
 struct RiddleText {
@@ -67,11 +85,13 @@ public:
 	void loadAssets() override;
 	void loadAssetsDOSFullGame() override;
 	void loadAssetsDOSDemo() override;
+	void loadAssetsDOSDemoCGA();
 	void loadAssetsAmigaDemo() override;
 	void loadAssetsAmigaFullGame() override;
 	void loadAssetsAtariFullGame() override;
 	void loadAssetsZXFullGame() override;
 	void loadAssetsCPCFullGame() override;
+	void loadMessagesCastleMaster2(Common::SeekableReadStream *file, int offset, int number);
 	void borderScreen() override;
 	void selectCharacterScreen();
 	bool playAmigaIntro();
@@ -91,6 +111,7 @@ public:
 	void drawCPCUI(Graphics::Surface *surface) override;
 	void drawAmigaAtariSTUI(Graphics::Surface *surface) override;
 	void drawEnergyMeter(Graphics::Surface *surface, Common::Point origin);
+	void drawStrengthWeight(Graphics::Surface *surface, int frameIdx, const Common::Point &position, int width, uint32 back);
 	void drawLiftingGate(Graphics::Surface *surface);
 	void drawDroppingGate(Graphics::Surface *surface);
 	void pressedKey(const int keycode) override;
@@ -117,6 +138,10 @@ public:
 	void drawRiddleStringInSurface(const Common::String &str, int x, int y, uint32 fontColor, uint32 backColor, Graphics::Surface *surface);
 	Graphics::ManagedSurface *loadFrameWithHeaderDOS(Common::SeekableReadStream *file);
 	Common::Array <Graphics::ManagedSurface *>loadFramesWithHeaderDOS(Common::SeekableReadStream *file, int numFrames);
+	Graphics::ManagedSurface *loadFrameWithHeaderDOSIndexed(Common::SeekableReadStream *file);
+	Common::Array<Graphics::ManagedSurface *> loadFramesWithHeaderDOSIndexed(Common::SeekableReadStream *file, int numFrames);
+	Graphics::ManagedSurface *loadFrameDOS(Common::SeekableReadStream *file, int widthInBytes, int height);
+	void convertFrameDOS(Graphics::ManagedSurface *frame);
 
 	Common::Array<Graphics::ManagedSurface *> loadFramesWithHeader(Common::SeekableReadStream *file, int pos, int numFrames, uint32 front, uint32 back);
 	Graphics::ManagedSurface *loadFrameWithHeader(Common::SeekableReadStream *file, int pos, uint32 front, uint32 back);
@@ -128,11 +153,16 @@ public:
 	Graphics::ManagedSurface *loadFrameCPC(Common::SeekableReadStream *file, Graphics::ManagedSurface *surface, int width, int height, const uint32 *cpcPalette);
 
 	Graphics::ManagedSurface *loadFrameFromPlanes(Common::SeekableReadStream *file, int widthInBytes, int height);
+	Graphics::ManagedSurface *loadFrameFromPackedPixels(Common::SeekableReadStream *file, int widthInBytes, int height);
 	Graphics::ManagedSurface *loadFrameFromPlanesInternal(Common::SeekableReadStream *file, Graphics::ManagedSurface *surface, int width, int height);
 
 	Graphics::ManagedSurface *loadFrameFromPlanesVertical(Common::SeekableReadStream *file, int widthInBytes, int height);
 	Graphics::ManagedSurface *loadFrameFromPlanesInternalVertical(Common::SeekableReadStream *file, Graphics::ManagedSurface *surface, int width, int height, int plane);
 	Graphics::ManagedSurface *loadFrameFromPlanesInterleaved(Common::SeekableReadStream *file, int widthInWords, int height);
+	Common::SeekableReadStream *openAmigaGameFile(const struct CastleAmigaLayout *&layout);
+	Common::SeekableReadStream *decompressCastle(Common::SeekableReadStream *file, uint32 packedOffset);
+	void loadThunderFramesAmiga(Common::SeekableReadStream *file, int offset);
+	void updateThunderFramesPalette();
 
 	Common::Array<Graphics::ManagedSurface *>_keysBorderFrames;
 	Common::Array<Graphics::ManagedSurface *>_keysMenuFrames;
@@ -162,12 +192,19 @@ public:
 	Graphics::ManagedSurface *_spiritsMeterBgCLUT8;
 	Graphics::ManagedSurface *_spiritsMeterIndCLUT8;
 	Graphics::ManagedSurface *_keysBorderCLUT8;
+	Graphics::ManagedSurface *_spiritsMeterSideCLUT8;
+	Common::Array<Graphics::ManagedSurface *> _keysBorderCLUT8Frames;
+	Common::Array<Graphics::ManagedSurface *> _keysMenuCLUT8Frames;
+	Graphics::ManagedSurface *_backgroundCLUT8;
 	Common::Array<Graphics::ManagedSurface *> _flagCLUT8;
 	uint32 _cpcUIPalette[4]; // used by gate rendering
 	void convertCPCSprite(Graphics::ManagedSurface *clut8, Graphics::ManagedSurface *&argb, bool transparentInk0 = false);
 	Graphics::ManagedSurface *loadFrameWithHeaderCPCIndexed(Common::SeekableReadStream *file, int pos);
 	Common::Array<Graphics::ManagedSurface *> loadFramesWithHeaderCPCIndexed(Common::SeekableReadStream *file, int pos, int numFrames);
 	void updateCPCSpritesPalette();
+	void updateCGASpritesPalette();
+	void updateCGAPalette(const byte *palette);
+	void updateFourColorSpritesPalette(const byte *palette);
 
 	Common::String _notEnoughRoomMessage;
 	Common::String _tooWeakMessage;
@@ -192,6 +229,7 @@ public:
 private:
 	Common::SeekableReadStream *decryptFile(const Common::Path &filename);
 	Common::SeekableReadStream *decompressAtari(const Common::Path &filename);
+	void loadAtariLoadingScreen();
 	void loadRiddles(Common::SeekableReadStream *file, int offset, int number);
 	void loadMessagesC64(Common::SeekableReadStream *file, int offset, int number);
 	void loadRiddlesC64(Common::SeekableReadStream *file, int offset, int number);
@@ -216,6 +254,8 @@ private:
 	int _thunderFrameIndex;
 	Math::Vector3d _thunderOffset;
 	Common::Array<Texture *>_thunderTextures;
+	// Amiga and Atari ST: kept indexed, to be recolored per area
+	Common::Array<Graphics::ManagedSurface *> _thunderCLUT8Frames;
 };
 
 }

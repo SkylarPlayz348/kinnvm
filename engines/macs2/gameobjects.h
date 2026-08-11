@@ -29,6 +29,7 @@
 namespace Common {
 class MemoryReadStream;
 class MemoryReadStreamEndian;
+class SeekableReadStream;
 } // namespace Common
 
 namespace Macs2 {
@@ -60,10 +61,10 @@ public:
 	class Common::MemoryReadStream *_currentSceneStrings;
 	Common::Array<uint32> _currentSceneSpecialAnimOffsets;
 
-	class Common::MemoryReadStream *readSceneScript(uint16 sceneIndex, Common::MemoryReadStream *fileStream);
-	Common::Array<uint32> readSpecialAnimsOffsets(uint16 sceneIndex, Common::MemoryReadStream *fileStream);
-	class Common::MemoryReadStream *readSceneStrings(uint16 sceneIndex, Common::MemoryReadStream *fileStream);
-	Common::Array<uint8> readSpecialAnimBlob(uint16 index, Common::MemoryReadStream *fileStream);
+	class Common::MemoryReadStream *readSceneScript(uint16 sceneIndex, Common::SeekableReadStream *fileStream);
+	Common::Array<uint32> readSpecialAnimsOffsets(uint16 sceneIndex, Common::SeekableReadStream *fileStream);
+	class Common::MemoryReadStream *readSceneStrings(uint16 sceneIndex, Common::SeekableReadStream *fileStream);
+	Common::Array<uint8> readSpecialAnimBlob(uint16 index, Common::SeekableReadStream *fileStream);
 };
 
 class AnimationReader {
@@ -72,6 +73,7 @@ public:
 
 	// TODO: Can the init list also go into the cpp file?
 	AnimationReader(const Common::Array<uint8> &blob);
+	~AnimationReader();
 
 	uint16 readNumAnimations();
 
@@ -85,7 +87,7 @@ public:
 class GameObject {
 public:
 	// Index of the object, starting at 1
-	uint16 _index;
+	uint16 _index = 0;
 	uint32 _dataOffset = 0;
 
 	Common::Array<uint8> _overloadAnimation;
@@ -99,7 +101,7 @@ public:
 
 	// These are the values read by the code around l0037_082D:
 	Common::Point _position;
-	uint16 _sceneIndex;
+	uint16 _sceneIndex = 0;
 	// 8-directional movement system from walkAlongPath (1008:1b8f).
 	// Direction codes 1-8 are walking directions, 9-16 are standing (idle) variants.
 	// The direction is chosen based on the angle between current and target position:
@@ -115,12 +117,12 @@ public:
 	//   17 (0x11) = Pickup animation
 	// Each direction has a validity flag at runtime offset +0x43 + (dir-1)*0x20
 	// that indicates whether the object has animation data for that direction.
-	uint16 _orientation;
+	uint16 _orientation = 0;
 	// Per-object percentage multiplier for ground-elevation vertical offset.
 	// Walkability map values < 0xC8 represent ground height at each pixel;
 	// this factor scales how much that height displaces the object upward
 	// when drawn. 0 = no vertical offset. 100 = full elevation offset.
-	uint16 _verticalOffsetScale;
+	uint16 _verticalOffsetScale = 0;
 	// Runtime +0x217: frame index during pickup animation at which the item is grabbed
 	uint16 _pickupFrameStart = 0;
 	// Runtime +0x219: frame index at which pickup animation completes
@@ -174,6 +176,10 @@ public:
 	// The object-specific script
 	Common::Array<uint8> _script;
 
+	// Amiga: plaintext string entries for this object (script offsets are relative to this).
+	// Empty on DOS; DOS strings are read from RESOURCE.MCS via the scene/object tables.
+	Common::Array<uint8> _stringData;
+
 	// Per-object resource offset table (runtime +0x18D, 128 bytes = 32 dword file offsets).
 	// Loaded from file during loadObjectData. Used by scriptLoadObjectAnim/scriptLoadSpecialAnim
 	// to look up animation resource file addresses for this object.
@@ -200,8 +206,8 @@ public:
 
 	Common::MemoryReadStream *getScriptStream();
 
-	// Binary pAnimSlots[1..0x15] at runtime+slot*0x10. Slot 0x15 may be in _blobs[20]
-	// (loadObjectData) or overloadAnimation (script load / savegame).
+	// Binary pAnimSlots[1..maxAnimSlots] at runtime+slot*0x10. Overload slot may be in
+	// _blobs[overload-1] (loadObjectData) or _overloadAnimation (script load / savegame).
 	Common::Array<uint8> *getAnimSlotBlob(uint16 slot);
 	const Common::Array<uint8> *getAnimSlotBlob(uint16 slot) const;
 
@@ -222,11 +228,14 @@ public:
 
 	void init();
 
+	/** True for character/NPC object indices (not inventory items). */
+	static bool isNpcIndex(uint16 objectIndex);
+
 	static GameObject *getProtagonistObject();
 
 	static GameObject *getObjectByIndex(uint16 index);
 
-	static class Common::MemoryReadStream *readGameObjectStrings(uint16 index, Common::MemoryReadStream *fileStream);
+	static class Common::MemoryReadStream *readGameObjectStrings(uint16 index, Common::SeekableReadStream *fileStream);
 };
 
 } // namespace Macs2

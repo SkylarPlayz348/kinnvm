@@ -23,6 +23,7 @@
 
 #include "graphics/palette.h"
 
+#include "freescape/copylock.h"
 #include "freescape/freescape.h"
 #include "freescape/games/dark/dark.h"
 #include "freescape/language/8bitDetokeniser.h"
@@ -107,16 +108,33 @@ void decodeMaskedAmigaSprite(Common::SeekableReadStream *file, Graphics::Managed
 	}
 }
 
+// The executable is 0.drk in every release but the Stampede cover disk, where it
+// is DARKSIDE and Copylock protected. Unwrapped it is the very same executable.
+Common::SeekableReadStream *DarkEngine::openAmigaExecutable() {
+	Common::File *file = new Common::File();
+	if (file->open("0.drk"))
+		return file;
+
+	if (!file->open("DARKSIDE"))
+		error("Failed to open 0.drk or DARKSIDE");
+
+	Common::SeekableReadStream *unwrapped = Copylock::unwrap(file);
+	delete file;
+	if (!unwrapped)
+		error("Failed to remove the Copylock protection of DARKSIDE");
+
+	return unwrapped;
+}
+
 void DarkEngine::loadAssetsAmigaFullGame() {
-	Common::File file;
-	file.open("0.drk");
+	Common::SeekableReadStream *executable = openAmigaExecutable();
 	// Load title image: Amiga non-interleaved bitplanes with Atari ST palette
 	// Palette: 16 words at file offset 0x9934, Atari ST 3-bit $0RGB format
-	file.seek(0x9934);
+	executable->seek(0x9934);
 	Graphics::Palette pal(16);
 	for (int i = 0; i < 16; i++) {
-		byte v1 = file.readByte();
-		byte v2 = file.readByte();
+		byte v1 = executable->readByte();
+		byte v2 = executable->readByte();
 		byte r = floor((v1 & 0x07) * 255.0 / 7.0);
 		byte g = floor((v2 & 0x70) * 255.0 / 7.0 / 16.0);
 		byte b = floor((v2 & 0x07) * 255.0 / 7.0);
@@ -124,14 +142,14 @@ void DarkEngine::loadAssetsAmigaFullGame() {
 	}
 
 	// Bitplanes: 4 planes x 8000 bytes at file offset 0x99B0, non-interleaved
-	file.seek(0x99B0);
+	executable->seek(0x99B0);
 	Graphics::ManagedSurface *titleSurface = new Graphics::ManagedSurface();
 	titleSurface->create(320, 200, Graphics::PixelFormat::createFormatCLUT8());
 	titleSurface->fillRect(Common::Rect(0, 0, 320, 200), 0);
 	for (int plane = 0; plane < 4; plane++) {
 		for (int y = 0; y < 200; y++) {
 			for (int x = 0; x < 40; x++) {
-				byte b = file.readByte();
+				byte b = executable->readByte();
 				for (int n = 0; n < 8; n++) {
 					int px = x * 8 + (7 - n);
 					int bit = ((b >> n) & 0x01) << plane;
@@ -160,9 +178,9 @@ void DarkEngine::loadAssetsAmigaFullGame() {
 	_gfx->_colorCyclingSpeed = 1;
 	_gfx->_colorCyclingTimer = 0; // always active
 
-	file.close();
-
-	Common::SeekableReadStream *stream = decryptFileAmigaAtari("1.drk", "0.drk", 798);
+	// the unpack array ends at program address $1320, i.e. 0x1340 in the file
+	Common::SeekableReadStream *stream = decryptFileAmigaAtari("1.drk", executable, 830);
+	delete executable;
 	parseAmigaAtariHeader(stream);
 
 	_border = loadAndConvertNeoImage(stream, 0x1b762);
@@ -196,9 +214,9 @@ void DarkEngine::loadAssetsAmigaFullGame() {
 	_fontLoaded = true;
 
 	byte *palette = getPaletteFromNeoImage(stream, 0x1b762);
-	loadAmigaCompass(stream, palette);
-	loadAmigaIndicatorSprites(stream, palette);
-	loadJetpackRawFrames(stream);
+	loadAmigaCompass(stream, palette, 0);
+	loadAmigaIndicatorSprites(stream, palette, 0);
+	loadJetpackRawFrames(stream, 0);
 	free(palette);
 
 	for (auto &area : _areaMap) {
@@ -207,7 +225,7 @@ void DarkEngine::loadAssetsAmigaFullGame() {
 	}
 }
 
-void DarkEngine::loadAmigaIndicatorSprites(Common::SeekableReadStream *file, byte *palette) {
+void DarkEngine::loadAmigaIndicatorSprites(Common::SeekableReadStream *file, byte *palette, int delta) {
 	if (!palette)
 		return;
 
@@ -218,7 +236,7 @@ void DarkEngine::loadAmigaIndicatorSprites(Common::SeekableReadStream *file, byt
 		auto *surf = new Graphics::ManagedSurface();
 		surf->create(32, 3, _gfx->_texturePixelFormat);
 		surf->fillRect(Common::Rect(0, 0, 32, 3), transparent);
-		decodeAmigaSprite(file, surf, amigaProgToFile(0x2784E) + frame * 0x30, 2, 3, palette);
+		decodeAmigaSprite(file, surf, amigaProgToFile(0x2784E) - delta + frame * 0x30, 2, 3, palette);
 		_amigaCompassNeedleFrames.push_back(surf);
 	}
 
@@ -232,7 +250,7 @@ void DarkEngine::loadAmigaIndicatorSprites(Common::SeekableReadStream *file, byt
 		auto *surf = new Graphics::ManagedSurface();
 		surf->create(32, 21, _gfx->_texturePixelFormat);
 		surf->fillRect(Common::Rect(0, 0, 32, 21), transparent);
-		decodeMaskedAmigaSprite(file, surf, amigaProgToFile(0x29B34) + frameIndex * 0x150, 2, 21,
+		decodeMaskedAmigaSprite(file, surf, amigaProgToFile(0x29B34) - delta + frameIndex * 0x150, 2, 21,
 			kLeftMasks, _gfx->_texturePixelFormat, palette);
 		_amigaCompassLeftFrames.push_back(surf);
 	}
@@ -243,13 +261,13 @@ void DarkEngine::loadAmigaIndicatorSprites(Common::SeekableReadStream *file, byt
 		auto *surf = new Graphics::ManagedSurface();
 		surf->create(32, 21, _gfx->_texturePixelFormat);
 		surf->fillRect(Common::Rect(0, 0, 32, 21), transparent);
-		decodeMaskedAmigaSprite(file, surf, amigaProgToFile(0x2A07E) + frameIndex * 0x150, 2, 21,
+		decodeMaskedAmigaSprite(file, surf, amigaProgToFile(0x2A07E) - delta + frameIndex * 0x150, 2, 21,
 			kRightMasks, _gfx->_texturePixelFormat, palette);
 		_amigaCompassRightFrames.push_back(surf);
 	}
 }
 
-void DarkEngine::loadAmigaCompass(Common::SeekableReadStream *file, byte *palette) {
+void DarkEngine::loadAmigaCompass(Common::SeekableReadStream *file, byte *palette, int delta) {
 	if (!palette)
 		return;
 
@@ -259,10 +277,10 @@ void DarkEngine::loadAmigaCompass(Common::SeekableReadStream *file, byte *palett
 	Graphics::ManagedSurface base;
 	base.create(32, 5, _gfx->_texturePixelFormat);
 	base.fillRect(Common::Rect(0, 0, 32, 5), transparent);
-	decodeAmigaSprite(file, &base, amigaProgToFile(0x238B4), 2, 5, palette);
+	decodeAmigaSprite(file, &base, amigaProgToFile(0x238B4) - delta, 2, 5, palette);
 
 	_amigaCompassYawFrames.clear();
-	file->seek(amigaProgToFile(0x234CC));
+	file->seek(amigaProgToFile(0x234CC) - delta);
 	uint32 cursorMaskBase = file->readUint32BE();
 	for (int pos = 0; pos < 72; pos++) {
 		auto *surf = new Graphics::ManagedSurface();
@@ -270,7 +288,7 @@ void DarkEngine::loadAmigaCompass(Common::SeekableReadStream *file, byte *palett
 		surf->fillRect(Common::Rect(0, 0, 32, 5), transparent);
 		surf->copyRectToSurface(base, 0, 0, Common::Rect(base.w, base.h));
 
-		int rowOffset = amigaProgToFile(0x234D0) + ((pos >> 3) & 0xFFFE);
+		int rowOffset = amigaProgToFile(0x234D0) - delta + ((pos >> 3) & 0xFFFE);
 		int shift = pos & 0xF;
 		for (int row = 0; row < 5; row++) {
 			file->seek(rowOffset + row * 14);
@@ -292,18 +310,18 @@ void DarkEngine::loadAmigaCompass(Common::SeekableReadStream *file, byte *palett
 	_amigaCompassPitchMarker = new Graphics::ManagedSurface();
 	_amigaCompassPitchMarker->create(16, 9, _gfx->_texturePixelFormat);
 	_amigaCompassPitchMarker->fillRect(Common::Rect(0, 0, 16, 9), transparent);
-	decodeAmigaSprite(file, _amigaCompassPitchMarker, amigaProgToFile(0x27AC6), 1, 9, palette);
+	decodeAmigaSprite(file, _amigaCompassPitchMarker, amigaProgToFile(0x27AC6) - delta, 1, 9, palette);
 }
 
-void DarkEngine::loadJetpackRawFrames(Common::SeekableReadStream *file) {
+void DarkEngine::loadJetpackRawFrames(Common::SeekableReadStream *file, int delta) {
 	// The executable stream still includes the 0x1C-byte GEMDOS header, so the
 	// original program addresses need to be converted back to file offsets here.
 	// Original Amiga layout:
 	// - transition strip at prog 0x23B9E, 9 frames, stride 0x160
 	// - crouch frame at prog 0x2481E
-	const int kTransitionBaseOffset = 0x23B9E + kAmigaGemdosHeaderSize;
+	const int kTransitionBaseOffset = 0x23B9E + kAmigaGemdosHeaderSize - delta;
 	const int kTransitionFrameCount = 9;
-	const int kCrouchFrameOffset = 0x2481E + kAmigaGemdosHeaderSize;
+	const int kCrouchFrameOffset = 0x2481E + kAmigaGemdosHeaderSize - delta;
 	const int kFrameSize = 0x160; // 2 word columns * 22 rows * 8 bytes/row
 	_jetpackTransitionFrames.clear();
 	for (int i = 0; i < kTransitionFrameCount; i++) {

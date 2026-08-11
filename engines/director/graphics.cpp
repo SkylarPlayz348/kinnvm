@@ -44,6 +44,11 @@ uint32 DirectorEngine::transformColor(uint32 color) {
 	if (_pixelformat.bytesPerPixel == 1)
 		return color;
 
+	// A palette index can never exceed 0xff (max 256 colors); a larger value
+	// must be a packed RGB int from a Lingo color assignment (e.g. rgb()).
+	if (color > 0xff)
+		return _wm->findBestColor((color >> 16) & 0xff, (color >> 8) & 0xff, color & 0xff);
+
 	return _wm->findBestColor(_currentPalette[color * 3], _currentPalette[color * 3 + 1], _currentPalette[color * 3 + 2]);
 }
 
@@ -247,9 +252,10 @@ void DirectorEngine::syncPalette() {
 		memcpy(paletteBuf, _currentPalette, _currentPaletteLength*3);
 	}
 
-	// Pass the palette to OSystem only for 8bpp mode
-	if (_pixelformat.bytesPerPixel == 1)
+	if (_pixelformat.bytesPerPixel == 1) {
+		// Pass the palette to OSystem only for 8bpp mode
 		_system->getPaletteManager()->setPalette(paletteBuf, 0, _currentPaletteLength);
+	}
 
 	_wm->passPalette(paletteBuf, _currentPaletteLength);
 }
@@ -314,14 +320,14 @@ void InkPrimitives<T>::drawPoint(int x, int y, uint32 src, void *data) {
 	dst = (T *)p->dst->getBasePtr(x, y);
 
 	if (p->ms) {
-		if (p->ms->pd->thickness > 1) {
-			int prevThickness = p->ms->pd->thickness;
+		if (p->ms->pd->thickness.x > 1 || p->ms->pd->thickness.y > 1) {
+			Common::Point prevThickness = p->ms->pd->thickness;
 			int x1 = x;
-			int x2 = x1 + prevThickness;
+			int x2 = x1 + prevThickness.x;
 			int y1 = y;
-			int y2 = y1 + prevThickness;
+			int y2 = y1 + prevThickness.y;
 
-			p->ms->pd->thickness = 1;	// We do not want recursive loops
+			p->ms->pd->thickness = Common::Point(1, 1);	// We do not want recursive loops
 
 			for (y = y1; y < y2; y++)
 				for (x = x1; x < x2; x++)
@@ -447,7 +453,11 @@ void InkPrimitives<T>::drawPoint(int x, int y, uint32 src, void *data) {
 			// Originally designed for 1-bit mode so that
 			// black pixels would appear white on a black
 			// background.
-			*dst ^= src;
+			if (p->oneBitImage || p->ms || p->applyColor) {
+				*dst ^= src;
+			} else {
+				*dst = (src == p->backColor) ? *dst : src;
+			}
 		} else {
 			// In 32-bit mode, this is the opposite??
 			*dst ^= ~(src);
@@ -657,7 +667,7 @@ void DirectorPlotData::inkBlitShape(Common::Rect &srcRect) {
 
 	Common::Rect fillAreaRect((int)srcRect.width(), (int)srcRect.height());
 	fillAreaRect.moveTo(srcRect.left, srcRect.top);
-	Graphics::MacPlotData plotFill(dst, nullptr, &d->getPatterns(), ms->pattern, srcRect.left + wpos.x, srcRect.top + wpos.y, 1, ms->backColor);
+	Graphics::MacPlotData plotFill(dst, nullptr, &d->getPatterns(), ms->pattern, srcRect.left + wpos.x, srcRect.top + wpos.y, {1, 1}, ms->backColor);
 
 	uint strokePattern = 1;
 
@@ -669,7 +679,7 @@ void DirectorPlotData::inkBlitShape(Common::Rect &srcRect) {
 
 	Common::Rect strokeRect(MAX((int)srcRect.width() - ms->lineSize, 0), MAX((int)srcRect.height() - ms->lineSize, 0));
 	strokeRect.moveTo(srcRect.left, srcRect.top);
-	Graphics::MacPlotData plotStroke(dst, nullptr, &d->getPatterns(), strokePattern, strokeRect.left + wpos.x, strokeRect.top + wpos.y, ms->lineSize, ms->backColor);
+	Graphics::MacPlotData plotStroke(dst, nullptr, &d->getPatterns(), strokePattern, strokeRect.left + wpos.x, strokeRect.top + wpos.y, {(int16)ms->lineSize, (int16)ms->lineSize}, ms->backColor);
 
 	Graphics::Primitives *primitives = g_director->getInkPrimitives();
 

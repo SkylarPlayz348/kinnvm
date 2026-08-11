@@ -87,166 +87,9 @@ static const char *getSpecialName(uint16 val) {
 }
 
 static const char *getOpcodeName(uint8 opcode) {
-	switch (opcode) {
-	case 0x01:
-		return "setVar";
-	case 0x02:
-		return "setVarOr";
-	case 0x03:
-		return "ifFalse";
-	case 0x04:
-		return "ifTrue";
-	case 0x05:
-		return "compare";
-	case 0x06:
-		return "ifInteraction";
-	case 0x07:
-		return "endIf";
-	case 0x08:
-		return "else";
-	case 0x09:
-		return "nop09";
-	case 0x0A:
-		return "printStringLeft";
-	case 0x0B:
-		return "moveObject";
-	case 0x0C:
-		return "changeScene";
-	case 0x0D:
-		return "showDialogue";
-	case 0x0E:
-		return "changeAnimation";
-	case 0x0F:
-		return "frameWait";
-	case 0x10:
-		return "walkToPosition";
-	case 0x11:
-		return "waitForWalk";
-	case 0x12:
-		return "setPathfinding";
-	case 0x13:
-		return "skipUntil14";
-	case 0x14:
-		return "skipWord";
-	case 0x15:
-		return "clearDialogueChoices";
-	case 0x16:
-		return "addDialogueChoice";
-	case 0x17:
-		return "showDialogueChoice";
-	case 0x18:
-		return "dismissPanel";
-	case 0x19:
-		return "walkToAndPickup";
-	case 0x1A:
-		return "setPickupFrames";
-	case 0x1B:
-		return "setupObject";
-	case 0x1C:
-		return "setSkippable";
-	case 0x1D:
-		return "clearSkippable";
-	case 0x1E:
-		return "playAnimation";
-	case 0x1F:
-		return "pathWalkable = testPathfinding";
-	case 0x20:
-		return "setYOffset";
-	case 0x21:
-		return "setMotion";
-	case 0x22:
-		return "setOrientation";
-	case 0x23:
-		return "moveToPosition";
-	case 0x24:
-		return "addValues";
-	case 0x25:
-		return "subValues";
-	case 0x26:
-		return "loadSpecialAnim";
-	case 0x27:
-		return "setDirection";
-	case 0x28:
-		return "stopAnimation";
-	case 0x29:
-		return "openInventory";
-	case 0x2A:
-		return "loadObjectAnim";
-	case 0x2B:
-		return "checkObjectData";
-	case 0x2C:
-		return "invCheck = checkInventory";
-	case 0x2D:
-		return "setSnapToTarget";
-	case 0x2E:
-		return "animRangeTest = testSceneAnimFrame";
-	case 0x2F:
-		return "animRangeTest = testObjectAnimFrame";
-	case 0x30:
-		return "printStringRight";
-	case 0x31:
-		return "setPaletteDarkness";
-	case 0x32:
-		return "setObjectShading";
-	case 0x33:
-		return "setObjectScaling";
-	case 0x34:
-		return "setHotspotOverride";
-	case 0x35:
-		return "setObjectBounds";
-	case 0x36:
-		return "dismissAllPanels";
-	case 0x37:
-		return "resetToSceneScript";
-	case 0x38:
-		return "loadOverlayFont";
-	case 0x39:
-		return "endOverlayText";
-	case 0x3A:
-		return "addOverlayTextEntry";
-	case 0x3B:
-		return "clearOverlayText";
-	case 0x3C:
-		return "fadeToBlack";
-	case 0x3D:
-		return "fadeFromBlack";
-	case 0x3E:
-		return "loadPcmSound";
-	case 0x3F:
-		return "freePcmSound";
-	case 0x40:
-		return "playPcmSound";
-	case 0x41:
-		return "waitForSound";
-	case 0x42:
-		return "stopPcmSound";
-	case 0x43:
-		return "loadMusicSlot";
-	case 0x44:
-		return "playMusicSlot";
-	case 0x45:
-		return "stopMusicSlot";
-	case 0x46:
-		return "freeMusicSlot";
-	case 0x47:
-		return "waitForMusic";
-	case 0x48:
-		return "getObjectX";
-	case 0x49:
-		return "getObjectY";
-	case 0x4A:
-		return "getObjectField8";
-	case 0x4B:
-		return "getObjectOrientation";
-	case 0x4C:
-		return "clearActorInventory";
-	case 0x4D:
-		return "setPathfindingRemap";
-	case 0x4E:
-		return "waitForAdlib";
-	default:
-		return "???";
-	}
+	if (g_engine && g_engine->_scriptExecutor)
+		return g_engine->_scriptExecutor->opcodeName(opcode);
+	return "?";
 }
 
 static const char *getCompareOpName(uint8 sub) {
@@ -371,12 +214,15 @@ static Common::String decodeParams(Common::MemoryReadStream *script, uint8 opcod
 		result = Common::String::format(" %s", v.c_str());
 		break;
 	}
-	case 0x10: {
+	case 0x10:
+	case 0x1F: {
 		Common::String o = decodeScriptValue(script), x = decodeScriptValue(script), y = decodeScriptValue(script);
 		result = Common::String::format(" obj=%s pos=(%s,%s)", o.c_str(), x.c_str(), y.c_str());
 		break;
 	}
 	case 0x11:
+	case 0x29:
+	case 0x2B:
 	case 0x47: {
 		Common::String o = decodeScriptValue(script);
 		result = Common::String::format(" obj=%s", o.c_str());
@@ -447,11 +293,6 @@ static Common::String decodeParams(Common::MemoryReadStream *script, uint8 opcod
 		result = Common::String::format(" obj=%s slot=%s frame=%s", o.c_str(), s.c_str(), f.c_str());
 		break;
 	}
-	case 0x1F: {
-		Common::String o = decodeScriptValue(script), x = decodeScriptValue(script), y = decodeScriptValue(script);
-		result = Common::String::format(" obj=%s pos=(%s,%s)", o.c_str(), x.c_str(), y.c_str());
-		break;
-	}
 	case 0x20: {
 		Common::String o = decodeScriptValue(script), v = decodeScriptValue(script);
 		result = Common::String::format(" obj=%s offset=%s", o.c_str(), v.c_str());
@@ -492,20 +333,10 @@ static Common::String decodeParams(Common::MemoryReadStream *script, uint8 opcod
 		result = Common::String::format(" obj=%s maxFrame=%s", o.c_str(), v.c_str());
 		break;
 	}
-	case 0x29: {
-		Common::String o = decodeScriptValue(script);
-		result = Common::String::format(" obj=%s", o.c_str());
-		break;
-	}
 	case 0x2A: {
 		Common::String o = decodeScriptValue(script), s = decodeScriptValue(script), d = decodeScriptValue(script);
 		uint8 ai = script->readByte();
 		result = Common::String::format(" obj=%s slot=%s decode=%s idx=%u", o.c_str(), s.c_str(), d.c_str(), ai);
-		break;
-	}
-	case 0x2B: {
-		Common::String o = decodeScriptValue(script);
-		result = Common::String::format(" obj=%s", o.c_str());
 		break;
 	}
 	case 0x2C:
@@ -587,7 +418,7 @@ static Common::String decodeParams(Common::MemoryReadStream *script, uint8 opcod
 	case 0x4E:
 		break;
 	default:
-		if (length > 0 && length <= 30) {
+		if (length <= 30) {
 			result = " [";
 			for (uint8 i = 0; i < length && script->pos() < script->size(); i++) {
 				if (i)
@@ -963,7 +794,7 @@ static void showVariablesWindow() {
 				int firstLineY = view->_stringBoxPosition.y + 9;
 				int relY = mousePos.y - firstLineY;
 				int hoveredChoice = -1;
-				if (relY >= 0 && lineHeight > 0) {
+				if (relY >= 0) {
 					int hoveredLine = relY / lineHeight;
 					int cumulativeLines = 0;
 					for (uint i = 0; i < view->_dialogueChoiceLineCounts.size(); i++) {
@@ -1495,15 +1326,15 @@ static void showSceneMapsWindow() {
 				// Draw pathfinding point nodes and connections
 				for (int i = 0; i < 16; i++) {
 					PathfindingPoint &pt = g_engine->pathfindingPoints[i];
-					if (pt._position.x >= 0 && pt._position.x < 320 && pt._position.y >= 0 && pt._position.y < 200) {
+					if (pt._position.x >= 0 && pt._position.x < kScreenWidth && pt._position.y >= 0 && pt._position.y < kGameHeight) {
 						// Draw cross at node
 						for (int d = -2; d <= 2; d++) {
 							int px = pt._position.x + d, py = pt._position.y;
-							if (px >= 0 && px < 320)
+							if (px >= 0 && px < kScreenWidth)
 								overlayComposite.setPixel(px, py, 0xFF);
 							px = pt._position.x;
 							py = pt._position.y + d;
-							if (py >= 0 && py < 200)
+							if (py >= 0 && py < kGameHeight)
 								overlayComposite.setPixel(px, py, 0xFF);
 						}
 						// Draw connections
@@ -1570,8 +1401,8 @@ static void showSceneMapsWindow() {
 			ImTextureID texId = (ImTextureID)(intptr_t)g_system->getImGuiTexture(*surface->surfacePtr(), g_engine->_pal, 256);
 			if (texId) {
 				ImVec2 avail = ImGui::GetContentRegionAvail();
-				float scale = MIN(avail.x / 320.0f, avail.y / 200.0f);
-				ImGui::Image(texId, ImVec2(320.0f * scale, 200.0f * scale));
+				float scale = MIN(avail.x / (float)kScreenWidth, avail.y / (float)kGameHeight);
+				ImGui::Image(texId, ImVec2((float)kScreenWidth * scale, (float)kGameHeight * scale));
 
 				// Draw node IDs on the pathfinding overlay
 				if (selectedTab == 2) {
@@ -1579,7 +1410,7 @@ static void showSceneMapsWindow() {
 					ImVec2 imgOrigin = ImGui::GetItemRectMin();
 					for (int i = 0; i < 16; i++) {
 						PathfindingPoint &pt = g_engine->pathfindingPoints[i];
-						if (pt._position.x >= 0 && pt._position.x < 320 && pt._position.y >= 0 && pt._position.y < 200) {
+						if (pt._position.x >= 0 && pt._position.x < kScreenWidth && pt._position.y >= 0 && pt._position.y < kGameHeight) {
 							char buf[4];
 							snprintf(buf, sizeof(buf), "%d", i);
 							ImVec2 pos(imgOrigin.x + pt._position.x * scale + 4, imgOrigin.y + pt._position.y * scale - 4);
@@ -1665,7 +1496,7 @@ static void showSceneMapsWindow() {
 				ImVec2 mousePos = ImGui::GetMousePos();
 				int mx = (int)((mousePos.x - imgPos.x) / scale);
 				int my = (int)((mousePos.y - imgPos.y) / scale);
-				if (mx >= 0 && mx < 320 && my >= 0 && my < 200 && ImGui::IsItemHovered()) {
+				if (mx >= 0 && mx < kScreenWidth && my >= 0 && my < kGameHeight && ImGui::IsItemHovered()) {
 					uint8 val = surface->getPixel(mx, my);
 					if (val >= 0xC8 && val <= 0xEF) {
 						uint16 overrideResult;
@@ -1673,7 +1504,7 @@ static void showSceneMapsWindow() {
 						if (overrideActive)
 							ImGui::SetTooltip("(%d, %d) = %u (0x%02X) [override zone → %u = %s]",
 											  mx, my, val, val, overrideResult,
-											  overrideResult < 0xC8 ? "WALKABLE" : "non-walkable");
+											  Macs2Engine::isWalkabilityWalkable(overrideResult) ? "WALKABLE" : "non-walkable");
 						else
 							ImGui::SetTooltip("(%d, %d) = %u (0x%02X) [override zone, DISABLED → non-walkable]",
 											  mx, my, val, val);
@@ -1774,10 +1605,10 @@ static void showImageResourcesWindow() {
 		ImGui::Separator();
 		static Graphics::ManagedSurface imgSurface;
 		if (!g_engine->_imageResources.empty()) {
-			// Layout all image resources into a 320-wide surface
+			// Layout all image resources into a kScreenWidth-wide surface
 			uint16 x = 0, y = 0, maxH = 0, totalH = 0;
 			for (const AnimFrame &f : g_engine->_imageResources) {
-				if (x + f._width > 320) {
+				if (x + f._width > kScreenWidth) {
 					y += maxH;
 					x = 0;
 					maxH = 0;
@@ -1789,15 +1620,15 @@ static void showImageResourcesWindow() {
 			if (totalH == 0)
 				totalH = 1;
 
-			if (imgSurface.w != 320 || imgSurface.h != (int)totalH)
-				imgSurface.create(320, totalH, Graphics::PixelFormat::createFormatCLUT8());
-			imgSurface.fillRect(Common::Rect(320, totalH), 0);
+			if (imgSurface.w != kScreenWidth || imgSurface.h != (int)totalH)
+				imgSurface.create(kScreenWidth, totalH, Graphics::PixelFormat::createFormatCLUT8());
+			imgSurface.fillRect(Common::Rect(kScreenWidth, totalH), 0);
 
 			x = 0;
 			y = 0;
 			maxH = 0;
 			for (const AnimFrame &f : g_engine->_imageResources) {
-				if (x + f._width > 320) {
+				if (x + f._width > kScreenWidth) {
 					y += maxH;
 					x = 0;
 					maxH = 0;
@@ -1817,10 +1648,10 @@ static void showImageResourcesWindow() {
 			ImTextureID texId = (ImTextureID)(intptr_t)g_system->getImGuiTexture(*imgSurface.surfacePtr(), g_engine->_pal, 256);
 			if (texId) {
 				ImVec2 avail = ImGui::GetContentRegionAvail();
-				float scale = MIN(avail.x / 320.0f, avail.y / (float)totalH);
+				float scale = MIN(avail.x / (float)kScreenWidth, avail.y / (float)totalH);
 				if (scale < 1.0f)
 					scale = 1.0f;
-				ImGui::Image(texId, ImVec2(320.0f * scale, (float)totalH * scale));
+				ImGui::Image(texId, ImVec2((float)kScreenWidth * scale, (float)totalH * scale));
 			}
 		}
 	}
@@ -1988,6 +1819,7 @@ static void showObjectScriptsWindow() {
 }
 
 static void showSoundWindow();
+static void showDebugToolbarWindow();
 
 bool shouldDrawPathfindingOverlay() {
 	return _showPathfindingOverlay;
@@ -2012,7 +1844,34 @@ void onImGuiRender() {
 	}
 	ImGui::GetIO().ConfigFlags &= ~(ImGuiConfigFlags_NoMouseCursorChange | ImGuiConfigFlags_NoMouse);
 
-	if (ImGui::BeginMainMenuBar()) {
+	showDebugToolbarWindow();
+	showScriptWindow();
+	showObjectScriptsWindow();
+	showBreakpointsWindow();
+	showVariablesWindow();
+	showCharactersWindow();
+	drawHoveredObjectOverlay();
+	showAnimViewerWindow();
+	showInventoryWindow();
+	showAnimationsWindow();
+	showSceneMapsWindow();
+	showImageResourcesWindow();
+	showDebugOutputWindow();
+	showTextLogWindow();
+	showSoundWindow();
+}
+
+static void showDebugToolbarWindow() {
+	// Movable toolbar window instead of BeginMainMenuBar(), which reserves the full
+	// viewport width and intercepts clicks along the top edge of the game view.
+	ImGui::SetNextWindowPos(ImVec2(8.0f, 8.0f), ImGuiCond_FirstUseEver);
+	const ImGuiWindowFlags flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse;
+	if (!ImGui::Begin("MACS2 Debug", nullptr, flags)) {
+		ImGui::End();
+		return;
+	}
+
+	if (ImGui::BeginMenuBar()) {
 		if (ImGui::BeginMenu("Debug")) {
 			ImGui::MenuItem("Script", NULL, &_showScript);
 			ImGui::MenuItem("Object Scripts", NULL, &_showObjectScripts);
@@ -2047,21 +1906,25 @@ void onImGuiRender() {
 			for (const auto &ch : channels) {
 				bool enabled = debugChannelSet(-1, ch.flag);
 				if (ImGui::MenuItem(ch.name, NULL, enabled)) {
-					if (enabled)
+					if (enabled) {
 						DebugMan.disableDebugChannel(ch.flag);
-					else
+					} else {
 						DebugMan.enableDebugChannel(ch.flag);
+					}
 				}
 			}
 			ImGui::EndMenu();
 		}
 		if (ImGui::BeginMenu("Speed")) {
-			if (ImGui::MenuItem("Normal", NULL, g_engine->_gameSpeedMode == 0))
-				g_engine->_gameSpeedMode = 0;
-			if (ImGui::MenuItem("Fast", NULL, g_engine->_gameSpeedMode == 1))
-				g_engine->_gameSpeedMode = 1;
-			if (ImGui::MenuItem("Slow", NULL, g_engine->_gameSpeedMode == 2))
-				g_engine->_gameSpeedMode = 2;
+			if (ImGui::MenuItem("Normal", NULL, g_engine->_gameSpeedMode == 0)) {
+				g_engine->setGameSpeedMode(0);
+			}
+			if (ImGui::MenuItem("Fast", NULL, g_engine->_gameSpeedMode == 1)) {
+				g_engine->setGameSpeedMode(1);
+			}
+			if (ImGui::MenuItem("Slow", NULL, g_engine->_gameSpeedMode == 2)) {
+				g_engine->setGameSpeedMode(2);
+			}
 			ImGui::EndMenu();
 		}
 		if (ImGui::BeginMenu("Tools")) {
@@ -2070,50 +1933,58 @@ void onImGuiRender() {
 				ImGui::MenuItem("Auto-click (simulate repeated clicks)", NULL, &toolsView->_autoclickActive);
 			}
 			ImGui::Separator();
-			if (ImGui::MenuItem("Quick Start (Scene 6)"))
+			if (ImGui::MenuItem("Quick Start (Scene 6)")) {
 				g_engine->changeScene(0x6);
+			}
 			ImGui::Separator();
 			static int sceneInput = 1;
 			ImGui::SetNextItemWidth(60);
 			ImGui::InputInt("##scn", &sceneInput, 1, 10);
 			ImGui::SameLine();
 			if (ImGui::MenuItem("Change Scene")) {
-				if (sceneInput > 0 && sceneInput <= 512)
+				if (sceneInput > 0 && sceneInput <= 512) {
 					g_engine->changeScene((uint32)sceneInput);
+				}
 			}
 			ImGui::Separator();
-			if (ImGui::MenuItem("Run Script Executor"))
+			if (ImGui::MenuItem("Run Script Executor")) {
 				g_engine->runScriptExecutor(true);
+			}
 			static int dosSaveSlot = 0;
 			ImGui::SetNextItemWidth(60);
 			ImGui::InputInt("##dosslot", &dosSaveSlot, 1, 1);
-			if (dosSaveSlot < 0)
+			if (dosSaveSlot < 0) {
 				dosSaveSlot = 0;
-			if (dosSaveSlot > 9)
+			}
+			if (dosSaveSlot > 9) {
 				dosSaveSlot = 9;
+			}
 			ImGui::SameLine();
 			if (ImGui::MenuItem("Save to original DOS slot (SAVEGAME.N)")) {
 				Common::Error err = g_engine->saveOriginalGameState(dosSaveSlot);
-				if (err.getCode() != Common::kNoError)
+				if (err.getCode() != Common::kNoError) {
 					warning("Failed to write original DOS save SAVEGAME.%d", dosSaveSlot);
-				else
+				} else {
 					debug("Wrote original DOS save SAVEGAME.%d", dosSaveSlot);
+				}
 			}
 			static int dosLoadSlot = 0;
 			ImGui::SetNextItemWidth(60);
 			ImGui::InputInt("##dosloadslot", &dosLoadSlot, 1, 1);
-			if (dosLoadSlot < 0)
+			if (dosLoadSlot < 0) {
 				dosLoadSlot = 0;
-			if (dosLoadSlot > 9)
+			}
+			if (dosLoadSlot > 9) {
 				dosLoadSlot = 9;
+			}
 			ImGui::SameLine();
 			if (ImGui::MenuItem("Load original DOS slot (SAVEGAME.N)")) {
-				// loadGameState slots 100..109 map to original DOS SAVEGAME.0..9
 				Common::Error err = g_engine->loadGameState(100 + dosLoadSlot);
-				if (err.getCode() != Common::kNoError)
+				if (err.getCode() != Common::kNoError) {
 					warning("Failed to load original DOS save SAVEGAME.%d", dosLoadSlot);
-				else
+				} else {
 					debug("Loaded original DOS save SAVEGAME.%d", dosLoadSlot);
+				}
 			}
 			if (ImGui::MenuItem("Reset Background + Fade")) {
 				View1 *view = (View1 *)g_engine->findView("View1");
@@ -2129,12 +2000,15 @@ void onImGuiRender() {
 					if (view->isInventorySourceProtagonist()) {
 						const uint16 currentScene = Scenes::instance()._currentSceneIndex;
 						for (GameObject *obj : GameObjects::instance()._objects) {
-							if (obj == nullptr)
+							if (obj == nullptr) {
 								continue;
-							if ((int16)obj->_sceneIndex < 0 || obj->_sceneIndex != currentScene)
+							}
+							if ((int16)obj->_sceneIndex < 0 || obj->_sceneIndex != currentScene) {
 								continue;
-							if (0x13 >= obj->_blobs.size() || obj->_blobs[0x13].empty())
+							}
+							if (0x13 >= obj->_blobs.size() || obj->_blobs[0x13].empty()) {
 								continue;
+							}
 							view->transferInventoryItem(view->_activeInventoryItem, obj);
 							view->_activeInventoryItem = nullptr;
 							view->setInventorySource(view->_inventorySource);
@@ -2149,25 +2023,13 @@ void onImGuiRender() {
 			}
 			ImGui::EndMenu();
 		}
-		ImGui::Text("| Scene: %d | Speed: %s", Scenes::instance()._currentSceneIndex,
+		ImGui::Separator();
+		ImGui::Text("Scene: %d | Speed: %s", Scenes::instance()._currentSceneIndex,
 					g_engine->_gameSpeedMode == 0 ? "Normal" : (g_engine->_gameSpeedMode == 1 ? "Fast" : "Slow"));
-		ImGui::EndMainMenuBar();
+		ImGui::EndMenuBar();
 	}
 
-	showScriptWindow();
-	showObjectScriptsWindow();
-	showBreakpointsWindow();
-	showVariablesWindow();
-	showCharactersWindow();
-	drawHoveredObjectOverlay();
-	showAnimViewerWindow();
-	showInventoryWindow();
-	showAnimationsWindow();
-	showSceneMapsWindow();
-	showImageResourcesWindow();
-	showDebugOutputWindow();
-	showTextLogWindow();
-	showSoundWindow();
+	ImGui::End();
 }
 
 static void showSoundWindow() {
@@ -2178,7 +2040,7 @@ static void showSoundWindow() {
 		return;
 	}
 
-	Music *adlib = g_engine->getAdlib();
+	Music *adlib = g_engine->getMusic();
 	const Music::DebugState &ds = adlib->_debug;
 
 	ImGui::Text("Master Volume: %u/63", ds.masterVolume);

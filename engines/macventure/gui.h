@@ -58,6 +58,7 @@ class ConsoleText;
 class CommandButton;
 class ImageAsset;
 class Dialog;
+struct InventoryCallbackStruct;
 
 BorderBounds borderBounds(MVWindowType type);
 Graphics::BorderOffsets borderOffsets(MVWindowType type);
@@ -98,6 +99,7 @@ public:
 	void reloadInternals();
 
 	void draw();
+	void markRedraw();
 	void drawMenu();
 	void drawTitle();
 
@@ -162,6 +164,10 @@ public:
 	void setConsoleText(const Common::String &text);
 
 	void printText(const Common::String &text);
+	uint getConsoleRowCount();
+	uint getConsoleVisibleRows();
+
+	void setWaitCursor(bool wait);
 
 	//Dialog interactions
 	void showPrebuiltDialog(PrebuiltDialogs type, const Common::String &title = "");
@@ -207,6 +213,7 @@ private: // Attributes
 	struct InventoryWindowData {
 		Graphics::MacWindow *win;
 		WindowReference ref;
+		InventoryCallbackStruct *callbackData;
 	};
 	Common::Array<InventoryWindowData> _inventoryWindows;
 	Common::HashMap<ObjID, WindowReference> _objToInvRef;
@@ -224,6 +231,8 @@ private: // Attributes
 	Cursor *_cursor;
 
 	ConsoleText *_consoleText;
+
+	bool _needsRedraw;
 
 	WindowReference _lassoWinRef;
 	Common::Point _lassoStart;
@@ -274,6 +283,7 @@ private: // Methods
 	bool isRectInsideObject(Common::Rect target, ObjID obj);
 	void selectDraggable(ObjID child, WindowReference origin, Common::Point startPos);
 	void handleDragRelease(bool shiftPressed, bool isDoubleClick);
+	Common::Rect calculateLassoRect(Graphics::MacWindow *win);
 	Common::Rect calculateClickRect(Common::Point clickPos, Common::Rect windowBounds);
 	Common::Point localizeTravelledDistance(Common::Point point, WindowReference origin, WindowReference target);
 	void removeInventoryWindow(WindowReference ref);

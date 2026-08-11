@@ -81,7 +81,9 @@ public:
 	void loadAssetsDOSDemo() override;
 	void loadAssetsC64FullGame() override;
 	void loadAssetsAmigaFullGame() override;
+	Common::SeekableReadStream *openAmigaExecutable();
 	void loadAssetsAtariFullGame() override;
+	Common::SeekableReadStream *openAtariExecutable();
 
 	void loadAssetsCPCFullGame() override;
 
@@ -95,6 +97,10 @@ public:
 
 	void drawBinaryClock(Graphics::Surface *surface, int xPosition, int yPosition, uint32 front, uint32 back);
 	void drawIndicator(Graphics::Surface *surface, int xPosition, int yPosition);
+
+	Common::Array<Graphics::ManagedSurface *> _indicatorsIndexed;
+	void loadIndicatorsDOS(Common::SeekableReadStream *file);
+	void updateIndicatorsDOS(const byte *palette);
 
 	void drawSensorShoot(Sensor *sensor) override;
 	void drawDOSUI(Graphics::Surface *surface) override;
@@ -117,6 +123,10 @@ public:
 	// 4-plane bitplane data. The executable drives those frames through a tiny
 	// fixed color ramp, so the renderer keeps the raw planes and applies a
 	// hardcoded palette at draw time.
+	// The Atari ST release carries byte-identical sprite data, $E052 below the
+	// Amiga addresses, so one set of loaders serves both.
+	static const int kAtariSpriteDelta = 0xE052;
+
 	Common::Array<Common::Array<byte>> _jetpackTransitionFrames;
 	Common::Array<byte> _jetpackCrouchFrame;
 	Common::Array<Graphics::ManagedSurface *> _amigaCompassYawFrames;
@@ -132,9 +142,9 @@ public:
 	int _jetpackIndicatorTransitionFrame;
 	int _jetpackIndicatorTransitionDirection;
 	uint32 _jetpackIndicatorNextFrameMillis;
-	void loadJetpackRawFrames(Common::SeekableReadStream *file);
-	void loadAmigaIndicatorSprites(Common::SeekableReadStream *file, byte *palette);
-	void loadAmigaCompass(Common::SeekableReadStream *file, byte *palette);
+	void loadJetpackRawFrames(Common::SeekableReadStream *file, int delta);
+	void loadAmigaIndicatorSprites(Common::SeekableReadStream *file, byte *palette, int delta);
+	void loadAmigaCompass(Common::SeekableReadStream *file, byte *palette, int delta);
 	void drawAmigaCompass(Graphics::Surface *surface);
 	void drawAmigaAmbientIndicators(Graphics::Surface *surface);
 	void drawJetpackIndicator(Graphics::Surface *surface);
@@ -152,7 +162,7 @@ public:
 
 	void toggleC64Sound();
 
-	Common::Array<byte> _musicData; // HDSMUSIC.AM TEXT segment (Amiga)
+	Common::Array<byte> _musicData; // DSMUSIC.AM (Amiga) or DSMUSIC2.ST (Atari ST)
 
 	void drawString(const DarkFontSize size, const Common::String &str, int x, int y, uint32 primaryColor, uint32 secondaryColor, uint32 backColor, Graphics::Surface *surface);
 	void drawInfoMenu() override;

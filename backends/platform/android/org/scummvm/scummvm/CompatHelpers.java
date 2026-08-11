@@ -35,10 +35,6 @@ import android.graphics.Insets;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
-import android.media.AudioAttributes;
-import android.media.AudioFormat;
-import android.media.AudioManager;
-import android.media.AudioTrack;
 import android.view.DisplayCutout;
 import android.view.View;
 import android.view.Window;
@@ -53,7 +49,6 @@ import androidx.annotation.RequiresApi;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -71,8 +66,8 @@ class CompatHelpers {
 			}
 		}
 
-		@RequiresApi(android.os.Build.VERSION_CODES.JELLY_BEAN)
-		@SuppressWarnings("deprecation")
+		//@RequiresApi(android.os.Build.VERSION_CODES.JELLY_BEAN)
+		@SuppressWarnings({"deprecation", "RedundantSuppression"})
 		private static class HideSystemStatusBarJellyBean {
 			public static void hide(final Window window) {
 				View view = window.getDecorView();
@@ -83,7 +78,7 @@ class CompatHelpers {
 		}
 
 		@RequiresApi(android.os.Build.VERSION_CODES.KITKAT)
-		@SuppressWarnings("deprecation")
+		@SuppressWarnings({"deprecation", "RedundantSuppression"})
 		private static class HideSystemStatusBarKitKat {
 			public static void hide(final Window window) {
 				View view = window.getDecorView();
@@ -99,6 +94,9 @@ class CompatHelpers {
 		private static class HideSystemStatusBarR {
 			public static void hide(final Window window) {
 				WindowInsetsController insetsController = window.getInsetsController();
+				if (insetsController == null) {
+					return;
+				}
 				insetsController.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
 				insetsController.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
 			}
@@ -129,7 +127,7 @@ class CompatHelpers {
 		}
 
 		@RequiresApi(android.os.Build.VERSION_CODES.LOLLIPOP)
-		@SuppressWarnings("deprecation")
+		@SuppressWarnings({"deprecation", "RedundantSuppression"})
 		private static class OnApplyWindowInsetsListenerLollipop implements View.OnApplyWindowInsetsListener {
 			final private SystemInsetsListener l;
 
@@ -138,6 +136,7 @@ class CompatHelpers {
 			}
 
 			@Override
+			@NonNull
 			public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
 				// No system gestures inset before Android Q
 				int[] gestureInsets = new int[] {
@@ -160,7 +159,7 @@ class CompatHelpers {
 		}
 
 		@RequiresApi(android.os.Build.VERSION_CODES.P)
-		@SuppressWarnings("deprecation")
+		@SuppressWarnings({"deprecation", "RedundantSuppression"})
 		private static class OnApplyWindowInsetsListenerP implements View.OnApplyWindowInsetsListener {
 			final private SystemInsetsListener l;
 
@@ -169,7 +168,8 @@ class CompatHelpers {
 			}
 
 			@Override
-			public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
+			@NonNull
+			public WindowInsets onApplyWindowInsets(@NonNull View v, WindowInsets insets) {
 				// No system gestures inset before Android Q
 				int[] gestureInsets = new int[] {
 					insets.getStableInsetLeft(),
@@ -201,7 +201,7 @@ class CompatHelpers {
 		}
 
 		@RequiresApi(android.os.Build.VERSION_CODES.Q)
-		@SuppressWarnings("deprecation")
+		@SuppressWarnings({"deprecation", "RedundantSuppression"})
 		private static class OnApplyWindowInsetsListenerQ implements View.OnApplyWindowInsetsListener {
 			final private SystemInsetsListener l;
 
@@ -210,7 +210,8 @@ class CompatHelpers {
 			}
 
 			@Override
-			public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
+			@NonNull
+			public WindowInsets onApplyWindowInsets(@NonNull View v, WindowInsets insets) {
 				Insets insetsStruct = insets.getSystemGestureInsets();
 				int[] gestureInsets = new int[] {
 					insetsStruct.left,
@@ -251,7 +252,8 @@ class CompatHelpers {
 			}
 
 			@Override
-			public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
+			@NonNull
+			public WindowInsets onApplyWindowInsets(@NonNull View v, WindowInsets insets) {
 				Insets insetsStruct = insets.getInsetsIgnoringVisibility(WindowInsets.Type.systemGestures());
 				int[] gestureInsets = new int[] {
 					insetsStruct.left,
@@ -293,7 +295,7 @@ class CompatHelpers {
 			}
 		}
 
-		@SuppressWarnings("deprecation")
+		@SuppressWarnings({"deprecation", "RedundantSuppression"})
 		private static class AccessibilityEventConstructorOld {
 			public static AccessibilityEvent make(int eventType) {
 				return AccessibilityEvent.obtain(eventType);
@@ -326,7 +328,7 @@ class CompatHelpers {
 			// No support for older versions
 		}
 
-		@SuppressWarnings("deprecation")
+		@SuppressWarnings({"deprecation", "RedundantSuppression"})
 		private static class ShortcutCreatorOld {
 			public static Intent createShortcutResultIntent(@NonNull Context context, String ignoredId, @NonNull Intent intent, @NonNull String label, @Nullable Drawable icon, @DrawableRes int fallbackIconId) {
 				Intent result = new Intent();
@@ -402,21 +404,19 @@ class CompatHelpers {
 				}
 				List<ShortcutInfo> shortcuts = shortcutManager.getDynamicShortcuts();
 				// Sort shortcuts by rank, timestamp and id
-				Collections.sort(shortcuts, new Comparator<ShortcutInfo>() {
-					@Override
-					public int compare(ShortcutInfo a, ShortcutInfo b) {
-						int ret = Integer.compare(a.getRank(), b.getRank());
-						if (ret != 0) {
-							return ret;
-						}
-
-						ret = Long.compare(a.getLastChangedTimestamp(), b.getLastChangedTimestamp());
-						if (ret != 0) {
-							return ret;
-						}
-
-						return a.getId().compareTo(b.getId());
+				//noinspection ComparatorCombinators
+				Collections.sort(shortcuts, (ShortcutInfo a, ShortcutInfo b) -> {
+					int ret = Integer.compare(a.getRank(), b.getRank());
+					if (ret != 0) {
+						return ret;
 					}
+
+					ret = Long.compare(a.getLastChangedTimestamp(), b.getLastChangedTimestamp());
+					if (ret != 0) {
+						return ret;
+					}
+
+					return a.getId().compareTo(b.getId());
 				});
 
 				// In old Android versions, only 4 shortcuts are displayed but 5 maximum are supported
@@ -465,10 +465,15 @@ class CompatHelpers {
 
 		private static Bitmap drawableToBitmap(@NonNull Drawable drawable) {
 			// We resize to 128x128 to avoid having too big bitmaps for Binder
+			Bitmap.Config config;
 			if (drawable instanceof BitmapDrawable) {
 				Bitmap bm = ((BitmapDrawable)drawable).getBitmap();
 				bm = Bitmap.createScaledBitmap(bm, 128, 128, true);
-				return bm.copy(bm.getConfig(), false);
+				config = bm.getConfig();
+				if (config == null) {
+					config = Bitmap.Config.ARGB_8888;
+				}
+				return bm.copy(config, false);
 			}
 
 			Bitmap bitmap = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888);
@@ -477,7 +482,11 @@ class CompatHelpers {
 			drawable.draw(canvas);
 
 			// Create an immutable bitmap
-			return bitmap.copy(bitmap.getConfig(), false);
+			config = bitmap.getConfig();
+			if (config == null) {
+				config = Bitmap.Config.ARGB_8888;
+			}
+			return bitmap.copy(config, false);
 		}
 	}
 
@@ -498,7 +507,7 @@ class CompatHelpers {
 			}
 		}
 
-		@SuppressWarnings("deprecation")
+		@SuppressWarnings({"deprecation", "RedundantSuppression"})
 		private static class DrawableCompatOld {
 			@SuppressLint("UseCompatLoadingForDrawables")
 			public static Drawable getDrawable(@NonNull Context context, @DrawableRes int id) throws Resources.NotFoundException {
@@ -508,6 +517,8 @@ class CompatHelpers {
 	}
 
 	static class ReceiverCompat {
+
+		@SuppressWarnings("UnusedReturnValue")
 		public static Intent registerReceiver(Context context, BroadcastReceiver receiver, IntentFilter filter) {
 			if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
 				return ReceiverCompat.ReceiverCompatTiramisu.registerReceiver(context, receiver, filter);
@@ -547,9 +558,9 @@ class CompatHelpers {
 			}
 		}
 
-		@SuppressWarnings("deprecation")
+		@SuppressWarnings({"deprecation", "RedundantSuppression"})
 		private static class IntentCompatOld {
-			public static <T extends android.os.Parcelable> T getParcelableExtra(Intent i, String extra, Class<T> clazz) {
+			public static <T extends android.os.Parcelable> T getParcelableExtra(Intent i, String extra, Class<T> ignoredClazz) {
 				return i.getParcelableExtra(extra);
 			}
 		}

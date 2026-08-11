@@ -28,12 +28,9 @@
 
 namespace MediaStation {
 
-Common::String CodeChunk::makeDebugIndent() const {
-	Common::String indentation;
-	for (uint i = 0; i < _debugIndentLevel; ++i) {
-		indentation += "    ";
-	}
-	return indentation;
+static uint getIndentSize(uint indentLevel) {
+	constexpr uint INDENT_SIZE_IN_SPACES = 4;
+	return indentLevel * INDENT_SIZE_IN_SPACES;
 }
 
 ScriptValue CodeChunk::executeNextBlock() {
@@ -363,19 +360,19 @@ ScriptValue *CodeChunk::readAndReturnVariable() {
 
 void CodeChunk::evaluateIf() {
 	_debugIndentLevel++;
-	debugCN(5, kDebugScript, "\n%scondition: ", makeDebugIndent().c_str());
+	debugCN(5, kDebugScript, "\n%*scondition: ", getIndentSize(_debugIndentLevel), "");
 	ScriptValue condition = evaluateExpression();
 	if (condition.getType() != kScriptValueTypeBool) {
 		error("%s: Expected bool condition, got %s", __func__, scriptValueTypeToStr(condition.getType()));
 	}
 
 	if (condition.asBool()) {
-		debugC(5, kDebugScript, "%s=> TRUE", makeDebugIndent().c_str());
+		debugC(5, kDebugScript, "%*s=> TRUE", getIndentSize(_debugIndentLevel), "");
 		_debugIndentLevel--;
 		executeNextBlock();
 		debugC(6, kDebugScript, "%s: Taking TRUE branch", __func__);
 	} else {
-		debugC(5, kDebugScript, "%s=> FALSE", makeDebugIndent().c_str());
+		debugC(5, kDebugScript, "%*s=> FALSE", getIndentSize(_debugIndentLevel), "");
 		_debugIndentLevel--;
 		skipNextBlock();
 		debugC(6, kDebugScript, "%s: Skipping TRUE branch", __func__);
@@ -384,14 +381,14 @@ void CodeChunk::evaluateIf() {
 
 void CodeChunk::evaluateIfElse() {
 	_debugIndentLevel++;
-	debugCN(5, kDebugScript, "\n%scondition: ", makeDebugIndent().c_str());
+	debugCN(5, kDebugScript, "\n%*scondition: ", getIndentSize(_debugIndentLevel), "");
 	ScriptValue condition = evaluateExpression();
 	if (condition.getType() != kScriptValueTypeBool) {
 		error("%s: Expected bool condition, got %s", __func__, scriptValueTypeToStr(condition.getType()));
 	}
 
 	if (condition.asBool()) {
-		debugC(5, kDebugScript, "%s=> TRUE", makeDebugIndent().c_str());
+		debugC(5, kDebugScript, "%*s=> TRUE", getIndentSize(_debugIndentLevel), "");
 		_debugIndentLevel--;
 
 		debugC(6, kDebugScript, "%s: Taking TRUE branch", __func__);
@@ -400,7 +397,7 @@ void CodeChunk::evaluateIfElse() {
 		debugC(6, kDebugScript, "%s: Skipping FALSE branch", __func__);
 		skipNextBlock();
 	} else {
-		debugC(5, kDebugScript, "%s=> FALSE", makeDebugIndent().c_str());
+		debugC(5, kDebugScript, "%*s=> FALSE", getIndentSize(_debugIndentLevel), "");
 		_debugIndentLevel--;
 
 		debugC(6, kDebugScript, "%s: Skipping TRUE branch", __func__);
@@ -413,9 +410,9 @@ void CodeChunk::evaluateIfElse() {
 
 ScriptValue CodeChunk::evaluateAssign() {
 	_debugIndentLevel++;
-	debugCN(5, kDebugScript, "\n%svariable: ", makeDebugIndent().c_str());
+	debugCN(5, kDebugScript, "\n%*svariable: ", getIndentSize(_debugIndentLevel), "");
 	ScriptValue *targetVariable = readAndReturnVariable();
-	debugCN(5, kDebugScript, "%svalue: ", makeDebugIndent().c_str());
+	debugCN(5, kDebugScript, "%*svalue: ", getIndentSize(_debugIndentLevel), "");
 	ScriptValue value = evaluateExpression();
 	_debugIndentLevel--;
 
@@ -423,19 +420,15 @@ ScriptValue CodeChunk::evaluateAssign() {
 		error("%s: Attempt to assign an empty value to a variable", __func__);
 	}
 
-	if (targetVariable != nullptr) {
-		*targetVariable = value;
-		return value;
-	} else {
-		error("%s: Attempt to assign to null variable", __func__);
-	}
+	*targetVariable = value;
+	return value;
 }
 
 ScriptValue CodeChunk::evaluateBinaryOperation(Opcode op) {
 	_debugIndentLevel++;
-	debugCN(5, kDebugScript, "\n%slhs: ", makeDebugIndent().c_str());
+	debugCN(5, kDebugScript, "\n%*slhs: ", getIndentSize(_debugIndentLevel), "");
 	ScriptValue value1 = evaluateExpression();
-	debugCN(5, kDebugScript, "%srhs: ", makeDebugIndent().c_str());
+	debugCN(5, kDebugScript, "%*srhs: ", getIndentSize(_debugIndentLevel), "");
 	ScriptValue value2 = evaluateExpression();
 
 	ScriptValue returnValue;
@@ -505,7 +498,7 @@ ScriptValue CodeChunk::evaluateBinaryOperation(Opcode op) {
 	    op == kOpcodeEquals || op == kOpcodeNotEquals ||
 	    op == kOpcodeLessThan || op == kOpcodeGreaterThan ||
 	    op == kOpcodeLessThanOrEqualTo || op == kOpcodeGreaterThanOrEqualTo) {
-		debugC(5, kDebugScript, "%s=> %s", makeDebugIndent().c_str(), returnValue.asBool() ? "TRUE" : "FALSE");
+		debugC(5, kDebugScript, "%*s=> %s", getIndentSize(_debugIndentLevel), "", returnValue.asBool() ? "TRUE" : "FALSE");
 	}
 
 	_debugIndentLevel--;
@@ -515,7 +508,7 @@ ScriptValue CodeChunk::evaluateBinaryOperation(Opcode op) {
 ScriptValue CodeChunk::evaluateUnaryOperation() {
 	// The only supported unary operation seems to be negation.
 	_debugIndentLevel++;
-	debugCN(5, kDebugScript, "\n%svalue: ", makeDebugIndent().c_str());
+	debugCN(5, kDebugScript, "\n%*svalue: ", getIndentSize(_debugIndentLevel), "");
 	ScriptValue value = evaluateExpression();
 	_debugIndentLevel--;
 	return -value;
@@ -542,7 +535,7 @@ ScriptValue CodeChunk::evaluateFunctionCall(uint functionId, uint paramCount) {
 	Common::Array<ScriptValue> args;
 	_debugIndentLevel++;
 	for (uint i = 0; i < paramCount; i++) {
-		debugCN(5, kDebugScript, "%sparam %d: ", makeDebugIndent().c_str(), i);
+		debugCN(5, kDebugScript, "%*sparam %d: ", getIndentSize(_debugIndentLevel), "", i);
 		ScriptValue arg = evaluateExpression();
 		args.push_back(arg);
 	}
@@ -574,7 +567,7 @@ ScriptValue CodeChunk::evaluateMethodCall(BuiltInMethod method, uint paramCount)
 	// But here, we're only looking for built-in methods.
 	debugC(5, kDebugScript, "%s (%d params)", builtInMethodToStr(method), paramCount);
 	_debugIndentLevel++;
-	debugCN(5, kDebugScript, "%sself: ", makeDebugIndent().c_str());
+	debugCN(5, kDebugScript, "%*sself: ", getIndentSize(_debugIndentLevel), "");
 
 	// Evaluate target as an lvalue to get a pointer to the actual variable if there is one.
 	ScriptValue methodCallTarget;
@@ -582,7 +575,7 @@ ScriptValue CodeChunk::evaluateMethodCall(BuiltInMethod method, uint paramCount)
 	evaluateLValue(methodCallTargetPtr);
 	Common::Array<ScriptValue> args;
 	for (uint i = 0; i < paramCount; i++) {
-		debugCN(5, kDebugScript, "%sparam %d: ", makeDebugIndent().c_str(), i);
+		debugCN(5, kDebugScript, "%*sparam %d: ", getIndentSize(_debugIndentLevel), "", i);
 		ScriptValue arg = evaluateExpression();
 		args.push_back(arg);
 	}
@@ -649,7 +642,7 @@ void CodeChunk::evaluateWhileLoop() {
 		// Seek to the top of the loop bytecode.
 		_bytecode->seek(loopStartPosition);
 		_debugIndentLevel++;
-		debugCN(5, kDebugScript, "\n%scondition: ", makeDebugIndent().c_str());
+		debugCN(5, kDebugScript, "\n%*scondition: ", getIndentSize(_debugIndentLevel), "");
 		ScriptValue condition = evaluateExpression();
 		_debugIndentLevel--;
 		if (condition.getType() != kScriptValueTypeBool) {
@@ -661,10 +654,10 @@ void CodeChunk::evaluateWhileLoop() {
 		}
 
 		if (condition.asBool()) {
-			debugC(5, kDebugScript, "%s=> TRUE (continue loop)", makeDebugIndent().c_str());
+			debugC(5, kDebugScript, "%*s=> TRUE (continue loop)", getIndentSize(_debugIndentLevel), "");
 			executeNextBlock();
 		} else {
-			debugC(5, kDebugScript, "%s=> FALSE (exit loop)", makeDebugIndent().c_str());
+			debugC(5, kDebugScript, "%*s=> FALSE (exit loop)", getIndentSize(_debugIndentLevel), "");
 			skipNextBlock();
 			break;
 		}
@@ -677,6 +670,401 @@ CodeChunk::~CodeChunk() {
 	// We don't own the args or the code stream, so we don't need to delete them.
 	_args = nullptr;
 	_bytecode = nullptr;
+}
+
+CodeChunkDecompiler::CodeChunkDecompiler(ParameterReadStream *bytecode, uint indentLevel)
+	: _indentLevel(indentLevel), _bytecode(bytecode) {
+}
+
+Common::String CodeChunkDecompiler::decompileNextBlock() {
+	// Mirrors CodeChunk::executeNextBlock
+	Common::String result;
+	uint blockSize = _bytecode->readTypedUint32();
+	int64 blockStart = _bytecode->pos();
+	int64 blockEnd = blockStart + blockSize;
+
+	ExpressionType expressionType = static_cast<ExpressionType>(_bytecode->readTypedUint16());
+	while (expressionType != kExpressionTypeEmpty) {
+		if (_bytecode->pos() >= blockEnd) {
+			warning("%s: Reached end of bytecode stream without finding end of code", __func__);
+			break;
+		}
+
+		Common::String line = decompileExpression(expressionType);
+		if (!line.empty()) {
+			result += Common::String::format("%*s", getIndentSize(_indentLevel), "") + line + ";\n";
+		}
+
+		if (_bytecode->pos() < blockEnd) {
+			expressionType = static_cast<ExpressionType>(_bytecode->readTypedUint16());
+		} else {
+			break;
+		}
+	}
+
+	return result;
+}
+
+Common::String CodeChunkDecompiler::decompileExpression() {
+	// Mirrors CodeChunk::evaluateExpression
+	ExpressionType expressionType = static_cast<ExpressionType>(_bytecode->readTypedUint16());
+	return decompileExpression(expressionType);
+}
+
+Common::String CodeChunkDecompiler::decompileExpression(ExpressionType expressionType) {
+	// Mirrors CodeChunk::evaluateExpression
+	switch (expressionType) {
+	case kExpressionTypeEmpty:
+		return "";
+
+	case kExpressionTypeOperation:
+		return decompileOperation();
+
+	case kExpressionTypeValue:
+		return decompileValue();
+
+	case kExpressionTypeVariable:
+		return decompileVariable();
+
+	default:
+		return Common::String::format("<unknown_expression_%d>", static_cast<uint>(expressionType));
+	}
+}
+
+Common::String CodeChunkDecompiler::decompileOperation() {
+	// Mirrors CodeChunk::evaluateOperation
+	Opcode opcode = static_cast<Opcode>(_bytecode->readTypedUint16());
+	Common::String result;
+
+	switch (opcode) {
+	case kOpcodeIf:
+		return decompileIf();
+
+	case kOpcodeIfElse:
+		return decompileIfElse();
+
+	case kOpcodeAssignVariable:
+		return decompileAssign();
+
+	case kOpcodeOr:
+	case kOpcodeXor:
+	case kOpcodeAnd:
+	case kOpcodeEquals:
+	case kOpcodeNotEquals:
+	case kOpcodeLessThan:
+	case kOpcodeGreaterThan:
+	case kOpcodeLessThanOrEqualTo:
+	case kOpcodeGreaterThanOrEqualTo:
+	case kOpcodeAdd:
+	case kOpcodeSubtract:
+	case kOpcodeMultiply:
+	case kOpcodeDivide:
+	case kOpcodeModulo:
+		return decompileBinaryOperation(opcode);
+
+	case kOpcodeNegate:
+		return decompileUnaryOperation();
+
+	case kOpcodeCallFunction:
+		return decompileFunctionCall(false);
+
+	case kOpcodeCallMethod:
+		return decompileMethodCall(false);
+
+	case kOpcodeDeclareLocals:
+		return decompileDeclareLocals();
+
+	case kOpcodeReturn:
+		return decompileReturn();
+
+	case kOpcodeReturnNoValue:
+		return decompileReturnNoValue();
+
+	case kOpcodeWhile:
+		return decompileWhileLoop();
+
+	case kOpcodeCallFunctionInVariable:
+		return decompileFunctionCall(true);
+
+	case kOpcodeCallMethodInVariable:
+		return decompileMethodCall(true);
+
+	default:
+		return Common::String::format("<unknown_opcode_%d>", static_cast<uint>(opcode));
+	}
+}
+
+Common::String CodeChunkDecompiler::decompileValue() {
+	// Mirrors CodeChunk::evaluateValue
+	OperandType operandType = static_cast<OperandType>(_bytecode->readTypedUint16());
+
+	switch (operandType) {
+	case kOperandTypeBool: {
+		int b = _bytecode->readTypedByte();
+		return b ? "TRUE" : "FALSE";
+	}
+
+	case kOperandTypeFloat: {
+		double f = _bytecode->readTypedDouble();
+		return Common::String::format("%g", f);
+	}
+
+	case kOperandTypeInt: {
+		int i = _bytecode->readTypedSint32();
+		return Common::String::format("%d", i);
+	}
+
+	case kOperandTypeString: {
+		// This doesn't escape quotes in the string.
+		uint size = _bytecode->readTypedUint16();
+		Common::String string = _bytecode->readString('\0', size);
+		return "\"" + string + "\"";
+	}
+
+	case kOperandTypeParamToken: {
+		uint paramToken = _bytecode->readTypedUint16();
+		return g_engine->formatParamTokenName(paramToken, false);
+	}
+
+	case kOperandTypeActorId: {
+		uint actorId = _bytecode->readTypedUint16();
+		Common::String actorName = g_engine->formatActorName(actorId, true, false);
+		return "@" + actorName;
+	}
+
+	case kOperandTypeTime: {
+		double time = _bytecode->readTypedTime();
+		return Common::String::format("%g", time);
+	}
+
+	case kOperandTypeVariable: {
+		return decompileVariable();
+	}
+
+	case kOperandTypeFunctionId: {
+		uint functionId = _bytecode->readTypedUint16();
+		return g_engine->formatFunctionName(functionId, false);
+	}
+
+	case kOperandTypeMethodId: {
+		BuiltInMethod methodId = static_cast<BuiltInMethod>(_bytecode->readTypedUint16());
+		return Common::String(builtInMethodToStr(methodId));
+	}
+
+	default:
+		return Common::String::format("<unknown_value_type_%d>", static_cast<uint>(operandType));
+	}
+}
+
+Common::String CodeChunkDecompiler::decompileVariable() {
+	// Mirrors CodeChunk::evaluateVariable and CodeChunk::readAndReturnVariable
+	uint id = _bytecode->readTypedUint16();
+	VariableScope scope = static_cast<VariableScope>(_bytecode->readTypedUint16());
+
+	switch (scope) {
+	case kVariableScopeGlobal:
+		// Variable names are NOT prefixed with "@" like actor names are.
+		return g_engine->formatVariableName(id, false);
+
+	case kVariableScopeLocal:
+		// Locals never have saved names, so just give a generic name.
+		return Common::String::format("local_%d", id);
+
+	case kVariableScopeParameter:
+		// Params never have saved names, so just give a generic name.
+		return Common::String::format("param_%d", id);
+
+	case kVariableScopeIndirectParameter: {
+		Common::String indexExpr = decompileExpression();
+		return Common::String::format("indirect_param(%d, %s)", id, indexExpr.c_str());
+	}
+
+	default:
+		return Common::String::format("<unknown_var_scope_%d_%d>", static_cast<uint>(scope), id);
+	}
+}
+
+Common::String CodeChunkDecompiler::decompileIf() {
+	// Mirrors CodeChunk::evaluateIf
+	Common::String condition = decompileExpression();
+	Common::String result = "if (" + condition + ") then\n";
+
+	// Increase indent level for the block.
+	_indentLevel++;
+	result += decompileNextBlock();
+	_indentLevel--;
+
+	result += Common::String::format("%*s", getIndentSize(_indentLevel), "") + "endif";
+	return result;
+}
+
+Common::String CodeChunkDecompiler::decompileIfElse() {
+	// Mirrors CodeChunk::evaluateIfElse
+	Common::String condition = decompileExpression();
+	Common::String result = "if (" + condition + ") then\n";
+
+	// Decompile true branch.
+	_indentLevel++;
+	result += decompileNextBlock();
+	_indentLevel--;
+
+	// Decompile false branch.
+	_indentLevel++;
+	Common::String elseBlock = decompileNextBlock();
+	_indentLevel--;
+
+	// Only print "else" if the else block is not empty.
+	if (!elseBlock.empty()) {
+		result += Common::String::format("%*s", getIndentSize(_indentLevel), "") + "else\n";
+		result += elseBlock;
+	}
+
+	result += Common::String::format("%*s", getIndentSize(_indentLevel), "") + "endif";
+	return result;
+}
+
+Common::String CodeChunkDecompiler::decompileAssign() {
+	// Mirrors CodeChunk::evaluateAssign
+	Common::String variable = decompileVariable();
+	Common::String value = decompileExpression();
+	return variable + " = " + value;
+}
+
+Common::String CodeChunkDecompiler::decompileBinaryOperation(Opcode op) {
+	// Mirrors CodeChunk::evaluateBinaryOperation
+	Common::String lhs = decompileExpression();
+	Common::String rhs = decompileExpression();
+	Common::String opStr;
+
+	switch (op) {
+	case kOpcodeOr: opStr = " or "; break;
+	case kOpcodeXor: opStr = " xor "; break;
+	case kOpcodeAnd: opStr = " and "; break;
+	case kOpcodeEquals: opStr = " == "; break;
+	case kOpcodeNotEquals: opStr = " != "; break;
+	case kOpcodeLessThan: opStr = " < "; break;
+	case kOpcodeGreaterThan: opStr = " > "; break;
+	case kOpcodeLessThanOrEqualTo: opStr = " <= "; break;
+	case kOpcodeGreaterThanOrEqualTo: opStr = " >= "; break;
+	case kOpcodeAdd: opStr = " + "; break;
+	case kOpcodeSubtract: opStr = " - "; break;
+	case kOpcodeMultiply: opStr = " * "; break;
+	case kOpcodeDivide: opStr = " / "; break;
+	case kOpcodeModulo: opStr = " % "; break;
+	default: opStr = Common::String::format(" <unknown_op_%u> ", static_cast<uint>(op)); break;
+	}
+
+	return "(" + lhs + opStr + rhs + ")";
+}
+
+Common::String CodeChunkDecompiler::decompileUnaryOperation() {
+	// Mirrors CodeChunk::evaluateUnaryOperation
+	Common::String value = decompileExpression();
+	return "-" + value;
+}
+
+void CodeChunkDecompiler::appendDecompiledParameterList(Common::String &result, uint paramCount) {
+	for (uint parameterIndex = 0; parameterIndex < paramCount; ++parameterIndex) {
+		if (parameterIndex > 0) {
+			result += ", ";
+		}
+		result += decompileExpression();
+	}
+}
+
+Common::String CodeChunkDecompiler::decompileFunctionCall(bool isIndirect) {
+	// Mirrors CodeChunk::evaluateFunctionCall
+	uint functionId;
+	uint paramCount;
+
+	if (isIndirect) {
+		paramCount = _bytecode->readTypedUint16();
+		Common::String functionVar = decompileExpression();
+		Common::String result = functionVar + "(";
+		appendDecompiledParameterList(result, paramCount);
+		result += ")";
+		return result;
+	} else {
+		functionId = _bytecode->readTypedUint16();
+		paramCount = _bytecode->readTypedUint16();
+		return decompileFunctionCall(functionId, paramCount);
+	}
+}
+
+Common::String CodeChunkDecompiler::decompileFunctionCall(uint functionId, uint paramCount) {
+	// Mirrors CodeChunk::evaluateFunctionCall
+	Common::String functionName = g_engine->formatFunctionName(functionId, false);
+	Common::String result = functionName + "(";
+	appendDecompiledParameterList(result, paramCount);
+	result += ")";
+	return result;
+}
+
+Common::String CodeChunkDecompiler::decompileMethodCall(bool isIndirect) {
+	// Mirrors CodeChunk::evaluateMethodCall
+	BuiltInMethod method;
+	uint paramCount;
+
+	if (isIndirect) {
+		paramCount = _bytecode->readTypedUint16();
+		Common::String methodVar = decompileExpression();
+		Common::String target = decompileExpression();
+		Common::String result = target + ".(" + methodVar + ")(";
+		appendDecompiledParameterList(result, paramCount);
+		result += ")";
+		return result;
+	} else {
+		method = static_cast<BuiltInMethod>(_bytecode->readTypedUint16());
+		paramCount = _bytecode->readTypedUint16();
+		return decompileMethodCall(method, paramCount);
+	}
+}
+
+Common::String CodeChunkDecompiler::decompileMethodCall(BuiltInMethod method, uint paramCount) {
+	// Mirrors CodeChunk::evaluateMethodCall
+	Common::String target = decompileExpression();
+	Common::String result = target + "." + builtInMethodToStr(method) + "(";
+	appendDecompiledParameterList(result, paramCount);
+	result += ")";
+	return result;
+}
+
+Common::String CodeChunkDecompiler::decompileDeclareLocals() {
+	// Mirrors CodeChunk::evaluateDeclareLocals
+	uint localCount = _bytecode->readTypedUint16();
+	Common::String result = "declare ";
+	for (uint i = 0; i < localCount; ++i) {
+		if (i > 0) {
+			result += ", ";
+		}
+		result += Common::String::format("local_%d", i + 1);
+	}
+	return result;
+}
+
+Common::String CodeChunkDecompiler::decompileReturn() {
+	// Mirrors CodeChunk::evaluateReturn
+	Common::String value = decompileExpression();
+	return "return " + value;
+}
+
+Common::String CodeChunkDecompiler::decompileReturnNoValue() {
+	// Mirrors CodeChunk::evaluateReturnNoValue
+	return "return";
+}
+
+Common::String CodeChunkDecompiler::decompileWhileLoop() {
+	// Mirrors CodeChunk::evaluateWhileLoop
+	Common::String condition = decompileExpression();
+	Common::String result = "while (" + condition + ") do\n";
+
+	// Temporarily increase indent level for the block.
+	_indentLevel++;
+	result += decompileNextBlock();
+	_indentLevel--;
+
+	result += Common::String::format("%*s", getIndentSize(_indentLevel), "") + "endwhile";
+	return result;
 }
 
 } // End of namespace MediaStation

@@ -34,6 +34,7 @@ public:
 
 	virtual ScriptValue callMethod(BuiltInMethod methodId, Common::Array<ScriptValue> &args) override;
 	virtual void timerEvent(const TimerEvent &event) override;
+	virtual bool isActive() const override { return _startTime > 0; }
 
 private:
 	uint32 _pauseStartTime = 0;

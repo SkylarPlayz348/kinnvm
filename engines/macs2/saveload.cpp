@@ -32,6 +32,8 @@ namespace Macs2 {
 Common::Error Macs2Engine::syncGame(Common::Serializer &s) {
 	const byte SAVE_MAGIC[12] = {'A', 'H', 'F', 'F', 'M', 'S', 'G', 'M', '0', '1', '0', '0'};
 	View1 *view1 = (View1 *)findView("View1");
+	if (view1 == nullptr)
+		return Common::kUnknownError;
 
 	// --- Header: 12-byte magic ---
 	if (s.isSaving()) {
@@ -52,12 +54,9 @@ Common::Error Macs2Engine::syncGame(Common::Serializer &s) {
 	// name when producing an original-format save.
 	byte slotName[21] = {0};
 	if (s.isSaving()) {
-		const char *defName = "SCUMMVM";
-		uint8 len = (uint8)strlen(defName);
-		if (len > 20)
-			len = 20;
-		slotName[0] = len;
-		memcpy(slotName + 1, defName, len);
+		const char defName[] = {'S', 'C', 'U', 'M', 'M', 'V', 'M'};
+		slotName[0] = 20;
+		memcpy(slotName + 1, defName, sizeof(defName));
 	}
 	s.syncBytes(slotName, 21);
 
@@ -204,9 +203,9 @@ Common::Error Macs2Engine::syncGame(Common::Serializer &s) {
 	}
 
 	// g_wSavedCursorMode [0xfea]: 2 bytes
-	uint16 savedCursorMode = view1 ? (uint16)view1->_savedCursorMode : (uint16)Script::MouseMode::Walk;
+	uint16 savedCursorMode = (uint16)view1->_savedCursorMode;
 	s.syncAsUint16LE(savedCursorMode);
-	if (s.isLoading() && view1)
+	if (s.isLoading())
 		view1->_savedCursorMode = (Script::MouseMode)savedCursorMode;
 
 	// g_wClipRectDirty [0xfec]: 1 byte - flags clip region needs full-screen reset
@@ -358,7 +357,8 @@ Common::Error Macs2Engine::syncGame(Common::Serializer &s) {
 
 	// --- Scene data: hotspot overrides [+0x5BD3]: 32 bytes (16 x uint16) ---
 	// Binary table is at scene+i*2+0x5BD1, accessed with 1-based index (1..16).
-	// C++ array needs 17 entries (index 0 unused, indices 1-16 used).
+	// Save format is fixed at 16 words (AHFFMSGM0100). Runtime capacity may be
+	// larger; expand only after the DOS fields are restored.
 	if (s.isLoading()) {
 		_hotspotOverrides.clear();
 		_hotspotOverrides.resize(0x11, 0xFFFF);
@@ -372,6 +372,8 @@ Common::Error Macs2Engine::syncGame(Common::Serializer &s) {
 			_hotspotOverrides[i + 1] = val;
 		}
 	}
+	if (s.isLoading() && _hotspotOverrides.size() < 0x21)
+		_hotspotOverrides.resize(0x21, 0xFFFF);
 
 	for (int i = 0; i < 4; i++) {
 		s.syncAsUint32LE(_sceneTimerParams[i]);
@@ -702,15 +704,16 @@ Common::Error Macs2Engine::syncGame(Common::Serializer &s) {
 
 		// Script resource table [+0x18D]: 0x80 bytes (128 bytes = 32 dword offsets)
 		// Stored in GameObject::_resourceOffsets, loaded from file during readResourceFile.
-		byte scriptResourceTable[128] = {0};
+		const uint maxObjRes = maxObjectResources();
+		byte scriptResourceTable[128] = {0}; // DOS save table is always 0x80 bytes
 		if (s.isSaving()) {
-			for (int r = 0; r < 32; r++) {
+			for (uint r = 0; r < maxObjRes; r++) {
 				WRITE_LE_UINT32(&scriptResourceTable[r * 4], obj->_resourceOffsets[r]);
 			}
 		}
 		s.syncBytes(scriptResourceTable, 128);
 		if (s.isLoading()) {
-			for (int r = 0; r < 32; r++) {
+			for (uint r = 0; r < maxObjRes; r++) {
 				obj->_resourceOffsets[r] = READ_LE_UINT32(&scriptResourceTable[r * 4]);
 			}
 		}
@@ -727,9 +730,11 @@ Common::Error Macs2Engine::syncGame(Common::Serializer &s) {
 		//   +0x00: 2 bytes (frame cursor X), +0x02: 2 bytes (frame cursor Y),
 		//   +0x0C: 2 bytes (source key), +0x0E: 2 bytes (speed),
 		//   +0x04: 2 bytes (data size), then data_size bytes of pixel data.
-		for (int blobIdx = 0; blobIdx < 0x15; blobIdx++) {
-			// Slot 0x15 (blobIdx 20) is the overload animation, stored separately
-			bool isOverloadSlot = (blobIdx == 20);
+		const int animSlotCount = (int)maxAnimSlots();
+		const int overloadBlobIdx = (int)overloadAnimSlot() - 1;
+		for (int blobIdx = 0; blobIdx < animSlotCount; blobIdx++) {
+			// Overload slot is stored separately from normal orientation blobs.
+			bool isOverloadSlot = (blobIdx == overloadBlobIdx);
 
 			// Active flag (2 bytes, but only low byte matters)
 			uint16 blobActive = 0;
@@ -841,14 +846,15 @@ Common::Error Macs2Engine::syncGame(Common::Serializer &s) {
 		// the per-object loop could populate their runtime walk/draw/dirty state.
 		// Do NOT recreate them here - that would discard the loaded fields.
 		view1->rebuildCharacterLookupTable();
-		view1->setInventorySource(GameObjects::instance().getProtagonistObject());
+		view1->refreshProtagonistInventoryAfterLoad(actorIndex);
+		view1->_uiPanelState = View1::kUiPanelNone;
+		view1->ensureScummVerbUI();
 
 		// Restore UseInventory cursor image after load.
 		// The cursor slot is only populated when clicking an inventory item in the panel;
 		// after loading a save with mouseMode==UseInventory, the slot is empty.
 		if (_scriptExecutor->_cursorMode == Script::MouseMode::UseInventory && view1->_activeInventoryItem != nullptr) {
-			AnimFrame *icon = view1->getInventoryIcon(view1->_activeInventoryItem);
-			if (icon != nullptr) {
+			if (AnimFrame *icon = view1->getInventoryIcon(view1->_activeInventoryItem)) {
 				int cursorSlot = (int)Script::MouseMode::UseInventory - 1;
 				_imageResources[cursorSlot] = *icon;
 			}
@@ -865,6 +871,7 @@ Common::Error Macs2Engine::syncGame(Common::Serializer &s) {
 		} else {
 			view1->startFadingWithSpeed(8);
 		}
+		view1->presentFrame();
 	}
 
 	return Common::kNoError;

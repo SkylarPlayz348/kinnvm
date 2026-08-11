@@ -37,6 +37,8 @@
 #include "engines/nancy/action/puzzle/assemblypuzzle.h"
 #include "engines/nancy/action/puzzle/bballpuzzle.h"
 #include "engines/nancy/action/puzzle/beadpuzzle.h"
+#include "engines/nancy/action/puzzle/blockspuzzle.h"
+#include "engines/nancy/action/puzzle/boardgamepuzzle.h"
 #include "engines/nancy/action/puzzle/bulpuzzle.h"
 #include "engines/nancy/action/puzzle/bombpuzzle.h"
 #include "engines/nancy/action/puzzle/cardgamepuzzle.h"
@@ -44,33 +46,44 @@
 #include "engines/nancy/action/puzzle/cubepuzzle.h"
 #include "engines/nancy/action/puzzle/cuttingpuzzle.h"
 #include "engines/nancy/action/puzzle/dotconnectpuzzle.h"
+#include "engines/nancy/action/puzzle/drivingpuzzle.h"
+#include "engines/nancy/action/puzzle/dropsortpuzzle.h"
 #include "engines/nancy/action/puzzle/gridmappuzzle.h"
 #include "engines/nancy/action/puzzle/matchpuzzle.h"
 #include "engines/nancy/action/puzzle/hamradiopuzzle.h"
+#include "engines/nancy/action/puzzle/hangmanpuzzle.h"
 #include "engines/nancy/action/puzzle/leverpuzzle.h"
 #include "engines/nancy/action/puzzle/magnetmazepuzzle.h"
 #include "engines/nancy/action/puzzle/mazechasepuzzle.h"
 #include "engines/nancy/action/puzzle/memorypuzzle.h"
 #include "engines/nancy/action/puzzle/mindpuzzle.h"
+#include "engines/nancy/action/puzzle/minigolfpuzzle.h"
+#include "engines/nancy/action/puzzle/mirrorlightpuzzle.h"
 #include "engines/nancy/action/puzzle/mouselightpuzzle.h"
 #include "engines/nancy/action/puzzle/multibuildpuzzle.h"
 #include "engines/nancy/action/puzzle/onebuildpuzzle.h"
 #include "engines/nancy/action/puzzle/orderingpuzzle.h"
 #include "engines/nancy/action/puzzle/overridelockpuzzle.h"
+#include "engines/nancy/action/puzzle/pachinkopuzzle.h"
+#include "engines/nancy/action/puzzle/paintpuzzle.h"
 #include "engines/nancy/action/puzzle/passwordpuzzle.h"
 #include "engines/nancy/action/puzzle/peepholepuzzle.h"
+#include "engines/nancy/action/puzzle/pegspuzzle.h"
 #include "engines/nancy/action/puzzle/quizpuzzle.h"
 #include "engines/nancy/action/puzzle/raycastpuzzle.h"
 #include "engines/nancy/action/puzzle/riddlepuzzle.h"
 #include "engines/nancy/action/puzzle/rippedletterpuzzle.h"
 #include "engines/nancy/action/puzzle/rotatinglockpuzzle.h"
 #include "engines/nancy/action/puzzle/safedialpuzzle.h"
+#include "engines/nancy/action/puzzle/scalepuzzle.h"
 #include "engines/nancy/action/puzzle/setplayerclock.h"
+#include "engines/nancy/action/puzzle/sewingmachinepuzzle.h"
 #include "engines/nancy/action/puzzle/sliderpuzzle.h"
 #include "engines/nancy/action/puzzle/sortpuzzle.h"
 #include "engines/nancy/action/puzzle/soundequalizerpuzzle.h"
 #include "engines/nancy/action/puzzle/soundmatchpuzzle.h"
 #include "engines/nancy/action/puzzle/spigotpuzzle.h"
+#include "engines/nancy/action/puzzle/stepobjectspuzzle.h"
 #include "engines/nancy/action/puzzle/tangrampuzzle.h"
 #include "engines/nancy/action/puzzle/telephone.h"
 #include "engines/nancy/action/puzzle/towerpuzzle.h"
@@ -78,6 +91,7 @@
 #include "engines/nancy/action/puzzle/twodialpuzzle.h"
 #include "engines/nancy/action/puzzle/typingquizpuzzle.h"
 #include "engines/nancy/action/puzzle/whalesurvivorpuzzle.h"
+#include "engines/nancy/action/puzzle/wordfindpuzzle.h"
 
 #include "engines/nancy/state/scene.h"
 
@@ -176,27 +190,38 @@ ActionRecord *ActionManager::createActionRecord(uint16 type, Common::SeekableRea
 			return new HotMultiframeMultiSceneChange();	// Moved from 13 in Nancy 10
 	case 27:
 		return new HotMultiframeMultiSceneCursorTypeSceneChange(); // Moved from 24 to 27 in Nancy10
-	case 28:
+	case 28:	// Nancy10
 		return new InteractiveVideo();	// Moved from 26 to 28 in Nancy10
-	case 29:
-		// Nancy 10+
+	case 29:	// Nancy10
 		return new ControlUIItems();
 	case 30:	// Nancy11
 		return new StopPlayerScrolling();
 	case 31:	// Nancy11
 		return new StartPlayerScrolling();
-	case 32:
-		// Nancy 10+
+	case 32:	// Nancy10
 		return new UIPopupPrepScene();
-	case 45:	// Nancy11 - random-movie variant of PlaySecondaryMovie
+	case 35:	// Nancy12
+		return new ConversationInfoCheck();
+	case 36:	// Nancy12
+		return new ConversationGoodbye();
+	case 40:
+		if (g_nancy->getGameType() <= kGameTypeNancy1)
+			return new LightningOn(); // Only used in TVD
+		else
+			return new SpecialEffect();
+	case 41:	// Nancy14
+	case 44:	// Nancy14 (adds a trailing volume byte)
+		return new PlaySecondaryMovie();
+	case 42:	// Nancy14
+	case 43:	// Nancy14
+	case 45:	// Nancy11
 		return new PlaySecondaryMovie(true);
 	case 46:	// Nancy11
 		return new PlayRandomMovieControl();
-	case 40:
-		if (g_nancy->getGameType() <= kGameTypeNancy1)
-			return new LightningOn();	// Only used in TVD
-		else
-			return new SpecialEffect();
+	case 47:	// Nancy14
+		// A PlaySecondaryMovie subclass that appends a named {value, flag} list.
+		// Handled inside PlaySecondaryMovie via _type == 47.
+		return new PlaySecondaryMovie();
 	case 50:
 		return new ConversationVideo(); // PlayPrimaryVideoChan0
 	case 51:
@@ -228,19 +253,15 @@ ActionRecord *ActionManager::createActionRecord(uint16 type, Common::SeekableRea
 	case 59:
 		return new ConversationCelT();
 	case 60:
-		if (g_nancy->getGameType() <= kGameTypeNancy5) {
-			// Only used in tvd and nancy1
-			return new MapCall();
-		} else {
+		if (g_nancy->getGameType() <= kGameTypeNancy5)
+			return new MapCall();	// Only used in tvd and nancy1
+		else
 			return new ConversationSoundT();
-		}
 	case 61:
-		if (g_nancy->getGameType() <= kGameTypeNancy5) {
-			// Only used in tvd and nancy1
-			return new MapCallHot1Fr();
-		} else {
+		if (g_nancy->getGameType() <= kGameTypeNancy5)
+			return new MapCallHot1Fr();	// Only used in tvd and nancy1
+		else
 			return new Autotext();
-		}
 	case 62:
 		if (g_nancy->getGameType() <= kGameTypeNancy7)
 			return new MapCallHotMultiframe(); // TVD/nancy1 only
@@ -258,7 +279,10 @@ ActionRecord *ActionManager::createActionRecord(uint16 type, Common::SeekableRea
 		else
 			return new TableIndexSetValueHS();
 	case 68:
-		return new TextScroll(false);
+		if (g_nancy->getGameType() >= kGameTypeNancy12)
+			return new TextLineOverlay();
+		else
+			return new TextScroll(false);
 	case 69:	// Nancy11
 		return new TimerControl();
 	case 70:
@@ -269,13 +293,12 @@ ActionRecord *ActionManager::createActionRecord(uint16 type, Common::SeekableRea
 		return new ModifyListEntry(ModifyListEntry::kDelete);
 	case 73:
 		return new ModifyListEntry(ModifyListEntry::kMark);
-	case 74:	// Added in Nancy 10
-	case 75:	// Changed in Nancy 10
-		if (g_nancy->getGameType() <= kGameTypeNancy9 && type == 75) {
+	case 74:	// Nancy10 only: writes the full, taskbar-covering box
+		return new FrameTextBox(true);
+	case 75:
+		if (g_nancy->getGameType() <= kGameTypeNancy9)
 			return new TextBoxWrite();
-		} else {
-			return new FrameTextBox(static_cast<FrameTextBox::Variant>(type));
-		}
+		return new FrameTextBox(false);
 	case 76:
 		return new TextboxClear();
 	case 77:
@@ -286,16 +309,10 @@ ActionRecord *ActionManager::createActionRecord(uint16 type, Common::SeekableRea
 		return new ValueTest();
 	case 81:	// Nancy11
 		return new TextBoxWrite(true);
-	case 94:
-		// Nancy12: moved from 106
-		if (g_nancy->getGameType() >= kGameTypeNancy12)
-			return new EventFlagsMultiHS(false);
-		return nullptr;
-	case 95:
-		// Nancy12: moved from 107
-		if (g_nancy->getGameType() >= kGameTypeNancy12)
-			return new EventFlags();
-		return nullptr;
+	case 94:	// Nancy12
+		return new EventFlagsMultiHS(false);	// moved from 106
+	case 95:	// Nancy12
+		return new EventFlags();	// moved from 107
 	case 96:	// Nancy11
 		return new RandomizeEventFlags();
 	case 97:
@@ -345,12 +362,8 @@ ActionRecord *ActionManager::createActionRecord(uint16 type, Common::SeekableRea
 		return new SliderPuzzle();
 	case 118:
 		return new PasswordPuzzle();
-	case 119:
-		if (g_nancy->getGameType() >= kGameTypeNancy7) {
-			// This got moved in nancy7
-			return new OrderingPuzzle(OrderingPuzzle::kOrdering);
-		}
-		return nullptr;
+	case 119:	// Nancy7
+		return new OrderingPuzzle(OrderingPuzzle::kOrdering);
 	case 120:
 		return new AddInventoryNoHS();
 	case 121:
@@ -365,22 +378,25 @@ ActionRecord *ActionManager::createActionRecord(uint16 type, Common::SeekableRea
 		return new PopInvViewPriorScene();
 	case 126:
 		return new GoInvViewScene();
-	case 128:
-		// Nancy 10+
+	case 128:	// Nancy10
 		return new CellPhonePopCellSceneFromStack();
-	case 129:
-		// Nancy 10+
+	case 129:	// Nancy10
 		return new SetCellPhoneBatteryAndSignal();
-	case 130:
-		// Nancy 10+
+	case 130:	// Nancy10
 		return new ChangeCellPhoneInfo();
-	case 131:
-		// Nancy 10+
+	case 131:	// Nancy10
 		return new AddSearchLink();
-	case 132:
-		// ResourceUse ("UIResource Adjust") - adjusts a UI overlay resource (see the UIRC
-		// boot chunk) at runtime. Added in Nancy12.
+	case 132:	// Nancy12
 		return new ResourceUse();
+	case 133:	// Nancy14 - CameraAction
+		// Cell-phone camera action (introduced alongside the UICM camera UI).
+		// TODO: not yet implemented
+		return nullptr;
+	case 134:	// Nancy15 - PlayCharAR
+		// Switches the active player character (Nancy / Frank / Joe), the
+		// dual-protagonist mechanic new to The Creature of Kapu Cave.
+		// TODO: not yet implemented (depends on the PCUI/LDSN player-char UI)
+		return nullptr;
 	case 140:
 		if (g_nancy->getGameType() >= kGameTypeNancy12)
 			return new SetPlayerClock();	// Moved from 170 in Nancy12
@@ -391,15 +407,30 @@ ActionRecord *ActionManager::createActionRecord(uint16 type, Common::SeekableRea
 		// Saves a cropped image of the screen to a bitmap/TGA file.
 		// TODO: debug-only feature, not implemented
 		return nullptr;
+	case 143:	// Nancy14 - ConcatSound
+	case 144:	// Nancy14 - MultiSound (dropped from the Nancy15 dispatch)
+		// Sibling sound ARs. ConcatSound plays a list of named sounds back-to-back;
+		// TODO: not yet implemented
+		return nullptr;
+	case 145:	// Nancy13
+		return new PlaySound(); // Moved from 150 in Nancy13
+	case 146:	// Nancy13
+		return new FadeSoundToSilence(); // Moved from 147 in Nancy13
 	case 147:	// Nancy11
-		return new FadeSoundToSilence();
+		if (g_nancy->getGameType() >= kGameTypeNancy13)
+			return new SetVolume();			// Moved from 148 in Nancy13
+		return new FadeSoundToSilence();	// Nancy11
 	case 148:
+		if (g_nancy->getGameType() >= kGameTypeNancy13)
+			return new StopSound();	// Nancy13: StopSound moved here (was 154)
 		if (g_nancy->getGameType() >= kGameTypeNancy12)
 			return new SetVolume();	// Moved from 149 in Nancy12
 		// MakeScreenFile - seems to save a cropped image of the screen in a bitmap file?
 		// TODO: Used in Nancy 9, sand castle puzzle. Moved to 141 in Nancy12.
 		return nullptr;
 	case 149:
+		if (g_nancy->getGameType() >= kGameTypeNancy13)
+			return new StopSound();	// Nancy13: StopAndUnloadSound moved here (was 155)
 		if (g_nancy->getGameType() >= kGameTypeNancy12)
 			return new PlaySoundEventFlagTerse();	// Moved from 161 in Nancy12
 		else if (g_nancy->getGameType() >= kGameTypeNancy9)
@@ -407,13 +438,14 @@ ActionRecord *ActionManager::createActionRecord(uint16 type, Common::SeekableRea
 		else
 			return nullptr;
 	case 150:
+		if (g_nancy->getGameType() >= kGameTypeNancy14)
+			return nullptr;	// Nancy14: SetMovieVolume, TODO. PlaySound moved to 145 in Nancy13.
 		return new PlaySound();
 	case 151:
-		if (g_nancy->getGameType() <= kGameTypeNancy6)  {
+		if (g_nancy->getGameType() <= kGameTypeNancy6)
 			return new PlaySound(); // PlayStreamSound
-		} else {
+		else
 			return new PlayRandomSoundTerse();
-		}
 	case 152:
 		return new PlaySoundFrameAnchor();
 	case 153:
@@ -429,44 +461,78 @@ ActionRecord *ActionManager::createActionRecord(uint16 type, Common::SeekableRea
 	case 158:
 		return new PlayRandomSound();
 	case 159:
+		if (g_nancy->getGameType() >= kGameTypeNancy14)
+			return new GridMapPuzzle();	// moved from 244
 		return new PlaySoundTerse();
 	case 160:
-		// In Nancy12 the hint system was removed (the HINT boot chunk is gone) and this
-		// slot was reused for a new driving/racing puzzle.
-		// TODO: Nancy12 DrivingPuzzle (new), not implemented
 		if (g_nancy->getGameType() >= kGameTypeNancy12)
-			return nullptr;
+			return new DrivingPuzzle(DrivingPuzzle::kDriving);
 		return new HintSystem();
 	case 161:
-		// PlaySoundEventFlagTerse moved to 149 in Nancy12; this slot was reused for a new puzzle.
-		// TODO: Nancy12 MinigolfPuzzle (new), not implemented
 		if (g_nancy->getGameType() >= kGameTypeNancy12)
-			return nullptr;
+			return new MinigolfPuzzle();
 		return new PlaySoundEventFlagTerse();
 	// -- Nancy 12 new puzzles/action records --
 	case 162:
-		// TODO: Nancy12 - new puzzle (reuses the AT_DRIVING_PUZZLE debug string), not implemented
-		return nullptr;
+		return new SewingMachinePuzzle();
 	case 163:
-		// TODO: Nancy12 MirrorLightPuzzle (new), not implemented
-		return nullptr;
+		return new MirrorLightPuzzle();
 	case 164:
-		// TODO: Nancy12 BoardGamePuzzle (new), not implemented
-		return nullptr;
+		return new BoardGamePuzzle();
 	case 165:
 		return new MindPuzzle();
 	case 166:
-		// OneBuildPuzzle, moved here from 234 in Nancy12.
-		// TODO: verify the Nancy12 data layout against OneBuildPuzzle::readData
-		return new OneBuildPuzzle();
+		return new OneBuildPuzzle();	// moved from 234 in Nancy12
 	case 167:
-		// TODO: Nancy12 ChasePuzzle (new), not implemented
-		return nullptr;
+		return new DrivingPuzzle(DrivingPuzzle::kChase);
 	case 168:
 		return new Set3DSoundListenerPosition();
+	// -- Nancy 13 new/relocated puzzles (types 169-176) --
+	case 169:
+		return new StepObjectsPuzzle();
 	case 170:
-		// Moved to 140 in Nancy12
-		return new SetPlayerClock();
+		if (g_nancy->getGameType() >= kGameTypeNancy13)
+			return new WordFindPuzzle();
+		return new SetPlayerClock();	// moved to 140 in Nancy12
+	case 171:
+		return new TurningPuzzle();	// moved from 209 in Nancy13
+	case 172:
+		return new BlocksPuzzle();
+	case 173:
+		return new PegsPuzzle();
+	case 174:
+		return new ScalePuzzle();	// balance scale
+	case 175:
+		return new PachinkoPuzzle();	// ball drop / pinball
+	case 176:
+		return new DropSortPuzzle();	// conveyor-belt candy sorting
+	// -- Nancy14 new puzzles (types 177-182) --
+	case 177:
+		return new HangmanPuzzle();
+	case 178:	// AdjustPuzzle
+		// TODO: not yet implemented
+		return nullptr;
+	case 179:	// MeterPuzzle
+		// TODO: not yet implemented
+		return nullptr;
+	case 180:	// BlockingPuzzle
+		// TODO: not yet implemented
+		return nullptr;
+	case 181:
+		return new PaintPuzzle();
+	case 182:	// DecoderPuzzle
+		// TODO: not yet implemented
+		return nullptr;
+	// -- Nancy15 new puzzles (types 183-185) --
+	case 183:	// MagicBoxPuzzle
+		// TODO: not yet implemented
+		return nullptr;
+	case 184:	// EscapeGridPuzzle
+		// TODO: not yet implemented
+		return nullptr;
+	case 185:	// WeightSortPuzzle
+		// TODO: not yet implemented
+		return nullptr;
 	case 200:
 		return new SoundEqualizerPuzzle();
 	case 201:
@@ -536,8 +602,7 @@ ActionRecord *ActionManager::createActionRecord(uint16 type, Common::SeekableRea
 	case 233:
 		return new SoundMatchPuzzle();
 	case 234:
-		// Moved to 166 in Nancy12
-		return new OneBuildPuzzle();
+		return new OneBuildPuzzle();	// moved to 166 in Nancy12
 	case 235:
 		return new MultiBuildPuzzle();
 	case 237:

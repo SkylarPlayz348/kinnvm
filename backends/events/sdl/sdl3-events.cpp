@@ -678,7 +678,10 @@ bool SdlEventSource::pollEvent(Common::Event &event) {
 #if defined(USE_IMGUI)
 		ImGui_ImplSDL3_ProcessEvent(&ev);
 		ImGuiIO &io = ImGui::GetIO();
-		if (io.WantTextInput || io.WantCaptureMouse)
+		bool mouseEvent = ev.type == SDL_EVENT_MOUSE_MOTION || ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+			ev.type == SDL_EVENT_MOUSE_BUTTON_UP || ev.type == SDL_EVENT_MOUSE_WHEEL;
+		bool textEvent = ev.type == SDL_EVENT_TEXT_INPUT;
+		if ((mouseEvent && io.WantCaptureMouse) || (textEvent && io.WantTextInput))
 			continue;
 #endif
 		if (dispatchSDLEvent(ev, event))
@@ -747,6 +750,16 @@ bool SdlEventSource::dispatchSDLEvent(SDL_Event &ev, Common::Event &event) {
 
 		return _queuedFakeKeyUp;
 		}
+
+	case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+		if (_graphicsManager) {
+			uint32 windowID = SDL_GetWindowID(_graphicsManager->getWindow()->getSDLWindow());
+			if (windowID != ev.window.windowID)
+				return false;
+		}
+
+		event.type = Common::EVENT_QUIT;
+		return true;
 
 		case SDL_EVENT_WINDOW_EXPOSED:
 			if (_graphicsManager) {
@@ -931,7 +944,7 @@ bool SdlEventSource::handleJoystickAdded(const SDL_JoyDeviceEvent &device, Commo
 	debug(5, "SdlEventSource: Received joystick added event for index '%d'", device.which);
 
 	int joystick_num = ConfMan.getInt("joystick_num");
-	if (joystick_num != device.which) {
+	if (joystick_num != static_cast<int>(device.which)) {
 		return false;
 	}
 
@@ -1026,6 +1039,15 @@ bool SdlEventSource::isJoystickConnected() const {
 
 uint32 SdlEventSource::obtainUnicode(const SDL_KeyboardEvent &key) {
 	SDL_Event events[2];
+
+#if defined(USE_IMGUI)
+	// When ImGui is capturing text input, leave the SDL_EVENT_TEXT_INPUT event
+	// in the queue so its InputText widgets receive the character. We normally
+	// consume it here to fold the ASCII into ScummVM's own key event, but
+	// ScummVM's GUI is not the input target while an ImGui text field is active.
+	if (ImGui_ImplSDL3_Ready() && ImGui::GetIO().WantTextInput)
+		return 0;
+#endif
 
 	// Update the event queue here to give SDL a chance to insert TEXTINPUT
 	// events for KEYDOWN events. Otherwise we have a high chance that on

@@ -614,6 +614,7 @@ public:
 	 */
 	ScopedPtr &operator=(std::nullptr_t) {
 		reset(nullptr);
+		return *this;
 	}
 
 	/**
@@ -668,6 +669,14 @@ public:
 
 	~DisposablePtr() {
 		if (_dispose) DL()(_pointer);
+	}
+
+	DisposablePtr<T, DL> &operator=(DisposablePtr<T, DL> &&o) {
+		reset(o._pointer, o._dispose);
+		_shared = move(o._shared);
+		o._pointer = nullptr;
+		o._dispose = DisposeAfterUse::NO;
+		return *this;
 	}
 
 	ReferenceType operator*() const { return *_pointer; }

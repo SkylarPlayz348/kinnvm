@@ -24,7 +24,7 @@
 
 #include "engines/nancy/cursor.h"
 #include "engines/nancy/nancy.h"
-#include "engines/nancy/video.h"
+#include "engines/nancy/movieplayer.h"
 #include "engines/nancy/action/actionrecord.h"
 
 namespace Nancy {
@@ -82,17 +82,22 @@ public:
 
 	bool canHaveHotspot() const override { return true; }
 	bool isViewportRelative() const override { return true; }
+	// Ambient character animations stay on screen across a NO_ART_SCENE change
+	// (e.g. while a phone-call conversation is overlaid in front of them).
+	bool survivesSceneChange(bool nextSceneIsNoArt) const override { return nextSceneIsNoArt; }
 
 	CursorManager::CursorType getHoverCursor() const override {
 		return g_nancy->getGameType() >= kGameTypeNancy10 ? CursorManager::kHotspotTalk : CursorManager::kHotspot;
 	}
+
+	Common::String getRecordExtraInfo() const override { return Common::String::format("Scene %d", _sceneChange.sceneID); }
 
 protected:
 	Common::String getRecordTypeName() const override { return "PlaySecondaryVideo"; }
 
 	Graphics::ManagedSurface _fullFrame;
 	HoverState _hoverState = kNoHover;
-	AVFDecoder _decoder;
+	MoviePlayer _decoder;
 	int _currentViewportFrame = -1;
 	int _currentViewportScroll = -1;
 	bool _isInFrame = false;

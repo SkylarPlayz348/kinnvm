@@ -428,6 +428,35 @@ void ActionManager::processDependency(DependencyRecord &dep, ActionRecord &recor
 			break;
 		}
 		case DependencyType::kElapsedPlayerDay:
+			if (g_nancy->getGameType() >= kGameTypeNancy12) {
+				// Nancy12 repurposed dependency type 10 as a resource check (e.g. the
+				// car's gas gauge): resource value vs. threshold, by condition modifier.
+				int32 resVal = NancySceneState.getUIResource(dep.label);
+				int32 threshold = dep.milliseconds;
+				switch (dep.condition) {
+				case 0:	// equal
+					dep.satisfied = (resVal == threshold);
+					break;
+				case 1:	// resource greater than the threshold
+					dep.satisfied = (resVal > threshold);
+					break;
+				case 2:	// resource greater than or equal to the threshold
+					dep.satisfied = (resVal >= threshold);
+					break;
+				case 3:	// resource less than the threshold
+					dep.satisfied = (resVal < threshold);
+					break;
+				case 4:	// resource less than or equal to the threshold
+					dep.satisfied = (resVal <= threshold);
+					break;
+				default:
+					dep.satisfied = false;
+					break;
+				}
+
+				break;
+			}
+
 			if (record._days == -1) {
 				record._days = NancySceneState.getPlayerTime().getDays();
 				dep.satisfied = true;
@@ -575,9 +604,9 @@ void ActionManager::processDependency(DependencyRecord &dep, ActionRecord &recor
 	}
 }
 
-void ActionManager::clearActionRecords() {
+void ActionManager::clearActionRecords(bool nextIsNoArt) {
 	for (auto it = _records.begin(); it != _records.end(); ) {
-		if ((*it)->isPersistentAcrossScenes()) {
+		if ((*it)->survivesSceneChange(nextIsNoArt)) {
 			++it;
 			continue;
 		}
@@ -602,8 +631,15 @@ void ActionManager::synchronize(Common::Serializer &ser) {
 		ser.syncAsByte(rec->_isActive);
 		ser.syncAsByte(rec->_isDone);
 
-		// Forcefully re-activate Autotext records, since we need to regenerate the surface
-		if (ser.isLoading() && g_nancy->getGameType() >= kGameTypeNancy6 && rec->_type == 61) {
+		if (ser.isLoading()) {
+			// Records restart fresh on load, just like a normal scene entry: clearing
+			// _isDone lets one-shot records run again -- chained tutorial narration
+			// sounds, conversations, overlays, etc. Anything that must stay "done" is
+			// gated by its own dependencies (event flags, scene counts, inventory),
+			// which are restored separately. Without this, a sound or conversation
+			// that had finished before the save stays silent on load (e.g. the
+			// Nancy 10 movement tutorial). _isActive is recomputed from the record's
+			// dependencies on the next frame.
 			rec->_isDone = false;
 		}
 	}
@@ -656,7 +692,7 @@ void ActionManager::synchronizeMovieWithSound() {
 
 			if (length.msecs() != 0) {
 				// ..and set the movie's playback speed to match
-				movie->_decoder->setRate(Common::Rational(movie->_decoder->getDuration().msecs(), length.msecs()));
+				movie->_decoder.setRate(Common::Rational(movie->_decoder.getDuration().msecs(), length.msecs()));
 			}
 		}
 	}

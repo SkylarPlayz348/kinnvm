@@ -60,19 +60,24 @@ byte *script_ptr, *script_end_ptr;
 byte *script_stack[5 * 2];
 byte **script_stack_ptr = script_stack;
 
-void *script_vars[kScrPools_MAX] = {
-	&script_word_vars,
-	&script_word_vars,
-	&script_byte_vars,
-	inventory_items,
-	zones_data,
-	pers_list,
-	inventory_items,
-	inventory_items + kItemZapstik1 - 1,
-	pers_list
-};
+void *script_vars[kScrPools_MAX] = {};
 
 extern void askDisk2(void);
+
+
+void initScriptVars() {
+	// Late init of global array entries to avoid having a global constructor
+
+	script_vars[0] = &script_word_vars;
+	script_vars[1] = &script_word_vars;
+	script_vars[2] = &script_byte_vars;
+	script_vars[3] = inventory_items;
+	script_vars[4] = zones_data;
+	script_vars[5] = pers_list;
+	script_vars[6] = inventory_items;
+	script_vars[7] = inventory_items + kItemZapstik1 - 1;
+	script_vars[8] = pers_list;
+}
 
 /*
 Get next random byte value
@@ -1505,8 +1510,10 @@ uint16 SCR_26_GameOver(void) {
 	script_byte_vars.zone_index = 135;
 
 	/*reload background*/
-	while (!loadFond())
+	Graphics::Surface *fond;
+	while (!(fond = loadFond()))
 		askDisk2();
+	delete fond;
 
 	jaggedZoom(backbuffer, frontbuffer);
 
@@ -1919,11 +1926,6 @@ uint16 SCR_23_HidePortrait(void) {
 	index = *script_ptr++;
 
 	getDirtyRectAndFree(index, &kind, &x, &y, &width, &height, &offs);
-	if (right_button) {
-		g_vm->_renderer->copyScreenBlock(backbuffer, width, height, SCREENBUFFER, offs);
-		return 0;
-	}
-
 	g_vm->_renderer->copyScreenBlock(backbuffer, width, height, SCREENBUFFER, offs);
 
 	return 0;
@@ -2462,7 +2464,7 @@ uint16 SCR_46_DeProfundisLowerHook(void) {
 	script_ptr++;
 
 	/*draw Hook*/
-	sprofs = getPuzzlSprite(96, 140 / 4, 18, &w, &h, &ofs);
+	getPuzzlSprite(96, 140 / 4, 18, &w, &h, &ofs);
 
 	h = 1;
 	y = 15;
@@ -2849,6 +2851,8 @@ Copy backbuffer to screen, with added vertical mirror
 void ShowMirrored(uint16 h, uint16 ofs) {
 	uint16 x, ofs2 = ofs;
 
+	bool egaClearAbove = isEgaLikeRenderer();
+
 	/*move 1 line up*/
 	ofs2 ^= g_vm->_line_offset;
 	if ((ofs2 & g_vm->_line_offset) != 0 || g_vm->_line_offset == 0)
@@ -2857,7 +2861,8 @@ void ShowMirrored(uint16 h, uint16 ofs) {
 	while (h--) {
 
 		for (x = 0; x < g_vm->_screenBPL; x++) {
-			frontbuffer[ofs2 + x] = frontbuffer[ofs + x] = backbuffer[ofs + x];
+			frontbuffer[ofs + x] = backbuffer[ofs + x];
+			frontbuffer[ofs2 + x] = egaClearAbove ? 0 : backbuffer[ofs + x];
 			backbuffer[ofs + x] = 0;
 		}
 
@@ -2945,6 +2950,8 @@ static void AnimSaucer(void) {
 		height_prev -= (yy - 1);
 
 		/*scale the saucer*/
+		if (isEgaLikeRenderer())
+			memset(backbuffer, 0, 320 * 200);
 		g_vm->_renderer->zoomInplaceXY(cur_image_pixels, width, height, ww, hh, xx, yy, backbuffer);
 
 		baseofs = g_vm->_renderer->calcXY(0, yy);
@@ -3005,7 +3012,7 @@ static void AnimSaucer(void) {
 		height_prev = height_new;
 
 		waitVBlank();
-		for (i = delay; i--;) ; /*TODO: weak delay*/
+		g_system->delayMillis(delay / 1000);
 		delay += 500;
 	}
 }
@@ -3031,18 +3038,25 @@ void theEnd(void) {
 		}
 		while(buttons == 0);
 
-		while (!loadFond())
+		Graphics::Surface *fond;
+		while (!(fond = loadFond()))
 			askDisk2();
+		delete fond;
 		jaggedZoom(backbuffer, frontbuffer);
 		g_vm->_renderer->backBufferToRealFull();
 	} else if (g_vm->getPlatform() == Common::kPlatformAmiga) {
-		while (!ega_loadFond("PRES.BIN"))
+		Graphics::Surface *fond;
+		while (!(fond = ega_loadFond("PRES.BIN")))
 			askDisk2();
+		delete fond;
 		g_vm->_renderer->colorSelect(AMIGA_NUM_PALETTES - 1);
 		g_vm->_renderer->backBufferToRealFull();
 	} else {
-		while (!loadSplash("PRES.BIN"))
+		Graphics::Surface *splash;
+		while (!(splash = loadSplash("PRES.BIN")))
 			askDisk2();
+		splash->free();
+		delete splash;
 		g_vm->_renderer->backBufferToRealFull();
 	}
 }
@@ -3706,21 +3720,26 @@ uint16 CMD_E_PsiZoneScan(void) {
 
 	IFGM_PlaySample(26);
 
+	// On Amiga the scan tints the whole room green for its duration: the exe
+	// ships a dedicated green stone-ramp delta (19) that no room ever uses
+	if (g_vm->_videoMode == Common::kRenderAmiga)
+		amigaApplyRoomPalette(19);
+
 	offs = g_vm->_renderer->calcXY_p(room_bounds_rect.sx, room_bounds_rect.sy);
 	w = room_bounds_rect.ex - room_bounds_rect.sx;
 	h = room_bounds_rect.ey - room_bounds_rect.sy;
 
-	/*room coords are in 4-pixel blocks; EGA is 1 byte/pixel so the scan line
-	  spans w*4 bytes, while CGA packs 4 pixels/byte and spans w bytes*/
-	if (g_vm->_videoMode == Common::kRenderEGA)
+	if (isEgaLikeRenderer())
 		w *= 4;
+
+	byte inv = isEgaLikeRenderer() ? 0x0F : 0xFF;
 
 	for (y = room_bounds_rect.sy; h; y++, h--) {
 		spot_t *spot;
-		for (x = 0; x < w; x++) frontbuffer[offs + x] = ~frontbuffer[offs + x];
+		for (x = 0; x < w; x++) frontbuffer[offs + x] ^= inv;
 		g_vm->_renderer->blitToScreen(offs, w, 1);
 		waitVBlank();
-		for (x = 0; x < w; x++) frontbuffer[offs + x] = ~frontbuffer[offs + x];
+		for (x = 0; x < w; x++) frontbuffer[offs + x] ^= inv;
 		g_vm->_renderer->blitToScreen(offs, w, 1);
 
 		for (spot = zone_spots; spot != zone_spots_end; spot++) {
@@ -3736,6 +3755,10 @@ uint16 CMD_E_PsiZoneScan(void) {
 		if ((offs & g_vm->_line_offset) == 0)
 			offs += g_vm->_screenBPL;
 	}
+
+	// Bring back the room's own palette once the scan is over
+	if (g_vm->_videoMode == Common::kRenderAmiga)
+		amigaApplyRoomPalette(script_byte_vars.palette_index);
 
 	restoreScreenOfSpecialRoom();
 
@@ -4257,8 +4280,6 @@ uint16 CMD_21_VortTalk(void) {
 
 	if (script_byte_vars.rand_value >= 85)
 		num = 6;
-	else if (script_byte_vars.rand_value >= 170)
-		num = 7;
 	else
 		num = 35;
 
@@ -4496,6 +4517,8 @@ uint16 RunScript(byte *code) {
 	script_ptr = code;
 	while (script_ptr != script_end_ptr) {
 		byte opcode = *script_ptr;
+
+		debug(9, "scr %04X: %02X", (uint16)((script_ptr - templ_data) & 0xFFFF), opcode);
 
 #ifdef DEBUG_SCRIPT
 		{

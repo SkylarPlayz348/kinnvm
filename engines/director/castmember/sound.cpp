@@ -88,7 +88,7 @@ void SoundCastMember::load() {
 			tag = MKTAG('S', 'N', 'D', ' ');
 			sndId = (uint16)(_castId + _cast->_castIDoffset);
 		}
-	} else if (_cast->_version >= kFileVer600 && _cast->_version < kFileVer700) {
+	} else if (_cast->_version >= kFileVer600 && _cast->_version < kFileVer800) {
 		for (auto &it : _children) {
 			if (it.tag == MKTAG('s', 'n', 'd', ' ')) {
 				sndId = it.index;
@@ -143,7 +143,7 @@ void SoundCastMember::load() {
 		}
 
 	} else {
-		warning("STUB: SoundCastMember::SoundCastMember(): Sounds not yet supported for version v%d (%d)", humanVersion(_cast->_version), _cast->_version);
+		warning("STUB: SoundCastMember::load(): Sounds not yet supported for version v%d (%d)", humanVersion(_cast->_version), _cast->_version);
 	}
 
 
@@ -298,6 +298,11 @@ void SoundCastMember::setField(int field, const Datum &d) {
 	}
 
 	CastMember::setField(field, d);
+}
+
+bool SoundCastMember::canWriteCastData() {
+	// D5-D6 legitimately have no 'CASt' data (it lives in 'snd '/'sndH')
+	return _cast->_version >= kFileVer400 && _cast->_version < kFileVer700;
 }
 
 // Similar to PaletteCastMember, SoundCastMember has no data in the 'CASt' resource or is ignored

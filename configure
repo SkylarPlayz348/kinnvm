@@ -208,6 +208,7 @@ _werror_build=auto
 _text_console=no
 _mt32emu=yes
 _lua=yes
+_mactoolbox=yes
 _mfc=yes
 _build_scalers=yes
 _build_hq_scalers=yes
@@ -270,6 +271,7 @@ _xcodetoolspath=
 _sparklepath=
 _pkgconfig=pkg-config
 _sdlconfig=sdl2-config
+_prefer_sdl3=no
 _libcurlconfig=curl-config
 _libmikmodconfig=libmikmod-config
 _freetypeconfig=freetype-config
@@ -307,6 +309,7 @@ _indeo45=auto
 _hmi_audio=auto
 _hnm=auto
 _jyv1=auto
+_msmpeg4=auto
 _qdm2=auto
 _fmtowns_pc98_audio=auto
 _sid_audio=auto
@@ -349,12 +352,14 @@ add_component indeo3 "Indeo 3" "_indeo3" "USE_INDEO3"
 add_component indeo45 "Indeo 4&5" "_indeo45" "USE_INDEO45"
 add_component jyv1 "JYV1" "_jyv1" "USE_JYV1"
 add_component lua "Lua" "_lua" "USE_LUA"
+add_component mactoolbox "Mac Toolbox" "_mactoolbox" "USE_MACTOOLBOX"
 add_component mfc "MFC" "_mfc" "USE_MFC"
 add_component vpx "libvpx" "_vpx" "USE_VPX"
 add_component theoradec "libtheoradec" "_theoradec" "USE_THEORADEC"
 add_component midi "MIDI synthesis" "_midi" "USE_MIDI"
 add_component mpc "MPC" "_libmpcdec" "USE_MPCDEC"
 add_component mpeg2 "mpeg2" "_mpeg2" "USE_MPEG2"
+add_component msmpeg4 "Microsoft MPEG-4 v3" "_msmpeg4" "USE_MSMPEG4"
 add_component qdm2 "QDM2" "_qdm2" "USE_QDM2"
 add_component sid_audio "SID audio" "_sid_audio" "USE_SID_AUDIO"
 add_component svq1 "Sorenson Video 1" "_svq1" "USE_SVQ1"
@@ -1192,6 +1197,8 @@ Optional Libraries:
                            then you should pass:
                            '--with-sdl-prefix=/opt/mxe/usr/i686-w64-mingw32.static'
 
+  --prefer-sdl3               prefer SDL3 over SDL2 if both are available [no]
+
   --with-freetype2-prefix=DIR prefix where the freetype-config script is
                               installed (optional)
   --disable-freetype2         disable freetype2 TTF library usage [autodetect]
@@ -1439,6 +1446,7 @@ for ac_option in $@; do
 	--disable-ext-avx2)          _ext_avx2=no            ;;
 	--enable-ext-neon)           _ext_neon=yes           ;;
 	--disable-ext-neon)          _ext_neon=no            ;;
+	--prefer-sdl3)               _prefer_sdl3=yes        ;;
 	--with-fluidsynth-prefix=*)
 		arg=`echo $ac_option | cut -d '=' -f 2`
 		FLUIDSYNTH_CFLAGS="-I$arg/include"
@@ -4482,7 +4490,7 @@ fi
 # Setup SDL specifics for SDL based backends
 #
 if test "$_sdl" = auto ; then
-	if test "$_pkg_config" = "yes" && ($_pkgconfig --exists sdl || $_pkgconfig --exists sdl2); then
+	if test "$_pkg_config" = "yes" && test "$_prefer_sdl3" = "no" && ($_pkgconfig --exists sdl || $_pkgconfig --exists sdl2); then
 		find_sdlconfig
 		_sdlversion=`$_sdlconfig --version`
 		cat > $TMPC << EOF
@@ -5635,10 +5643,10 @@ if test "$_nfm" = auto ; then
 #include <nfmcore.h>
 #include <nfmutil.h>
 
-sOplInterface gOplIf;
+sFmInterface gOplIf;
 
 int main(void)
-{ 
+{
 	nfInit(NULL, NULL);
 
 	sOplInterfaceConfiguration ifCfg;
@@ -5652,7 +5660,7 @@ int main(void)
 	params.uParam.outputPort = OPT_INTERNAL;
     params.uParam.param = 0;
 
-    gOplIf = nfCreateInterface(ifCfg); 
+    gOplIf = nfCreateInterface(ifCfg);
 
     const int32_t retval = nfInitialiseInterface(&gOplIf, &params);
 
@@ -5660,7 +5668,7 @@ int main(void)
     {
 	 (void)nfDestroyInterface(&gOplIf);
      return 0;
-    }	
+    }
 
   return -1;
 }

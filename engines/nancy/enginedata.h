@@ -80,7 +80,8 @@ struct BSUM : public EngineData {
 	uint16 horizontalEdgesSize;
 	uint16 verticalEdgesSize;
 
-	uint16 numFonts;
+	// Nancy16 switched to system fonts, and no longer stores a count here
+	uint16 numFonts = 0;
 
 	uint16 playerTimeMinuteLength;
 	uint16 buttonPressTimeDelay;
@@ -181,6 +182,8 @@ struct TBOX : public EngineData {
 	// Nancy 10+ extra layout variables.
 	int32 maxScrollWidth = 0;
 	int32 firstLineY = 0; // added to the y-cursor when starting a new line
+	uint16 lineStartXCursor = 0; // left inset of the text within the text area
+	uint16 stripRightMargin = 0; // subtracted from contentWidth for the strip's text width
 	int32 unknown1 = 0;
 	int32 unknown2 = 0;
 	int32 contentWidth = 0;
@@ -479,7 +482,7 @@ struct ImageChunk : public EngineData {
 struct CVTX : public EngineData {
 	CVTX(Common::SeekableReadStream *chunkStream);
 
-	Common::HashMap<Common::String, Common::String> texts;
+	Common::HashMap<Common::String, Common::String, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> texts;
 };
 
 struct TABL : public EngineData {
@@ -552,7 +555,9 @@ struct TASK : public EngineData {
 	Common::Rect srcRect;
 	Common::Rect dstRect;
 	Common::Rect unkRect1;
-	Common::Rect unkRect2;
+	// Screen rect of the closed-caption text strip the taskbar draws (the
+	// ScrollTextBox's mini strip is positioned to it).
+	Common::Rect ccTextboxScreenRect;
 
 	ButtonRecord buttons[kNumButtons];
 };
@@ -613,7 +618,10 @@ struct UICL : public EngineData {
 	};
 
 	static const uint kNumDialPadSlots = 15;
+	// Nancy 10-12 have 10 online sub-buttons; Nancy 13 added an 11th (the Back
+	// button, Ghidra widget 0x10) at the front of the array.
 	static const uint kNumSubButtons = 10;
+	static const uint kNumSubButtonsNancy13 = 11;
 	static const uint kNumStatusLabels = 3;        // No Signal / No Access / Old Email Only
 
 	UICL(Common::SeekableReadStream *chunkStream);
@@ -635,9 +643,17 @@ struct UICL : public EngineData {
 	int32 statusTextY = 0;                    // text Y-baseline
 	SrcDestRectPair welcomeScreen;
 	Common::String statusLabels[kNumStatusLabels]; // "No Signal", "No Access", "Old Email Only"
-	SrcDestRectPair dialLabel;
-	SrcDestRectPair webLabel;
-	SrcDestRectPair dirLabel;
+	// Ribbon labels above the top-row buttons. In Nancy 13 the top row is
+	// Cam/Menu/Dir, and the review / delete screens reuse the same three columns
+	// with the Del/Send and Yes/No variants (all read from the 8-label block).
+	SrcDestRectPair dialLabel;  // Nancy 13: "CAM"
+	SrcDestRectPair webLabel;   // Nancy 13: "MENU"
+	SrcDestRectPair dirLabel;   // Nancy 13: "DIR"
+	SrcDestRectPair dialingLabel; // Nancy 13: "DIAL"
+	SrcDestRectPair delLabel;     // Nancy 13: "DEL"
+	SrcDestRectPair sendLabel;    // Nancy 13: "SEND"
+	SrcDestRectPair yesLabel;     // Nancy 13: "YES"
+	SrcDestRectPair noLabel;      // Nancy 13: "NO"
 
 	// Help "?" button (original button index 15). The visible Talk/Call key
 	// is dial-pad slot 12, not a separate widget.
@@ -663,7 +679,7 @@ struct UICL : public EngineData {
 	Common::Rect dirCursorSrc;
 	SrcDestRectPair dirHeading;
 
-	ThreeRectWidget subButtons[kNumSubButtons];
+	ThreeRectWidget subButtons[kNumSubButtonsNancy13];
 
 	// Heading/icon SRC+DEST pairs
 	SrcDestRectPair searchHeading;
@@ -673,24 +689,67 @@ struct UICL : public EngineData {
 	SrcDestRectPair helpHeading;
 	SrcDestRectPair browserHeading;
 
-	Common::Path holdMusicSound;
-	Common::Path answeringMachineSound;       // chunk+0xCE4 (33B): "SHAMA02"
-	int16 holdLink1 = 0;
-	int16 holdLink2 = 0;
-	Common::Path urlSound;
-	int16 urlLink1 = 0;
-	int16 urlLink2 = 0;
-	int16 urlLink3 = 0;
+	// One initial email entry and one initial web-search entry can be baked
+	// into the UICL chunk itself; the original seeds them at new-game init
+	// (its cellphone reset). An empty key means the game ships that list empty.
+	SearchLink initialEmail;
+	SearchLink initialSearch;
 
 	uint16 fontId1 = 0;
 	uint16 fontId2 = 0;
 
-	Common::Path outgoingRingSound;           // Process case 2 (post-dial ring)
-	Common::Path pickupSound;                 // Process cases 0/4 (call connect)
-	Common::Path invalidNumberSound;          // Process case 7 (try again)
+	Common::Path outgoingRingSound;           // post-dial ring
+	Common::Path pickupSound;                 // call connect
+	Common::Path invalidNumberSound;          // try again
 
 	uint16 contactCount = 0;
 	Common::Array<Contact> contacts;
+
+	// Nancy 13 added a camera / pictures sub-UI to the cell phone, which
+	// reorganized the chunk body. The fields below are only populated for
+	// Nancy 13 and later.
+	struct PictureRecord {
+		uint16 id = 0;
+		Common::Rect rect;
+		byte unknown[6] = {};
+	};
+
+	Common::Rect cameraViewSrcRect;           // camera viewfinder SRC on the overlay
+	int32 cameraTextX = 0;
+	int32 cameraTextY = 0;
+	Common::Path cameraViewImageName;         // "UI_CellCamView_OVL"
+	Common::Path cameraClickSound;
+	Common::Rect pictureDisplayRect;          // where a captured picture is shown
+	Common::Rect noPictureScreenRect;         // "no pictures" placeholder
+	Common::Path helpTextKey2;                // second CVTX key (phone-use help)
+	byte screenColors[9] = {};                // 3 RGB colors for the phone screen
+	Common::Array<PictureRecord> pictures;    // captured-picture slots (up to 50)
+};
+
+// Camera UI, added in Nancy 14. This is a standalone camera. While it is active,
+// the cursor becomes a large viewfinder rectangle that the player aims at the
+// scene; clicking photographs every subject whose region falls inside the framed
+// area.
+struct UICM : public EngineData {
+	UICM(Common::SeekableReadStream *chunkStream);
+
+	// One photographable region. When a picture is taken, every subject whose
+	// frameID matches the current scene view and whose coords lie within the
+	// viewfinder rectangle is captured: its subjectID is recorded in the picture
+	// and its flag (if any) is set.
+	struct CameraSubject {
+		HotspotDescription hotspot;   // frameID + region that can be photographed
+		int16 subjectID = -1;         // identifies what was photographed
+		FlagDescription flag;         // event flag set on capture (often unset)
+	};
+
+	Common::Path overlayImageName;            // "PHO_CameraView"
+	Common::Rect viewRect;                    // captured-picture bounds
+	uint16 maxPictures = 0;                   // most pictures the camera can hold
+	byte pictureCount = 0;                    // current picture count (0xff = none)
+	RandomSoundBlock shutterSound;            // picture-capture cue
+
+	Common::Array<CameraSubject> subjects;
 };
 
 // New conversation popup UI (the text strip that appears above the taskbar
@@ -715,6 +774,11 @@ struct UIIV : public EngineData {
 	UIPopupHeader header;
 	Common::Array<Common::Rect> slotSrcRects;       // 16 entries (image coords)
 	Common::Array<Common::Rect> slotDestRects;      // 16 entries (screen coords)
+	Common::Rect slotsHotspot;                      // Nancy13+: clickable region of the item slots
+	// When nonzero, items added while the popup is open are appended to the end
+	// of the inventory order instead of being inserted at the front (so the most
+	// recently dropped item ends up last). See Scene::addItemToInventory.
+	byte appendItemsWhileOpen = 0;
 	UIButtonSlot filters[kNumFilters];              // 6 entries
 	Common::Array<Common::Rect> tabCaptionSrcRects; // 6 entries
 	Common::Rect tabCaptionDestRect;                // on-screen target
@@ -730,6 +794,8 @@ struct UINB : public EngineData {
 	UIPopupHeader header;
 	UIButtonSlot tabs[kNumTabs];
 	Common::Rect textRect;
+	byte primaryTextColor[3] = {};    // RGB, Nancy 13+
+	byte secondaryTextColor[3] = {};  // RGB, Nancy 13+
 	uint16 primaryFontID = 0;
 	uint16 secondaryFontAttr = 0;
 	uint16 useFilenameTextFlag = 0;
@@ -740,9 +806,8 @@ struct UINB : public EngineData {
 	Common::Rect tabCaptionDestRect;                            // on-screen target
 };
 
-// Named-event table. Introduced in Nancy 12. Empty in Secret of the Old Clock
-// (the engine registers several built-in event categories at runtime on top of
-// whatever this chunk provides). Each record is a name followed by an id.
+// Event flags table. Introduced in Nancy 12, and replaces the event flag names
+// that were hardcoded in the executable. Each record is a name followed by an id.
 struct EVNT : public EngineData {
 	EVNT(Common::SeekableReadStream *chunkStream);
 
@@ -773,6 +838,105 @@ struct UIRC : public EngineData {
 	static const uint kItemRecordSize = 257;
 
 	Common::Array<ItemRecord> items;
+};
+
+// Music mix table. Introduced in Nancy 13. Each record maps a short location
+// code (e.g. "BRI", "CAM", "TUT") to the set of music / ambience tracks that
+// may play there ("TacitA"/"TacitB" are the silence variants).
+struct MMIX : public EngineData {
+	struct Record {
+		Common::String name;
+		Common::Array<Common::String> musicNames;
+	};
+
+	MMIX(Common::SeekableReadStream *chunkStream);
+
+	Common::Array<Record> records;
+};
+
+// Level name table. Introduced in Nancy 15. Maps a short scene-prefix
+// code (e.g. "KAP") to its human-readable level name (e.g. "Kapu Cave").
+struct LVLN : public EngineData {
+	LVLN(Common::SeekableReadStream *chunkStream);
+
+	Common::Array<Common::String> levelCodes;	// e.g. "KAP"
+	Common::Array<Common::String> levelNames;	// e.g. "Kapu Cave"
+};
+
+// Player-character selector UI. Introduced in Nancy 15, where the player
+// alternates between Nancy and the Hardy Boys.
+// Each entry supplies the image names for one selectable character.
+struct PCUI : public EngineData {
+	struct Character {
+		Common::String imageName;			// e.g. "PUI_CRE_Nancy"
+		Common::String defaultImageName;	// e.g. "PUI_CRE_Nancy_Default"
+		uint16 id = 0;
+	};
+
+	PCUI(Common::SeekableReadStream *chunkStream);
+
+	byte flag = 0;
+	Common::Path uiName;					// Nancy 16+, e.g. "UI_Main"
+	Common::Array<Character> characters;	// indexed by the on-disk slot byte
+};
+
+// Fixed layout/graphics block for the Nancy 15 player-character ("Design
+// Select") switcher screen. Companion to PCUI. Supplies the background and
+// overlay image names plus the on-screen button/selection rects.
+struct LDSN : public EngineData {
+	LDSN(Common::SeekableReadStream *chunkStream);
+
+	Common::String backgroundImageName;	// "UI_DesignSelectBG"
+	Common::String overlayImageName;	// "UI_DesignSelect_OVL"
+	Common::Array<Common::Rect> rects;	// button + per-character selection rects
+};
+
+// Player-UI header. Introduced in Nancy 15, first chunk of each character's
+// PUI_CRE_<char>_DEFAULT_BOOT file. Names the UI theme and its swatch image.
+struct PUIH : public EngineData {
+	PUIH(Common::SeekableReadStream *chunkStream);
+
+	byte flag = 0;
+	Common::String themeName;	// e.g. "Nancy Classic Look (Default)"
+	Common::String swatchImageName;	// e.g. "UI_Swatch_ND"
+
+	// Nancy 16+. Names of the IFFs describing the journal and task list popups
+	Common::Path journalPrepName;	// e.g. "Journal_Prep"
+	Common::Path tasklistPrepName;	// e.g. "Tasklist_Prep"
+};
+
+// Task list sounds. Introduced in Nancy 16 (per-character boot). Holds two
+// banks of interchangeable sound names, sharing a channel, loop count and volume.
+struct TSKL : public EngineData {
+	struct SoundBank {
+		Common::Array<Common::Path> soundNames;
+		uint16 channelID = 0;
+		uint32 numLoops = 0;
+		uint16 volume = 0;
+	};
+
+	TSKL(Common::SeekableReadStream *chunkStream);
+
+	SoundBank soundBanks[2];
+};
+
+// Player-UI random-sound bank. Introduced in Nancy 15 (per-character boot).
+// Holds a base name plus a channel/volume and a list of sound groups, each
+// group being a set of interchangeable (randomly-picked) sound variants -
+// e.g. the character's "can't do that" response cues.
+struct PUIV : public EngineData {
+	struct SoundGroup {
+		byte tag = 0;
+		Common::Array<Common::String> variants;
+	};
+
+	PUIV(Common::SeekableReadStream *chunkStream);
+
+	Common::String name;		// e.g. "DEF_ND_CANT"
+	uint16 channelID = 0;		// shared playback channel (inferred)
+	uint32 unknown = 0;
+	uint16 volume = 0;			// shared volume (inferred)
+	Common::Array<SoundGroup> soundGroups;
 };
 } // End of namespace Nancy
 

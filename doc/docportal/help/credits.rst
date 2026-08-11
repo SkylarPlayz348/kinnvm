@@ -715,6 +715,15 @@ Hades Challenge
    * - Vladimir Serbinenko/Google
      -
 
+Harvester
+^^^^^^^^^
+
+.. list-table::
+   :widths: 35 65
+
+   * - Alex Bevilacqua
+     -
+
 HDB
 ^^^
 
@@ -890,6 +899,17 @@ M4
    * - Arnaud Boutonné
      -
 
+Macs2
+^^^^^
+
+.. list-table::
+   :widths: 35 65
+
+   * - Florian Mehm
+     -
+   * - Martin Gerhardy
+     -
+
 MacVenture
 ^^^^^^^^^^
 
@@ -1018,6 +1038,8 @@ Nancy
 
    * - Kaloyan Chehlarski
      -
+   * - Filippos Karapetis
+     -
    * - Walter van Niftrik
      -
 
@@ -1089,6 +1111,8 @@ PhoenixVR
      -
    * - Hermann Noll
      - Help with 3D VR projections
+   * - Scorp
+     - Dracula 1/2 and Messenger support, Engine improvements
 
 Pink
 ^^^^
@@ -1227,6 +1251,8 @@ SCUMM
      - (retired)
    * - Jonathan Gray
      - (retired)
+   * - Gustavo Grieco
+     - Rebel Assault I & II
    * - Vincent Hamm
      - (retired)
    * - Max Horn

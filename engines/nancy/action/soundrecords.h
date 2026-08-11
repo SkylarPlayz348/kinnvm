@@ -110,8 +110,22 @@ public:
 	SceneChangeDescription _sceneChange;
 	FlagDescription _flag;
 
+	// Nancy13+: a list of flags (was a single flag) and a multi-name random sound.
+	Common::Array<FlagDescription> _flags;
+	byte _afterSoundAction = 0;	// Nancy13+: 1 dismisses the text box overlay
+
+	// Subtitle shown in the game textbox while the sound plays. In Nancy13+ this
+	// is resolved from the sound name (see readDataNancy13); earlier games store
+	// it explicitly in the closed-caption records below.
+	Common::String _ccText;
+
+	Common::String getRecordExtraInfo() const override { return Common::String::format("Scene %d", _sceneChange.sceneID); }
+
 protected:
 	Common::String getRecordTypeName() const override;
+
+	void readDataNancy13(Common::SeekableReadStream &stream);
+	void applyAfterSoundAction();
 };
 
 // The same as PlaySound, but with the addition of captioning text,
@@ -122,8 +136,6 @@ public:
 	void execute() override;
 
 	void readCCText(Common::SeekableReadStream &stream, Common::String &out);
-
-	Common::String _ccText;
 
 protected:
 	Common::String getRecordTypeName() const override;
@@ -173,7 +185,8 @@ public:
 	Common::Array<HotspotDescription> _hotspots; // 0x31
 
 	bool canHaveHotspot() const override { return true; }
-
+	
+	Common::String getRecordExtraInfo() const override { return Common::String::format("Scene %d", _sceneChange.sceneID); }
 protected:
 	Common::String getRecordTypeName() const override { return "PlaySoundMultiHS"; }
 };

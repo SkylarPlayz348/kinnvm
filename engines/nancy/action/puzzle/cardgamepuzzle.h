@@ -27,10 +27,9 @@
 namespace Nancy {
 namespace Action {
 
-// Two-player card game versus an AI opponent, new in Nancy 11 (Curse of Blackmoor Manor, AR 246).
-// Cards are dealt into a shared grid; each player stacks up to three cards per column, and a full
-// column scores a "set". Implementation is staged: this currently parses the data chunk and sets up
-// the board; the deal/match/AI gameplay is being filled in incrementally.
+// A "Go fish!" card game, new in Nancy 11 (Curse of Blackmoor Manor, AR 246).
+// There are two variants, one with the cards placed in a grid vs a human NPC, and
+// one with the cards placed in columns vs an automaton.
 class CardGamePuzzle : public RenderActionRecord {
 public:
 	CardGamePuzzle() : RenderActionRecord(7) {}
@@ -61,12 +60,23 @@ protected:
 
 	Common::String getRecordTypeName() const override { return "CardGamePuzzle"; }
 
-	bool dealOne(int player); // draw a card from the deck to a side; false if the deck is empty
+	int dealOne(int player);  // draw a card from the deck to a side; returns its column, or -1 if the deck is empty
 	void drawBoard();
-	// Current side takes every opponent card in the given column; returns true if a card moved.
-	bool playColumn(int col);
-	int aiPickColumn();       // the AI's column choice, or -1 if it has no productive move
-	void finishMove();        // draw a card, pass the turn, run the AI, detect the end of the game
+	// True when the scene has a bottom button row (the player clicks those); false when it doesn't,
+	// in which case the player clicks their own cards in the tableau directly.
+	bool usesColumnButtons() const { return _columnButtons[0].top != _columnButtons[0].bottom; }
+	// The column the player is pointing at (owning 1-2 cards in it), or -1 if none is under the mouse.
+	int columnUnderMouse(const Common::Point &mousePos) const;
+	bool hasPlayableColumn(int side) const; // whether a side holds any incomplete rank it can ask for
+	int aiPickColumn();       // the AI's chosen rank to ask for, or -1 if it holds no incomplete rank
+
+	// Go Fish turn flow, driven as a small state machine so asks and answers are voiced and sequenced.
+	bool takeCards(int side, int col); // transfer every opponent card of a rank to the side; true if any moved
+	void beginAsk(int side, int col);  // start an ask: play the "do you have any X?" line, enter kAskSound
+	void resolveAsk();                 // ask voice done: take or go fish, play the answer, start its wait
+	void advanceTurn();                // answer done: ask again, or pass the turn to the other side
+	void startPlayerTurn();            // enter kWaitInput (or auto-go-fish + pass if no rank to ask)
+	void startAiAsk();                 // the AI picks a rank and asks, or goes fish and passes
 	void endGame();
 	// Compare side 1's grid against a pre-move snapshot and start sliding the changed cards.
 	void startMoveAnimation(const bool beforeGrid[kMaxRows][kMaxCols]);
@@ -99,6 +109,14 @@ protected:
 	uint16 _moveAnimDelta = 0;
 	uint32 _moveAnimDelay = 0;
 
+	// Automaton (Betty) variant: each turn a hand-delivery sprite is frame-cycled at a fixed slot,
+	// per side. Indexed by side (1 = player @0x993/0x99b/0xa8b, 0 = Betty @0xa9b/0xaa3/0xb93). The
+	// grid-vs-human variant leaves these empty (frame count 0), so the animation is simply skipped.
+	uint16 _dealFrameCount[2] = {};
+	uint32 _dealFrameDelay[2] = {};
+	Common::Array<Common::Rect> _dealFrames[2]; // hand-sprite frame src rects, by side
+	Common::Rect _deliverDest[2];               // where the hand sprite is drawn, by side
+
 	// Outcome scenes (data+0x1304 / 0x1320). The win block has two scene ids that share one set of
 	// transition params (frame/scroll/sound), held in _winScene; the id is chosen by the result.
 	uint16 _winSceneStartPlayer = 0; // data+0x1304
@@ -113,9 +131,11 @@ protected:
 	// Voiced lines / SFX (all on the card-game channel). Read selectively from the 0xba3..0x1304 block.
 	Common::String _moveVoiceName;         // data+0xbc4 (card-move SFX)
 	Common::String _dealVoiceName;         // data+0xbe5 (card-deal SFX)
-	Common::String _matchVoice[2][kMaxCols]; // data+0xc2b (AI) / 0xf68 (player), keyed by column
-	Common::String _enemyScoredVoiceName;  // data+0xee0 (a column completed for the AI)
-	Common::String _playerScoredVoiceName; // data+0x121d (a column completed for the player)
+	Common::String _matchVoice[2][kMaxCols]; // the "do you have any X?" ask, by side; 0xc2b (AI) / 0xf68 (player)
+	Common::String _madeMoveVoice[2];      // the "here you go" answer, by side; 0xe7d (player) / 0x11ba (AI)
+	Common::String _noMoveVoice[2];        // the "go fish" answer, by side; 0xdd8 (player) / 0x1115 (AI)
+	Common::String _enemyScoredVoiceName;  // data+0xee0 (a set completed for the AI)
+	Common::String _playerScoredVoiceName; // data+0x121d (a set completed for the player)
 	Common::String _endVoiceName[2];       // data+0xf22 (AI wins) / 0x125f (player wins)
 	SoundDescription _voiceSound;
 
@@ -123,12 +143,27 @@ protected:
 	bool _awaitingEnd = false;
 	uint32 _endWaitUntil = 0;
 
+	// Turn state machine. The mover asks, the ask voice plays, the cards move and the answer voice
+	// plays, then the turn either repeats (a take) or passes. The AI's asks run through the same
+	// phases so its turn is visible (Nancy's cards being taken) and voiced.
+	enum Phase {
+		kWaitInput,   // the player's turn: waiting for a card click
+		kAskSound,    // a "do you have any X?" voice is playing
+		kAnswerSound, // an answer voice is playing and/or the taken cards are sliding
+		kAiDelay      // a short pause before the AI's next ask
+	};
+	Phase _phase = kWaitInput;
+	int _mover = 1;        // which side is currently asking (0 = AI/Jane, 1 = player/Nancy)
+	int _askedCol = -1;    // the rank being asked for
+	bool _goAgain = false; // whether the mover asks again once the answer finishes
+	uint32 _aiDelayUntil = 0;
+
 	// Runtime board state
 	Graphics::ManagedSurface _image;
 	PlayerBoard _board[2];
 	byte _availMap[kMaxRows][kMaxCols]; // shared deck: 1 = card still on the table
 	int _deckRemaining = 0;
-	int _currentTurn = 0;               // which side is to play (the player's side draws the grid)
+	int _currentTurn = 0;               // side owning the turn highlight (mirrors _mover)
 	int _lastAiColumn = -1;             // the AI avoids immediately repeating its previous column
 	bool _gameOver = false;
 
@@ -140,6 +175,12 @@ protected:
 	int _animStep = 0;
 	uint32 _animNextStep = 0;
 	bool _animating = false;
+
+	// The mover's hand-delivery sprite, cycled once per turn (automaton variant only).
+	bool _handAnimActive = false;
+	int _handAnimSide = 1;
+	uint16 _handFrame = 0;
+	uint32 _handNextFrame = 0;
 };
 
 } // End of namespace Action

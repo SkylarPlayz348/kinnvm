@@ -121,6 +121,7 @@ Gui::Gui(MacVentureEngine *engine, Common::MacResManager *resman) {
 	_cursor = new Cursor(this);
 
 	_consoleText = new ConsoleText(this);
+	_needsRedraw = true;
 	_graphics = nullptr;
 	_diplomaImage = nullptr;
 	_diplomaWindow = nullptr;
@@ -192,10 +193,13 @@ void Gui::reloadInternals() {
 }
 
 void Gui::draw() {
-	// Will be performance-improved after the milestone
-	_wm.setFullRefresh(true);
+	if (_needsRedraw) {
+		_wm.setFullRefresh(true);
 
-	drawWindows();
+		drawWindows();
+
+		_needsRedraw = false;
+	}
 
 	_wm.draw();
 
@@ -203,6 +207,10 @@ void Gui::draw() {
 	drawDialog();
 	// TODO: When window titles with custom borders are in MacGui, this should be used.
 	//drawWindowTitle(kMainGameWindow, _mainGameWindow->getWindowSurface());
+}
+
+void Gui::markRedraw() {
+	_needsRedraw = true;
 }
 
 void Gui::drawMenu() {
@@ -490,23 +498,29 @@ WindowReference Gui::createInventoryWindow(ObjID objRef) {
 	WindowData newData;
 	GlobalSettings settings = _engine->getGlobalSettings();
 	if (!_objToInvRef.contains(objRef)) {
-		_objToInvRef[objRef] = (WindowReference)(_inventoryWindows.size() + kInventoryStart); // This is a HACK
-		newData.refcon = _objToInvRef[objRef];
-	} else {
-		newData.refcon = _objToInvRef[objRef];
+		WindowReference newRef = kInventoryStart;
+		bool taken = true;
+		while (taken) {
+			taken = false;
+			for (auto &invWindowData : _inventoryWindows) {
+				if (invWindowData.ref == newRef) {
+					taken = true;
+					newRef = (WindowReference)(newRef + 1);
+					break;
+				}
+			}
+		}
+		_objToInvRef[objRef] = newRef;
 	}
+	newData.refcon = _objToInvRef[objRef];
 
-	if (_windowData->back().refcon < 0x80) { // There is already another inventory window
-		newData.bounds = _windowData->back().bounds; // Inventory windows are always last
-		newData.bounds.translate(newData.bounds.left + settings._invOffsetX, newData.bounds.top + settings._invOffsetY);
-	} else {
-		newData.bounds = Common::Rect(
-			settings._invLeft,
-			settings._invTop,
-			settings._invLeft + settings._invWidth,
-			settings._invTop + settings._invHeight
-		);
-	}
+	int cascade = _inventoryWindows.size();
+	newData.bounds = Common::Rect(
+		settings._invLeft + cascade * settings._invOffsetX,
+		settings._invTop + cascade * settings._invOffsetY,
+		settings._invLeft + cascade * settings._invOffsetX + settings._invWidth,
+		settings._invTop + cascade * settings._invOffsetY + settings._invHeight
+	);
 	newData.type = kInvWindow;
 	newData.hasCloseBox = true;
 	newData.visible = true;
@@ -519,10 +533,11 @@ WindowReference Gui::createInventoryWindow(ObjID objRef) {
 	loadBorders(newWindow, newData.type);
 	newWindow->resizeInner(newData.bounds.width(), newData.bounds.height() - bbs.bottomScrollbarHeight);
 	newWindow->move(newData.bounds.left - bbs.leftOffset, newData.bounds.top - bbs.topOffset);
-	newWindow->setCallback(inventoryWindowCallback, new InventoryCallbackStruct{this, newData.refcon});
+	InventoryCallbackStruct *callbackData = new InventoryCallbackStruct{this, newData.refcon};
+	newWindow->setCallback(inventoryWindowCallback, callbackData);
 	//newWindow->setCloseable(true);
 
-	_inventoryWindows.push_back(InventoryWindowData{newWindow, newData.refcon});
+	_inventoryWindows.push_back(InventoryWindowData{newWindow, newData.refcon, callbackData});
 
 	debugC(1, kMVDebugGUI, "Create new inventory window. Reference: %d", newData.refcon);
 	return newData.refcon;
@@ -839,17 +854,9 @@ void Gui::drawInventories() {
 		drawObjectsInWindow(data, srf);
 
 		if (data.refcon == _lassoWinRef && _lassoBeingDrawn) {
-			Common::Point topLeft(_lassoStart);
-			topLeft.y -= 12;
-			Common::Point bottomRight(_lassoEnd);
-			bottomRight.y -= 12;
-			if (topLeft.x > bottomRight.x)
-				SWAP(topLeft.x, bottomRight.x);
-			if (topLeft.y > bottomRight.y)
-				SWAP(topLeft.y, bottomRight.y);
-			Common::Rect lassoRect(topLeft, bottomRight);
+			Common::Rect lassoRect = calculateLassoRect(win);
 
-			Graphics::MacPlotData plotData(srf, nullptr, &_wm.getBuiltinPatterns(), kPatternCheckers2, 0, 0, 1, kColorWhite, false);
+			Graphics::MacPlotData plotData(srf, nullptr, &_wm.getBuiltinPatterns(), kPatternCheckers2, 0, 0, {1, 1}, kColorWhite, false);
 			Graphics::Primitives &primitives = _wm.getDrawPrimitives();
 			primitives.drawRect(lassoRect, kColorBlack, &plotData);
 		}
@@ -956,15 +963,19 @@ void Gui::drawDraggedObjects() {
 			ImageAsset *asset = _assets[_draggedObjects[i].id];
 
 			// In case of overflow from the right/top
-			uint w = asset->getWidth() + MIN((int16)0, _draggedObjects[i].pos.x);
-			uint h = asset->getHeight() + MIN((int16)0, _draggedObjects[i].pos.y);
+			int w = asset->getWidth() + MIN((int16)0, _draggedObjects[i].pos.x);
+			int h = asset->getHeight() + MIN((int16)0, _draggedObjects[i].pos.y);
 
 			// In case of overflow from the bottom/left
 			if (_draggedObjects[i].pos.x > 0 && _draggedObjects[i].pos.x + w > kScreenWidth) {
-				w = kScreenWidth - _draggedObjects[i].pos.x;
+				w = MAX(0, kScreenWidth - _draggedObjects[i].pos.x);
 			}
 			if (_draggedObjects[i].pos.y > 0 && _draggedObjects[i].pos.y + h > kScreenHeight) {
-				h = kScreenHeight - _draggedObjects[i].pos.y;
+				h = MAX(0, kScreenHeight - _draggedObjects[i].pos.y);
+			}
+
+			if (w <= 0 || h <= 0) {
+				continue;
 			}
 
 			Common::Point target = _draggedObjects[i].pos;
@@ -1123,6 +1134,24 @@ void Gui::printText(const Common::String &text) {
 	_outConsoleWindow->setEditable(true);
 	_outConsoleWindow->appendText(text + '\n');
 	_outConsoleWindow->setEditable(false);
+	_outConsoleWindow->scrollToBottom();
+}
+
+uint Gui::getConsoleRowCount() {
+	return _outConsoleWindow->getRowCount();
+}
+
+uint Gui::getConsoleVisibleRows() {
+	int lineHeight = _outConsoleWindow->getLineHeight(0) + _outConsoleWindow->getLineSpacing();
+	if (lineHeight <= 0) {
+		return 1;
+	}
+	return MAX(1, _outConsoleWindow->getInnerDimensions().height() / lineHeight);
+}
+
+void Gui::setWaitCursor(bool wait) {
+	_wm.replaceCursor(wait ? Graphics::kMacCursorWatch : Graphics::kMacCursorArrow);
+	g_system->updateScreen();
 }
 
 void Gui::showPrebuiltDialog(PrebuiltDialogs type, const Common::String &title) {
@@ -1225,11 +1254,11 @@ WindowData &Gui::findWindowData(WindowReference reference) {
 	assert(_windowData);
 
 	Common::List<WindowData>::iterator iter = _windowData->begin();
-	while (iter->refcon != reference && iter != _windowData->end()) {
+	while (iter != _windowData->end() && iter->refcon != reference) {
 		iter++;
 	}
 
-	if (iter->refcon == reference)
+	if (iter != _windowData->end())
 		return *iter;
 
 	error("GUI: Could not locate the desired window data");
@@ -1289,8 +1318,8 @@ WindowReference Gui::findObjWindow(ObjID objID) {
 		}
 	}
 
-	for (uint i = kInventoryStart; i < _inventoryWindows.size() + kInventoryStart; i++) {
-		const WindowData &data = getWindowData((WindowReference)i);
+	for (auto &invWindowData : _inventoryWindows) {
+		const WindowData &data = getWindowData(invWindowData.ref);
 		if (data.objRef == objID) {
 			return data.refcon;
 		}
@@ -1405,6 +1434,23 @@ void Gui::handleDragRelease(bool shiftPressed, bool isDoubleClick) {
 	}
 }
 
+Common::Rect Gui::calculateLassoRect(Graphics::MacWindow *win) {
+	Common::Point topLeft(_lassoStart);
+	Common::Point bottomRight(_lassoEnd);
+	if (topLeft.x > bottomRight.x)
+		SWAP(topLeft.x, bottomRight.x);
+	if (topLeft.y > bottomRight.y)
+		SWAP(topLeft.y, bottomRight.y);
+
+	Common::Rect lassoRect(topLeft, bottomRight);
+
+	const Common::Rect &innerDims = win->getInnerDimensions();
+	const Common::Rect &outerDims = win->getDimensions();
+	lassoRect.translate(outerDims.left - innerDims.left, outerDims.top - innerDims.top);
+
+	return lassoRect;
+}
+
 Common::Rect Gui::calculateClickRect(Common::Point clickPos, Common::Rect windowBounds) {
 	int left = clickPos.x - windowBounds.left;
 	int top = clickPos.y - windowBounds.top;
@@ -1426,6 +1472,8 @@ Common::Point Gui::localizeTravelledDistance(Common::Point point, WindowReferenc
 void Gui::removeInventoryWindow(WindowReference ref) {
 	for (auto &invWinData: _inventoryWindows) {
 		if (invWinData.ref == ref) {
+			invWinData.win->setCallback(nullptr, nullptr);
+			delete invWinData.callbackData;
 			_inventoryWindows.erase(&invWinData);
 			break;
 		}
@@ -1435,6 +1483,14 @@ void Gui::removeInventoryWindow(WindowReference ref) {
 	for (it = _windowData->begin(); it != _windowData->end(); it++) {
 		if (it->refcon == ref) {
 			_windowData->erase(it);
+			break;
+		}
+	}
+
+	Common::HashMap<ObjID, WindowReference>::iterator objIt;
+	for (objIt = _objToInvRef.begin(); objIt != _objToInvRef.end(); ++objIt) {
+		if (objIt->_value == ref) {
+			_objToInvRef.erase(objIt);
 			break;
 		}
 	}
@@ -1528,12 +1584,8 @@ bool diplomaWindowCallback(Graphics::WindowClick click, Common::Event &event, vo
 
 bool inventoryWindowCallback(Graphics::WindowClick click, Common::Event &event, void *data) {
 	InventoryCallbackStruct *g = (InventoryCallbackStruct *)data;
-	bool res = g->gui->processInventoryEvents(g->ref, click, event);
 
-	if (event.type == Common::EVENT_LBUTTONUP && click == Graphics::kBorderCloseButton)
-		delete g;
-
-	return res;
+	return g->gui->processInventoryEvents(g->ref, click, event);
 }
 
 void menuCommandsCallback(int action, Common::String &text, void *data) {
@@ -1636,6 +1688,9 @@ Common::Point Gui::getObjMeasures(ObjID obj) {
 bool Gui::processEvent(Common::Event &event) {
 	bool processed = false;
 
+	if (event.type != Common::EVENT_MOUSEMOVE)
+		markRedraw();
+
 	processed |= _cursor->processEvent(event);
 
 	if (_dialog && _dialog->processEvent(event)) {
@@ -1645,7 +1700,10 @@ bool Gui::processEvent(Common::Event &event) {
 	if (event.type == Common::EVENT_MOUSEMOVE) {
 		if (_draggedObjects.size() && _draggedObjects[0].id != 0) {
 			moveDraggedObjects(event.mouse);
+			markRedraw();
 		}
+		if (_lassoBeingDrawn)
+			markRedraw();
 		processed = true;
 	} else if (event.type == Common::EVENT_LBUTTONUP) {
 		clearDraggedObjects();
@@ -1834,13 +1892,8 @@ bool Gui::processInventoryEvents(WindowReference ref, WindowClick click, Common:
 		if (_lassoBeingDrawn && !_draggedObjects.size()) {
 			WindowData &data = findWindowData((WindowReference)ref);
 
-			Common::Point topLeft(_lassoStart);
-			Common::Point bottomRight(_lassoEnd);
-			if (topLeft.x > bottomRight.x)
-				SWAP(topLeft.x, bottomRight.x);
-			if (topLeft.y > bottomRight.y)
-				SWAP(topLeft.y, bottomRight.y);
-			Common::Rect lassoArea(topLeft, bottomRight);
+			Common::Rect lassoArea = calculateLassoRect(findWindow(ref));
+			lassoArea.translate(data.scrollPos.x, data.scrollPos.y);
 
 			Common::Array<ObjID> &selectedObjects = _engine->getSelectedObjects();
 			bool selectSelfWindow = true;

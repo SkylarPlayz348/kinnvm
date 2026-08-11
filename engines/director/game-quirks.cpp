@@ -24,7 +24,11 @@
 #include "common/memstream.h"
 #include "common/platform.h"
 #include "common/savefile.h"
+#include "common/tokenizer.h"
 #include "director/director.h"
+#include "director/movie.h"
+#include "director/lingo/lingo-object.h"
+#include "director/lingo/xtras/s/smacker.h"
 
 namespace Director {
 
@@ -163,6 +167,9 @@ struct CachedFile {
 	// Mission Code: Millennium expects the installer to have added an empty save file.
 	{"mcmillennium", Common::kPlatformWindows, "pc/players", (const byte *)"", 0},
 
+	// Noir has a config file which it expects to contain information about the system paths.
+	{"noir", Common::kPlatformWindows, "NOIRCNFG.TXT", (const byte *)"1 C:\\ C:\\", -1},
+
 	// Pingu: A Barrel of Fun! expects a text file containing system paths to be written by InstallShield,
 	// and the placeholder text file in the archive will not work.
 	{ "pingu1", Common::kPlatformWindows, "PINGUDRV.PNG", (const byte *)"C:\\\r\nC:\\\r\nD:\\\r\n", -1},
@@ -183,6 +190,33 @@ struct SaveFilePath {
 	{ nullptr, Common::kPlatformUnknown, nullptr },
 };
 
+static void quirkSmacker(const Common::String &whichDocument) {
+	Common::StringTokenizer tok(whichDocument);
+	Common::String videoFile = tok.nextToken();
+	SmackerXtra::playSmacker(videoFile, g_director->getCurrentMovie()->_movieRect, true);
+}
+
+struct LingoOpenWrapper {
+	const char *target;
+	Common::Platform platform;
+	const char *application;
+	void (*quirk)(const Common::String &whichDocument);
+} const lingoOpenWrappers[] = {
+	{"noir", Common::kPlatformWindows, "C:\\SPLAY", quirkSmacker },
+	{ nullptr, Common::kPlatformUnknown, nullptr, nullptr }
+};
+
+bool DirectorEngine::lingoOpenWrapper(const char *target, Common::Platform platform, const Common::String &whichApplication, const Common::String &whichDocument) {
+	for (auto q = lingoOpenWrappers; q->target != nullptr; q++) {
+		if (q->platform == Common::kPlatformUnknown || q->platform == platform)
+			if (!strcmp(q->target, target) && whichApplication.equalsIgnoreCase(q->application)) {
+				q->quirk(whichDocument);
+				return true;
+				break;
+			}
+	}
+	return false;
+}
 
 static void quirkWarlock() {
 	g_director->_loadSlowdownFactor = 150000;  // emulate a 1x CD drive
@@ -327,6 +361,7 @@ const struct Quirk {
 	{ "flipper", Common::kPlatformWindows, &quirkPretend16Bit },
 	{ "incarnatia", Common::kPlatformMacintosh, &quirkPretend16Bit },
 	{ "incarnatia", Common::kPlatformWindows, &quirkPretend16Bit },
+	{ "loewe4", Common::kPlatformWindows, &quirkPretend16Bit },
 
 	// The standard FileIO xlib exists as both an XObject and Xtra version, with similar functionality
 	// but incompatible APIs.
@@ -343,6 +378,9 @@ const struct Quirk {
 	// Stay Tooned is D5, but expects the XObject version to be used.
 	{ "staytooned", Common::kPlatformWindows, &quirkForceFileIOXObj },
 	{ "staytooned", Common::kPlatformMacintosh, &quirkForceFileIOXObj },
+
+	// Noir is D5, but expects the XObject version to be used.
+	{ "noir", Common::kPlatformWindows, &quirkForceFileIOXObj },
 
 	// Ingenious bundles both the Xtra and XObject editions in the Xtra folder, but expects the XObject
 	// version to be available.

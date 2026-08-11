@@ -26,6 +26,7 @@
 #include "engines/nancy/font.h"
 #include "engines/nancy/graphics.h"
 #include "engines/nancy/input.h"
+#include "engines/nancy/puzzledata.h"
 #include "engines/nancy/resource.h"
 #include "engines/nancy/sound.h"
 
@@ -127,6 +128,10 @@ Taskbar::ButtonState Taskbar::restingState(uint index) const {
 	if (index >= TASK::kNumButtons) {
 		return kButtonIdle;
 	}
+	// While a popup is open every button is disabled.
+	if (_popupLockout) {
+		return kButtonDisabled;
+	}
 	if (!_enabled[index]) {
 		return kButtonDisabled;
 	}
@@ -202,11 +207,32 @@ void Taskbar::toggleButton(uint index, bool enabled) {
 	}
 }
 
+void Taskbar::setPopupLockout(bool locked) {
+	if (_popupLockout == locked) {
+		return;
+	}
+	_popupLockout = locked;
+
+	// Repaint every button in its new resting state (all disabled while locked,
+	// back to idle/badge when the popup closes) and drop any lingering hover.
+	_hoveredButton = -1;
+	auto *taskData = GetEngineData(TASK);
+	if (!taskData) {
+		return;
+	}
+	for (uint i = 0; i < TASK::kNumButtons; ++i) {
+		if (isButtonSlotUsed(taskData->buttons[i])) {
+			drawButton(i, restingState(i));
+		}
+	}
+}
+
 void Taskbar::setNotification(uint buttonIndex, uint subCategory) {
 	if (buttonIndex >= TASK::kNumButtons || subCategory >= kNumNotificationSubCategories) {
 		return;
 	}
 	_notifications[buttonIndex][subCategory] = true;
+	persistNotifications(buttonIndex);
 
 	if ((int)buttonIndex != _hoveredButton) {
 		drawButton(buttonIndex, restingState(buttonIndex));
@@ -218,6 +244,7 @@ void Taskbar::clearNotification(uint buttonIndex, uint subCategory) {
 		return;
 	}
 	_notifications[buttonIndex][subCategory] = false;
+	persistNotifications(buttonIndex);
 
 	if ((int)buttonIndex != _hoveredButton) {
 		drawButton(buttonIndex, restingState(buttonIndex));
@@ -231,6 +258,7 @@ void Taskbar::clearAllNotifications(uint buttonIndex) {
 	for (uint s = 0; s < kNumNotificationSubCategories; ++s) {
 		_notifications[buttonIndex][s] = false;
 	}
+	persistNotifications(buttonIndex);
 
 	if ((int)buttonIndex != _hoveredButton) {
 		drawButton(buttonIndex, restingState(buttonIndex));
@@ -244,6 +272,7 @@ void Taskbar::setDisabledRange(uint buttonIndex, int16 startScene, int16 endScen
 	_overrides[buttonIndex].active = true;
 	_overrides[buttonIndex].startScene = startScene;
 	_overrides[buttonIndex].endScene = endScene;
+	persistOverride(buttonIndex);
 
 	if ((int)buttonIndex != _hoveredButton) {
 		drawButton(buttonIndex, restingState(buttonIndex));
@@ -256,6 +285,7 @@ void Taskbar::clearButtonOverride(uint buttonIndex) {
 	}
 	_overrides[buttonIndex].active = false;
 	_overrides[buttonIndex].clickSoundMode = kClickSoundDefault;
+	persistOverride(buttonIndex);
 
 	if ((int)buttonIndex != _hoveredButton) {
 		drawButton(buttonIndex, restingState(buttonIndex));
@@ -267,6 +297,51 @@ void Taskbar::setClickSoundMode(uint buttonIndex, uint mode) {
 		return;
 	}
 	_overrides[buttonIndex].clickSoundMode = mode;
+	persistOverride(buttonIndex);
+}
+
+void Taskbar::persistOverride(uint index) {
+	if (index >= TASK::kNumButtons || index >= TaskbarData::kNumButtons) {
+		return;
+	}
+	TaskbarData *data = (TaskbarData *)NancySceneState.getPuzzleData(TaskbarData::getTag());
+	if (!data) {
+		return;
+	}
+	data->overrides[index].active = _overrides[index].active;
+	data->overrides[index].startScene = _overrides[index].startScene;
+	data->overrides[index].endScene = _overrides[index].endScene;
+	data->overrides[index].clickSoundMode = (uint16)_overrides[index].clickSoundMode;
+}
+
+void Taskbar::persistNotifications(uint index) {
+	if (index >= TASK::kNumButtons || index >= TaskbarData::kNumButtons) {
+		return;
+	}
+	TaskbarData *data = (TaskbarData *)NancySceneState.getPuzzleData(TaskbarData::getTag());
+	if (!data) {
+		return;
+	}
+	for (uint s = 0; s < kNumNotificationSubCategories; ++s) {
+		data->notifications[index][s] = _notifications[index][s];
+	}
+}
+
+void Taskbar::syncFromPuzzleData() {
+	TaskbarData *data = (TaskbarData *)NancySceneState.getPuzzleData(TaskbarData::getTag());
+	if (!data) {
+		return;
+	}
+	for (uint i = 0; i < TASK::kNumButtons && i < TaskbarData::kNumButtons; ++i) {
+		_overrides[i].active = data->overrides[i].active;
+		_overrides[i].startScene = data->overrides[i].startScene;
+		_overrides[i].endScene = data->overrides[i].endScene;
+		_overrides[i].clickSoundMode = data->overrides[i].clickSoundMode;
+
+		for (uint s = 0; s < kNumNotificationSubCategories; ++s) {
+			_notifications[i][s] = data->notifications[i][s];
+		}
+	}
 }
 
 void Taskbar::updateNotificationStates(int16 currentSceneID) {
@@ -367,7 +442,11 @@ void Taskbar::handleInput(NancyInput &input) {
 			drawButton(_hoveredButton, restingState(_hoveredButton));
 		}
 		if (newHovered != -1 && hoveredActive) {
-			drawButton(newHovered, kButtonHover);
+			// A pending notification badge takes priority over the hover sprite,
+			// so a badged button keeps its badge while hovered.
+			const ButtonState hoverState =
+				restingState(newHovered) == kButtonNotification ? kButtonNotification : kButtonHover;
+			drawButton(newHovered, hoverState);
 			if (isMoneyDisplay(newHovered)) {
 				drawMoney();
 			}
@@ -396,20 +475,22 @@ void Taskbar::handleInput(NancyInput &input) {
 		return;
 	}
 
+	// A badged (highlighted) button never depresses: it keeps showing its
+	// notification sprite through the press and release. Only non-highlighted
+	// buttons swap to the pressed sprite while held.
+	const bool isBadged = restingState(newHovered) == kButtonNotification;
+
 	if (input.input & NancyInput::kLeftMouseButtonDown) {
 		// Mouse pressed: show the pressed sprite for the duration of the hold.
-		if (_buttonStates[newHovered] != kButtonPressed) {
+		if (!isBadged && _buttonStates[newHovered] != kButtonPressed) {
 			drawButton(newHovered, kButtonPressed);
 		}
 	} else if (input.input & NancyInput::kLeftMouseButtonUp) {
 		// Mouse released over the button: trigger the click action and
-		// snap the sprite back to hover (the cursor is still over it).
-		// Acknowledging the click also clears any pending notifications
-		// for this button — the popup will read them on entry.
-		for (uint s = 0; s < kNumNotificationSubCategories; ++s) {
-			_notifications[newHovered][s] = false;
-		}
-		drawButton(newHovered, kButtonHover);
+		// snap the sprite back to its resting hover state (the cursor is still
+		// over it). Badges are cleared per-view inside the popup, not on click,
+		// so a badged button keeps its badge here.
+		drawButton(newHovered, isBadged ? kButtonNotification : kButtonHover);
 		_clickedButton = newHovered;
 
 		playClickSound(newHovered);

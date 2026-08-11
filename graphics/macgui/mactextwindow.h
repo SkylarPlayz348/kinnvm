@@ -33,14 +33,14 @@ public:
 	MacTextWindow(MacWindowManager *wm, const Font *font, int fgcolor, int bgcolor, int maxWidth, TextAlign textAlignment, MacMenu *menu, int padding = 0);
 	virtual ~MacTextWindow();
 
-	virtual void resize(int w, int h) override;
+	void resize(int w, int h) override;
 	void setDimensions(const Common::Rect &r) override;
 
-	virtual bool processEvent(Common::Event &event) override;
+	bool processEvent(Common::Event &event) override;
 
-	virtual bool draw(ManagedSurface *g, bool forceRedraw = false) override;
-	virtual bool draw(bool forceRedraw = false) override;
-	virtual void blit(ManagedSurface *g, Common::Rect &dest) override;
+	bool draw(ManagedSurface *g, bool forceRedraw = false) override;
+	bool draw(bool forceRedraw = false) override;
+	void blit(ManagedSurface *g, Common::Rect &dest) override;
 
 	void setTextWindowFont(const MacFont *macFont);
 	const MacFont *getTextWindowFont();
@@ -49,6 +49,8 @@ public:
 	void appendText(const Common::String &str, const MacFont *macFont = nullptr, bool skipAdd = false);
 	void clearText();
 	void setMarkdownText(const Common::U32String &str);
+
+	void scrollToBottom() { _mactext->_scrollPos = MAX<int>(0, _mactext->getTextHeight() - getInnerDimensions().height()); }
 
 	void setEditable(bool editable) { _editable = editable; _mactext->setEditable(editable); }
 	void setActive(bool active) override { MacWindow::setActive(active); if (_editable) _mactext->setActive(active); }
@@ -88,7 +90,7 @@ public:
 
 	int getMouseLine(int x, int y);
 
-	virtual void setBorderColor(uint32 color) override { _mactext->setBorderColor(color); }
+	void setBorderColor(uint32 color) override { _mactext->setBorderColor(color); }
 	/**
 	 * if we want to draw the text which color is not black, then we need to set _textColorRGB
 	 * @param rgb text color you want to draw

@@ -22,7 +22,6 @@
 package org.scummvm.scummvm;
 
 import android.Manifest;
-import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.BroadcastReceiver;
@@ -46,6 +45,8 @@ import android.media.AudioManager;
 import android.media.AudioTrack;
 import android.net.ConnectivityManager;
 import android.net.Uri;
+import android.net.nsd.NsdManager;
+import android.net.nsd.NsdServiceInfo;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
@@ -90,6 +91,7 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeSet;
 
@@ -99,7 +101,6 @@ public class ScummVMActivity extends Activity {
 
 	private ClipboardManager _clipboardManager;
 
-	private Version _currentScummVMVersion;
 	private boolean _assetsUpdated;
 	private File _configScummvmFile;
 	private File _logScummvmFile;
@@ -161,6 +162,9 @@ public class ScummVMActivity extends Activity {
 
 	private PluginBroadcastReceiver _pluginBroadcastReceiver = null;
 
+	private static final int MY_PERMISSION_LOCAL_NETWORK = 200;
+	private NsdManager.RegistrationListener nsdRegistrationListener = null;
+
 	// Set to true in onDestroy
 	// This avoids that when C++ terminates we call finish() a second time
 	// This second finish causes termination when we are launched again
@@ -216,7 +220,13 @@ public class ScummVMActivity extends Activity {
 
 							// This is deprecated and we show the keyboard just below
 							//_inputManager.toggleSoftInputFromWindow(_main_surface.getWindowToken(), InputMethodManager.SHOW_IMPLICIT, InputMethodManager.HIDE_IMPLICIT_ONLY);
-							_inputManager.showSoftInput(_main_surface, InputMethodManager.SHOW_IMPLICIT);
+							int flags = 0;
+							if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA) {
+								@SuppressWarnings({"deprecation", "RedundantSuppression"})
+								final int flag = InputMethodManager.SHOW_IMPLICIT;
+								flags = flag;
+							}
+							_inputManager.showSoftInput(_main_surface, flags);
 							getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
 						} else {
 							if (_screenKeyboard != null) {
@@ -455,7 +465,7 @@ public class ScummVMActivity extends Activity {
 									// Excluding the CAPS LOCK NUM LOCK AND SCROLL LOCK keys,
 									// clear the state of all other sticky keys that are used in a key combo
 									// when we reach this part of the code
-									if (builtinKeyboard.stickyKeys.size() > 0) {
+									if (!builtinKeyboard.stickyKeys.isEmpty()) {
 										HashSet<Integer> stickiesToReleaseSet = new HashSet<>();
 										for (int tmpKeyCode : builtinKeyboard.stickyKeys) {
 											if (tmpKeyCode != KeyEvent.KEYCODE_CAPS_LOCK
@@ -464,7 +474,7 @@ public class ScummVMActivity extends Activity {
 												stickiesToReleaseSet.add(tmpKeyCode);
 											}
 										}
-										if (stickiesToReleaseSet.size() > 0) {
+										if (!stickiesToReleaseSet.isEmpty()) {
 											builtinKeyboard.stickyKeys.removeAll(stickiesToReleaseSet);
 											builtinKeyboard.recheckStickyKeys();
 										}
@@ -539,7 +549,13 @@ public class ScummVMActivity extends Activity {
 						getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
 						// TODO do we need this instead?
 						// _inputManager.hideSoftInputFromWindow(_main_surface.getWindowToken(), 0);
-						_inputManager.hideSoftInputFromWindow(_main_surface.getWindowToken(), InputMethodManager.HIDE_IMPLICIT_ONLY);
+						int flags = 0;
+						if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA) {
+							@SuppressWarnings({"deprecation", "RedundantSuppression"})
+							final int flag = InputMethodManager.HIDE_IMPLICIT_ONLY;
+							flags = flag;
+						}
+						_inputManager.hideSoftInputFromWindow(_main_surface.getWindowToken(), flags);
 
 						CompatHelpers.HideSystemStatusBar.hide(getWindow());
 						//Log.d(ScummVM.LOG_TAG, "showScreenKeyboardWithoutTextInputField - captureMouse(true)");
@@ -595,13 +611,14 @@ public class ScummVMActivity extends Activity {
 
 		if (_main_surface != null) {
 
+			//noinspection ConstantValue
 			if (bGlobalsCompatibilityHacksTextInputEmulatesHwKeyboard) {
 				showScreenKeyboardWithoutTextInputField(dGlobalsTextInputKeyboard);
 				//Log.d(ScummVM.LOG_TAG, "showScreenKeyboard - captureMouse(false)");
 				_main_surface.captureMouse(false);
 				//_main_surface.showSystemMouseCursor(true);
 				setupTouchModeBtn(_events.getTouchMode());
-				return;
+				//return;
 			}
 			//Log.d(ScummVM.LOG_TAG, "showScreenKeyboard: YOU SHOULD NOT SEE ME!!!");
 
@@ -697,12 +714,8 @@ public class ScummVMActivity extends Activity {
 	public final View.OnLongClickListener touchModeKeyboardBtnOnLongClickListener = new View.OnLongClickListener() {
 		@Override
 		public boolean onLongClick(View v) {
-			runOnUiThread(new Runnable() {
-				public void run() {
-					// On long click, toggle screen keyboard (if there isn't any HW)
-					toggleScreenKeyboard();
-				}
-			});
+			// On long click, toggle screen keyboard (if there isn't any HW)
+			runOnUiThread(ScummVMActivity.this::toggleScreenKeyboard);
 			return true;
 		}
 	};
@@ -887,6 +900,73 @@ public class ScummVMActivity extends Activity {
 		}
 
 		@Override
+		protected void notifyHTTPService(int localPort, boolean minimal) {
+			final NsdManager nsdManager = (NsdManager) getSystemService(Context.NSD_SERVICE);
+
+			if (nsdRegistrationListener != null) {
+				nsdManager.unregisterService(nsdRegistrationListener);
+				nsdRegistrationListener = null;
+			}
+
+			if (localPort < 0) {
+				return;
+			}
+
+			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN &&
+				checkPermission(Manifest.permission.ACCESS_LOCAL_NETWORK, Process.myPid(), Process.myUid()) != PackageManager.PERMISSION_GRANTED) {
+				Log.d(ScummVM.LOG_TAG, "Requesting local network permission");
+				final String[] PERMISSIONS = {
+					Manifest.permission.ACCESS_LOCAL_NETWORK,
+				};
+				// Delay the request to allow for proper GUI refresh of the server state
+				// Else, there is an interference with the tooltip code
+				new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+					@Override
+					public void run() {
+						requestPermissions(PERMISSIONS, MY_PERMISSION_LOCAL_NETWORK);
+					}
+				}, 100);
+			}
+
+			if (!minimal) {
+				// Don't publish our service if we are running in minimal mode (OAuth stuff)
+				nsdRegistrationListener = new NsdManager.RegistrationListener() {
+					@Override
+					public void onRegistrationFailed(NsdServiceInfo nsdServiceInfo, int i) {
+						Log.d(ScummVM.LOG_TAG, "HTTP service registration failed: " + i);
+					}
+
+					@Override
+					public void onServiceRegistered(NsdServiceInfo nsdServiceInfo) {
+						Log.d(ScummVM.LOG_TAG, "HTTP service registered");
+					}
+
+					@Override
+					public void onServiceUnregistered(NsdServiceInfo nsdServiceInfo) {
+						Log.d(ScummVM.LOG_TAG, "HTTP service unregistered");
+					}
+
+					@Override
+					public void onUnregistrationFailed(NsdServiceInfo nsdServiceInfo, int i) {
+						Log.d(ScummVM.LOG_TAG, "HTTP service unregistration failed: " + i);
+					}
+				};
+
+				final String serviceName = getResources().getString(R.string.http_service_description);
+
+				final NsdServiceInfo serviceInfo = new NsdServiceInfo();
+				serviceInfo.setServiceName(serviceName);
+				serviceInfo.setServiceType("_http._tcp.");
+				serviceInfo.setPort(localPort);
+
+				nsdManager.registerService(
+					serviceInfo,
+					NsdManager.PROTOCOL_DNS_SD,
+					nsdRegistrationListener);
+			}
+		}
+
+		@Override
 		protected String[] getSysArchives() {
 			File assetsDir = new File(_actualScummVMDataDir, "assets");
 			Log.d(ScummVM.LOG_TAG, "Adding to Search Archive: " + assetsDir.getPath());
@@ -951,7 +1031,7 @@ public class ScummVMActivity extends Activity {
 
 		@Override
 		protected int exportBackup(String prompt) {
-			String filename = (new SimpleDateFormat("'ScummVM backup 'yyyyMMdd-HHmmss'.zip'")).format(new Date());
+			String filename = (new SimpleDateFormat("'ScummVM backup 'yyyyMMdd-HHmmss'.zip'", Locale.ROOT)).format(new Date());
 			int ret;
 			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
 				Uri uri = selectWithNativeUI(false, true, null, prompt, "application/zip", filename);
@@ -1007,7 +1087,6 @@ public class ScummVMActivity extends Activity {
 
 	private MyScummVM _scummvm;
 	private ScummVMEvents _events;
-	private MouseHelper _mouseHelper;
 	private Thread _scummvm_thread;
 
 	@Override
@@ -1087,8 +1166,8 @@ public class ScummVMActivity extends Activity {
 
 		// Currently in release builds version string does not contain the revision info
 		// but in debug builds (daily builds) this should be there (see base/internal_version_h)
-		_currentScummVMVersion = new Version(_scummvm.getInstallingScummVMVersionInfo());
-		Log.d(ScummVM.LOG_TAG, "Current ScummVM version launching is: " + _currentScummVMVersion.getDescription() + " (" + _currentScummVMVersion.get() + ")");
+		Version currentScummVMVersion = new Version(_scummvm.getInstallingScummVMVersionInfo());
+		Log.d(ScummVM.LOG_TAG, "Current ScummVM version launching is: " + currentScummVMVersion.getDescription() + " (" + currentScummVMVersion.get() + ")");
 		//
 		// seekAndInitScummvmConfiguration() returns false if something went wrong
 		// when initializing configuration (or when seeking and trying to use an existing ini file) for ScummVM
@@ -1117,13 +1196,13 @@ public class ScummVMActivity extends Activity {
 		_scummvm.setArgs(args);
 
 		Log.d(ScummVM.LOG_TAG, "Hover available: " + _hoverAvailable);
-		_mouseHelper = null;
+		MouseHelper mouseHelper = null;
 		if (_hoverAvailable) {
-			_mouseHelper = new MouseHelper(_scummvm);
-			//_mouseHelper.attach(_main_surface);
+			mouseHelper = new MouseHelper(_scummvm);
+			//mouseHelper.attach(_main_surface);
 		}
 
-		_events = new ScummVMEvents(this, _scummvm, _mouseHelper);
+		_events = new ScummVMEvents(this, _scummvm, mouseHelper);
 
 		setupTouchModeBtn(_events.getTouchMode());
 
@@ -1138,8 +1217,8 @@ public class ScummVMActivity extends Activity {
 
 		_main_surface.setOnKeyListener(_events);
 		_main_surface.setOnTouchListener(_events);
-		if (_mouseHelper != null) {
-			_main_surface.setOnHoverListener(_mouseHelper);
+		if (mouseHelper != null) {
+			_main_surface.setOnHoverListener(mouseHelper);
 		}
 
 		SAFFSTree.setIOBusyListener(new SAFFSTree.IOBusyListener() {
@@ -1349,6 +1428,20 @@ public class ScummVMActivity extends Activity {
 				Toast.makeText(this, "Until permission is granted, it might be impossible to write to some locations!", Toast.LENGTH_SHORT)
 					.show();
 			}
+		} else if (requestCode == MY_PERMISSION_LOCAL_NETWORK) {
+			boolean result = grantResults.length > 0;
+			for (int grantResult : grantResults) {
+				if (grantResult != PackageManager.PERMISSION_GRANTED) {
+					result = false;
+					break;
+				}
+			}
+			if (!result) {
+				Log.i(ScummVM.LOG_TAG, "Local network permission denied");
+				Toast.makeText(ScummVMActivity.this, getResources().getString(R.string.local_net_permission_denied), Toast.LENGTH_LONG).show();
+			} else {
+				Log.i(ScummVM.LOG_TAG, "Local network permission granted");
+			}
 		}
 	}
 
@@ -1393,6 +1486,7 @@ public class ScummVMActivity extends Activity {
 				Log.d(ScummVM.LOG_TAG, "New ScummVM log: " + _logScummvmFile.getPath());
 			}
 		} catch(Exception e) {
+			//noinspection CallToPrintStackTrace
 			e.printStackTrace();
 			new AlertDialog.Builder(this)
 				.setTitle(R.string.no_log_file_title)
@@ -1405,7 +1499,7 @@ public class ScummVMActivity extends Activity {
 						}
 					})
 				.show();
-			return;
+			//return;
 		}
 	}
 
@@ -1467,7 +1561,7 @@ public class ScummVMActivity extends Activity {
 			private final int EstimatedKeyboardDP = defaultKeyboardHeightDP + (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP ? 48 : 0);
 			private final Rect rect = new Rect();
 
-			@TargetApi(Build.VERSION_CODES.CUPCAKE)
+			//@RequiresApi(Build.VERSION_CODES.CUPCAKE)
 			@Override
 			public void onGlobalLayout() {
 				int estimatedKeyboardHeight = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, EstimatedKeyboardDP, parentView.getResources().getDisplayMetrics());
@@ -1485,12 +1579,12 @@ public class ScummVMActivity extends Activity {
 		});
 	}
 
-	public void onKeyboardVisibilityChanged(boolean visible) {
+	public void onKeyboardVisibilityChanged(boolean ignoredVisible) {
 //		Toast.makeText(HomeActivity.this, visible ? "Keyboard is active" : "Keyboard is Inactive", Toast.LENGTH_SHORT).show();
 		CompatHelpers.HideSystemStatusBar.hide(getWindow());
 	}
 
-	@SuppressWarnings("deprecation")
+	@SuppressWarnings({"deprecation", "RedundantSuppression"})
 	private int getDisplayPixelFormat() {
 		// Since API level 17 this always returns PixelFormat.RGBA_8888
 		// so if we target more recent API levels, we could remove this function
@@ -1515,7 +1609,7 @@ public class ScummVMActivity extends Activity {
 			audioTrackFramesPerBurst /= 4; // AudioTrack tends to buffer a lot
 
 			Log.d(ScummVM.LOG_TAG,  "updateAudioValues:" +
-				" at=" + Integer.toString(audioTrackSampleRate) + "/" + Integer.toString(audioTrackFramesPerBurst));
+				" at=" + audioTrackSampleRate + "/" + audioTrackFramesPerBurst);
 
 			ScummVM.setDefaultAudioValues(audioTrackSampleRate, audioTrackFramesPerBurst);
 			return;
@@ -1528,7 +1622,7 @@ public class ScummVMActivity extends Activity {
 		int audioManagerFramesPerBurst = Integer.parseInt(text);
 
 		Log.d(ScummVM.LOG_TAG,  "updateAudioValues:" +
-			" am=" + Integer.toString(audioManagerSampleRate) + "/" + Integer.toString(audioManagerFramesPerBurst));
+			" am=" + audioManagerSampleRate + "/" + audioManagerFramesPerBurst);
 
 		ScummVM.setDefaultAudioValues(audioManagerSampleRate, audioManagerFramesPerBurst);
 	}
@@ -1574,11 +1668,11 @@ public class ScummVMActivity extends Activity {
 				int newStatus = (micro ? 1 : 0) + (state ? 2 : 0);
 
 				Log.i(ScummVM.LOG_TAG, action +
-					" micro=" + Boolean.toString(micro) +
-					" state=" + Boolean.toString(state) +
-					" status=" + Integer.toString(newStatus) +
-					" lastStatus=" + Integer.toString(lastStatus) +
-					" diff=" + Integer.toString(lastStatus ^ newStatus));
+					" micro=" + micro +
+					" state=" + state +
+					" status=" + newStatus +
+					" lastStatus=" + lastStatus +
+					" diff=" + (lastStatus ^ newStatus));
 
 				if (isInitialStickyBroadcast()) {
 					if (lastStatus == -1) {
@@ -1605,7 +1699,7 @@ public class ScummVMActivity extends Activity {
 					containsAudioStreamingInterface(device, UsbConstants.USB_DIR_OUT);
 				final boolean hasAudioCapture =
 					containsAudioStreamingInterface(device, UsbConstants.USB_DIR_IN);
-				Log.w(ScummVM.LOG_TAG, action + " device=" + device.toString() + " playback=" + Boolean.toString(hasAudioPlayback) + " capture=" + Boolean.toString(hasAudioCapture));
+				Log.w(ScummVM.LOG_TAG, action + " device=" + device + " playback=" + hasAudioPlayback + " capture=" + hasAudioCapture);
 				if (!hasAudioPlayback) {
 					// We are only interested in playback sinks
 					return;
@@ -1931,6 +2025,7 @@ public class ScummVMActivity extends Activity {
 				}
 			}
 		} catch(Exception e) {
+			//noinspection CallToPrintStackTrace
 			e.printStackTrace();
 			new AlertDialog.Builder(this)
 				.setTitle(R.string.no_config_file_title)
@@ -2222,12 +2317,15 @@ public class ScummVMActivity extends Activity {
 
 	// Deletes recursively a directory and its contents
 	private static void deleteDir(File dir) {
-		for (File child : dir.listFiles()) {
-			if (child.isDirectory()) {
-				deleteDir(child);
-			} else {
-				if (!child.delete()) {
-					Log.e(ScummVM.LOG_TAG, "Failed to delete file:" + child.getPath());
+		File[] files = dir.listFiles();
+		if (files != null) {
+			for (File child : files) {
+				if (child.isDirectory()) {
+					deleteDir(child);
+				} else {
+					if (!child.delete()) {
+						Log.e(ScummVM.LOG_TAG, "Failed to delete file:" + child.getPath());
+					}
 				}
 			}
 		}
@@ -2312,7 +2410,7 @@ public class ScummVMActivity extends Activity {
 	// Otherwise we would probably need to create a specifically named zip file with the selection of files we'd need to extract to the internal memory
 	// Returns true if the assetDir was a directory and false otherwise
 	private static boolean extractAssets(AssetManager assetManager, String assetDir, File dataDir) throws IOException {
-		String[] files = null;
+		String[] files;
 		try {
 			files = assetManager.list(assetDir);
 		} catch (IOException e) {
@@ -2351,7 +2449,7 @@ public class ScummVMActivity extends Activity {
 		}
 
 		for (String filename : files) {
-			String assetPath = (assetDir.length() > 0 ? assetDir + File.separator : "") + filename;
+			String assetPath = (!assetDir.isEmpty() ? assetDir + File.separator : "") + filename;
 			File dataPath = new File(dataDir, filename);
 
 			if (extractAssets(assetManager, assetPath, dataPath)) {
@@ -2407,31 +2505,19 @@ public class ScummVMActivity extends Activity {
 		// First: read MD5SUMS from our assets, we will need it
 		byte[] newSums = null;
 		{
-			InputStream newStreamAsset = null;
-			try {
-				newStreamAsset = assetManager.open("MD5SUMS");
+			try (InputStream newStreamAsset = assetManager.open("MD5SUMS")) {
 				ByteArrayOutputStream newStream = new ByteArrayOutputStream();
 				copyStreamToStream(newStreamAsset, newStream);
 				newSums = newStream.toByteArray();
 			} catch (IOException e) {
 				Log.e(ScummVM.LOG_TAG, "Failed to read MD5SUMS asset");
-			} finally {
-				if (newStreamAsset != null) {
-					try {
-						newStreamAsset.close();
-					} catch (IOException e) {
-						// NOOP
-					}
-				}
-				// Closing a ByteArrayOutputStream is useless
 			}
+			// Closing a ByteArrayOutputStream is useless
 		}
 
 		// Then: open the on disk file, check its size and if they match, compare the contents
 		if (newSums != null && newSums.length > 0) {
-			FileInputStream oldStream = null;
-			try {
-				oldStream = new FileInputStream(md5sumsPath);
+			try (FileInputStream oldStream = new FileInputStream(md5sumsPath)) {
 				if (oldStream.getChannel().size() == newSums.length &&
 					equalsStreamToStream(new ByteArrayInputStream(newSums), oldStream)) {
 					// The files are identical: nothing to do
@@ -2441,14 +2527,6 @@ public class ScummVMActivity extends Activity {
 				}
 			} catch (IOException e) {
 				Log.e(ScummVM.LOG_TAG, "Failed to read MD5SUMS file");
-			} finally {
-				if (oldStream != null) {
-					try {
-						oldStream.close();
-					} catch (IOException e) {
-						// NOOP
-					}
-				}
 			}
 		}
 
@@ -2465,21 +2543,11 @@ public class ScummVMActivity extends Activity {
 
 		// Finally: everything is now fresh, store the new sums
 		if (newSums != null) {
-			FileOutputStream newStream = null;
-			try {
-				newStream = new FileOutputStream(md5sumsPath);
+			try (FileOutputStream newStream = new FileOutputStream(md5sumsPath)) {
 				newStream.write(newSums);
 			} catch (IOException e) {
 				Log.e(ScummVM.LOG_TAG, "Failed to write MD5SUMS file");
 				// If we fail to write MD5SUMS, we will try again at the next startup
-			} finally {
-				if (newStream != null) {
-					try {
-						newStream.close();
-					} catch (IOException e) {
-						// NOOP
-					}
-				}
 			}
 		}
 	}
@@ -2489,6 +2557,7 @@ public class ScummVMActivity extends Activity {
 	// region Start of SAF enabled code
 	// -------------------------------------------------------------------------------------------
 	public void onActivityResult(int requestCode, int resultCode, Intent resultData) {
+		//noinspection SynchronizeOnNonFinalField
 		synchronized(safSyncObject) {
 			safRequestCode = requestCode;
 			safResultCode = resultCode;
@@ -2537,6 +2606,7 @@ public class ScummVMActivity extends Activity {
 
 		int resultCode;
 		Uri resultURI;
+		//noinspection SynchronizeOnNonFinalField
 		synchronized(safSyncObject) {
 			safRequestCode = 0;
 			startActivityForResult(intent, REQUEST_SAF);
@@ -2565,7 +2635,7 @@ public class ScummVMActivity extends Activity {
 			return null;
 		}
 
-		Log.d(ScummVM.LOG_TAG, "Selected SAF URI: " + resultURI.toString());
+		Log.d(ScummVM.LOG_TAG, "Selected SAF URI: " + resultURI);
 
 		int grant = Intent.FLAG_GRANT_READ_URI_PERMISSION;
 		if (write) {
@@ -2582,5 +2652,5 @@ public class ScummVMActivity extends Activity {
 
 // Used to define the interface for a callback after ScummVM thread has finished
 interface MyScummVMDestroyedCallback {
-	public void handle(int exitResult);
+	void handle(int exitResult);
 }

@@ -63,6 +63,7 @@ BaseRenderOpenGL3DShader::~BaseRenderOpenGL3DShader() {
 	glDeleteBuffers(1, &_rectangleVBO);
 	glDeleteBuffers(1, &_simpleShadowVBO);
 	glDeleteBuffers(1, &_postfilterVBO);
+	glDeleteBuffers(1, &_brightnessVBO);
 }
 
 bool BaseRenderOpenGL3DShader::initRenderer(int width, int height, bool windowed) {
@@ -183,6 +184,19 @@ bool BaseRenderOpenGL3DShader::initRenderer(int width, int height, bool windowed
 	_postfilterShader = OpenGL::Shader::fromFiles("wme_postfilter", postfilterAttributes);
 	_postfilterShader->enableVertexAttribute("position", _postfilterVBO, 2, GL_FLOAT, false, 4 * sizeof(GLfloat), 0);
 	_postfilterShader->enableVertexAttribute("texcoord", _postfilterVBO, 2, GL_FLOAT, false, 4 * sizeof(GLfloat), 8);
+
+	glGenBuffers(1, &_brightnessVBO);
+	glBindBuffer(GL_ARRAY_BUFFER, _brightnessVBO);
+	glBufferData(GL_ARRAY_BUFFER, 16 * sizeof(GLfloat), quadVertices, GL_STATIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+	static const char *brightnessAttributes[] = { "position", "texcoord", nullptr };
+	_brightnessShaderOknytt = OpenGL::Shader::fromFiles("wme_brightness_oknytt", brightnessAttributes);
+	_brightnessShaderOknytt->enableVertexAttribute("position", _brightnessVBO, 2, GL_FLOAT, false, 4 * sizeof(GLfloat), 0);
+	_brightnessShaderOknytt->enableVertexAttribute("texcoord", _brightnessVBO, 2, GL_FLOAT, false, 4 * sizeof(GLfloat), 8);
+	_brightnessShaderJulia = OpenGL::Shader::fromFiles("wme_brightness_julia", brightnessAttributes);
+	_brightnessShaderJulia->enableVertexAttribute("position", _brightnessVBO, 2, GL_FLOAT, false, 4 * sizeof(GLfloat), 0);
+	_brightnessShaderJulia->enableVertexAttribute("texcoord", _brightnessVBO, 2, GL_FLOAT, false, 4 * sizeof(GLfloat), 8);
 
 	glGenTextures(1, &_postfilterTexture);
 	glBindTexture(GL_TEXTURE_2D, _postfilterTexture);
@@ -338,6 +352,9 @@ bool BaseRenderOpenGL3DShader::setup3D(Camera3D *camera, bool force) {
 	_xmodelShader->setUniform("projMatrix", projectionMatrix);
 	_xmodelShader->setUniform1f("alphaRef", _alphaRef);
 	_xmodelShader->setUniform("alphaTest", true);
+	_xmodelShader->setUniform("effectId", 0);
+	_xmodelShader->setUniform("effectSecondPass", false);
+	_xmodelShader->setUniform1f("borderWidth", 0.0);
 
 	_geometryShader->use();
 	_geometryShader->setUniform("viewMatrix", viewMatrix);
@@ -356,6 +373,9 @@ bool BaseRenderOpenGL3DShader::setup3D(Camera3D *camera, bool force) {
 	_shadowVolumeShader->use();
 	_shadowVolumeShader->setUniform("viewMatrix", viewMatrix);
 	_shadowVolumeShader->setUniform("projMatrix", projectionMatrix);
+
+	projectionMatrix.setData(_projectionMatrix);
+	_xmodelShader->setUniform("d3dProjMatrix", projectionMatrix);
 
 	return true;
 }
@@ -506,7 +526,9 @@ bool BaseRenderOpenGL3DShader::drawSpriteEx(BaseSurface *tex, const Common::Rect
 		glDisable(GL_BLEND);
 	}
 
-	if (_lastTexture != texture) {
+	GLint boundTexture;
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundTexture);
+	if (_lastTexture != texture || (GLuint)boundTexture != texture->getTextureName()) {
 		_lastTexture = texture;
 		glBindTexture(GL_TEXTURE_2D, texture->getTextureName());
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -1151,6 +1173,54 @@ bool BaseRenderOpenGL3DShader::setProjectionTransform(const DXMatrix &transform)
 }
 
 void BaseRenderOpenGL3DShader::postfilter() {
+	// This is for game 'Oknytt'
+	if (_brightnessOknytt != -1) {
+		setup2D();
+		glViewport(0, 0, _width, _height);
+		glDisable(GL_BLEND);
+		glDisable(GL_CULL_FACE);
+
+		_brightnessShaderOknytt->use();
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, _postfilterTexture);
+		glUniform1i(_brightnessShaderOknytt->getUniformLocation("tex"), 0);
+		_brightnessShaderOknytt->setUniform1f("brightnessValue", _brightnessOknytt);
+
+		g_system->presentBuffer();
+		glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 0, 0, _width, _height, 0);
+
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+		glBindTexture(GL_TEXTURE_2D, 0);
+
+		return;
+	}
+
+	// This is for game 'J.U.L.I.A.'
+	if (_brightnessJulia != -1.0f) {
+		setup2D();
+		glViewport(0, 0, _width, _height);
+		glDisable(GL_BLEND);
+		glDisable(GL_CULL_FACE);
+
+		_brightnessShaderJulia->use();
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, _postfilterTexture);
+		glUniform1i(_brightnessShaderJulia->getUniformLocation("tex"), 0);
+		_brightnessShaderJulia->setUniform1f("brightnessValue", _brightnessJulia);
+
+		g_system->presentBuffer();
+		glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 0, 0, _width, _height, 0);
+
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+		glBindTexture(GL_TEXTURE_2D, 0);
+
+		return;
+	}
+
 	if (_postFilterMode == kPostFilterOff)
 		return;
 

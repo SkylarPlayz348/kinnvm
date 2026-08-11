@@ -716,7 +716,10 @@ bool SdlEventSource::pollEvent(Common::Event &event) {
 		if (ImGui_ImplSDL2_Ready()) {
 			ImGui_ImplSDL2_ProcessEvent(&ev);
 			ImGuiIO &io = ImGui::GetIO();
-			if (io.WantTextInput || io.WantCaptureMouse)
+			bool mouseEvent = ev.type == SDL_MOUSEMOTION || ev.type == SDL_MOUSEBUTTONDOWN ||
+				ev.type == SDL_MOUSEBUTTONUP || ev.type == SDL_MOUSEWHEEL;
+			bool textEvent = ev.type == SDL_TEXTINPUT;
+			if ((mouseEvent && io.WantCaptureMouse) || (textEvent && io.WantTextInput))
 				continue;
 		}
 #endif
@@ -800,7 +803,16 @@ bool SdlEventSource::dispatchSDLEvent(SDL_Event &ev, Common::Event &event) {
 			}
 		}
 
-		switch (ev.window.event) {
+	switch (ev.window.event) {
+	case SDL_WINDOWEVENT_CLOSE:
+		if (_graphicsManager) {
+			uint32 windowID = SDL_GetWindowID(_graphicsManager->getWindow()->getSDLWindow());
+			if (windowID != ev.window.windowID)
+				return false;
+		}
+
+		event.type = Common::EVENT_QUIT;
+		return true;
 
 		case SDL_WINDOWEVENT_EXPOSED:
 			if (_graphicsManager) {
@@ -1089,6 +1101,15 @@ SDL_Keycode SdlEventSource::obtainKeycode(const SDL_Keysym keySym) {
 
 uint32 SdlEventSource::obtainUnicode(const SDL_KeyboardEvent &key) {
 	SDL_Event events[2];
+
+#if defined(USE_IMGUI)
+	// When ImGui is capturing text input, leave the SDL_TEXTINPUT event in the
+	// queue so its InputText widgets receive the character. We normally consume
+	// it here to fold the ASCII into ScummVM's own key event, but ScummVM's GUI
+	// is not the input target while an ImGui text field is active.
+	if (ImGui_ImplSDL2_Ready() && ImGui::GetIO().WantTextInput)
+		return 0;
+#endif
 
 	// Update the event queue here to give SDL a chance to insert TEXTINPUT
 	// events for KEYDOWN events. Otherwise we have a high chance that on

@@ -64,13 +64,28 @@ public:
 
 private:
 	void drawBackground();
+	// Full content rebuild: lay the text out into _fullSurface (expensive), then
+	// paint the visible slice. Only needed when the text itself changes.
 	void drawContent();
+	// Lay the response text out into _fullSurface (the expensive step).
+	void layoutText();
+	// Blit the currently-visible vertical slice of _fullSurface into the popup.
+	// Cheap; safe to call every scroll step.
+	void paintVisibleText();
+	// Re-composite the popup at the current scroll position without re-laying out
+	// the text. Used while dragging the scrollbar.
+	void redrawScroll();
 	void drawScrollbar(UIButtonState state);
 	uint16 getInnerHeight() const;
 
 	// Returns the popup-local bounding rect of the scrollbar thumb at
 	// the current scroll position.
 	Common::Rect computeThumbRect() const;
+
+	// The text area in popup-local coordinates. Pre-Nancy13 stores textRect in
+	// chunk/screen space and needs the popup origin subtracted; Nancy13 already
+	// stores it image-local.
+	Common::Rect getLocalTextRect() const;
 
 	// Convert a chunk-space rect into popup-local coordinates.
 	Common::Rect toPopupLocal(const Common::Rect &chunkRect, bool useGameFrame) const;

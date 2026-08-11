@@ -109,6 +109,10 @@ DirectorEngine::DirectorEngine(OSystem *syst, const DirectorGameDescription *gam
 	_fileIOType = 0;
 	_vfwPaletteHack = false;
 
+	_key = 0;
+	_keyCode = 0;
+	_keyFlags = 0;
+
 	_wm = nullptr;
 
 	_gameDataDir = Common::FSNode(ConfMan.getPath("path"));
@@ -218,13 +222,25 @@ void DirectorEngine::forgetWindow(Window *window) {
 	_windowsToForget.push_back(window);
 }
 
+bool DirectorEngine::isWindowRegistered(Window *window) const {
+	if (window == _stage) {
+		return true;
+	}
+	for (auto &it : _windowList) {
+		if (it == window) {
+			return true;
+		}
+	}
+	return false;
+}
+
 void DirectorEngine::setCurrentWindow(Window *window) {
 	if (_currentWindow == window)
 		return;
+	window->incRefCount();
 	if (_currentWindow)
 		_currentWindow->decRefCount();
 	_currentWindow = window;
-	_currentWindow->incRefCount();
 }
 
 void DirectorEngine::setVersion(uint16 version) {
@@ -240,6 +256,7 @@ void DirectorEngine::setVersion(uint16 version) {
 namespace DT {
 bool isMouseInputIgnored() { return false; }
 void setSelectedChannel(int channel) { }
+void renderPendingWindow() { }
 }
 #endif
 
@@ -365,6 +382,10 @@ Common::Error DirectorEngine::run() {
 				_currentWindow->step();
 			}
 		}
+
+		// service a debugger-requested redraw before compositing, so it
+		// is visible even when playback is paused and step() renders nothing
+		DT::renderPendingWindow();
 
 		draw();
 		while (!_windowsToForget.empty()) {

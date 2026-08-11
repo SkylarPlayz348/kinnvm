@@ -47,8 +47,8 @@ enum ActorType {
 	kActorTypeImage = 0x0007, // IMG
 	kActorTypeHotspot = 0x000b, // HSP
 	kActorTypeSprite = 0x000e, // SPR
-	kActorTypeLKZazu = 0x000f,
-	kActorTypeLKConstellations = 0x0010,
+	kActorTypeStalkingZazu = 0x000f,
+	kActorTypeDotGame = 0x0010,
 	kActorTypeDocument = 0x0011,
 	kActorTypeDiskImage = 0x001d,
 	kActorTypeCursor = 0x000c, // CSR
@@ -59,7 +59,6 @@ enum ActorType {
 	kActorTypeText = 0x001a, // TXT
 	kActorTypeFont = 0x001b, // FON
 	kActorTypeCamera = 0x001c, // CAM
-	kActorTypeDiskImageActor = 0x001d,
 	kActorTypeCanvas = 0x001e, // CVS
 	kActorTypeXsnd = 0x001f,
 	kActorTypeXsndMidi = 0x0020,
@@ -145,7 +144,29 @@ enum ActorHeaderSectionType {
 
 	// SPRITE FIELDS.
 	kActorHeaderSpriteClip = 0x03e9,
-	kActorHeaderDefaultSpriteClip = 0x03ea
+	kActorHeaderDefaultSpriteClip = 0x03ea,
+
+	// DOT GAME FIELDS.
+	kActorHeaderDotGameMaxDots = 0x001d,
+	kActorHeaderDotGameHelperSprite1 = 0x0514,
+	kActorHeaderDotGameHelperSprite2 = 0x0515,
+	kActorHeaderDotGameState = 0x0516,
+	kActorHeaderDotGameSpeed = 0x0517,
+	kActorHeaderDotGameLineThickness = 0x0518,
+	kActorHeaderDotGameColor = 0x0519,
+
+	// STALKING ZAZU FIELDS.
+	kActorHeaderStalkingZazuSpriteId = 0x03ec,
+	kActorHeaderStalkingZazuDirections = 0x03ed,
+	kActorHeaderStalkingZazuField = 0x03ee,
+	kActorHeaderStalkingZazuObstacleActorId = 0x03ef,
+	kActorHeaderStalkingZazuUnkX = 0x03f0,
+	kActorHeaderStalkingZazuUnkY = 0x03f1,
+	kActorHeaderStalkingZazuUnkSound1 = 0x03f2,
+	kActorHeaderStalkingZazuUnkSound2 = 0x03f3,
+	kActorHeaderStalkingZazuAudioEnabled = 0x03f4,
+	kActorHeaderStalkingZazuObstaclesToShow = 0x03f5,
+	kActorHeaderStalkingZazuUnkPoint = 0x03f6,
 };
 
 enum CylindricalWrapMode : int;
@@ -192,7 +213,7 @@ private:
 
 // For a range of valid argument counts (min to max).
 #define ARGCOUNTRANGE(min, max) \
-	if ((int64)(min) > args.size() || args.size() > (int64)(max)) { \
+	if ((int64)(min) > (int64)args.size() || (int64)args.size() > (int64)(max)) { \
 		warning("%s: Expected %d to %d arguments, got %d", builtInMethodToStr(methodId), (min), (max), args.size()); \
 	}
 
@@ -217,6 +238,7 @@ public:
 
 	virtual void onEvent(const ActorEvent &event);
 	ScriptResponse *findNextTimeScriptResponseAfter(uint32 after) const;
+	bool hasScriptResponse(EventType eventType, const ScriptValue &arg) const;
 	void runScriptResponseIfExists(EventType eventType, const ScriptValue &arg);
 	void runScriptResponseIfExists(EventType eventType);
 
@@ -227,6 +249,11 @@ public:
 	void setContextId(uint id) { _contextId = id; }
 	virtual bool isSpatialActor() const { return false; }
 
+	// Helper functions for the debugger.
+	virtual bool isActive() const { return true; }
+	virtual Common::String debugString() const { return "<no additional info>"; }
+	const Common::HashMap<uint, Common::Array<ScriptResponse *> > &scriptResponses() const { return _scriptResponses; }
+
 	const char *debugName() const;
 
 protected:
@@ -236,7 +263,6 @@ protected:
 	uint _contextId = 0;
 	Common::String _debugName;
 
-	uint _duration = 0;
 	Common::HashMap<uint, Common::Array<ScriptResponse *> > _scriptResponses;
 
 	// The original had these fields duplicated across several actors, but it made more
@@ -268,6 +294,8 @@ public:
 	virtual Common::Rect getBbox() const { return _boundingBox; }
 	int zIndex() const { return _zIndex; }
 	void moveTo(int16 x, int16 y);
+	void moveToCentered(int16 x, int16 y);
+	void setZIndex(int zIndex);
 
 	virtual void currentMousePosition(Common::Point &point);
 	virtual void invalidateMouse();
@@ -279,7 +307,7 @@ public:
 		MouseActorState &state,
 		bool clipMouseEvents) { return kNoFlag; }
 	virtual uint16 findActorToAcceptKeyboardEvents(
-		uint16 asciiCode,
+		uint16 charCode,
 		uint16 eventMask,
 		MouseActorState &state) { return kNoFlag; }
 
@@ -311,9 +339,7 @@ protected:
 	bool _hasTransparency = false;
 	StageActor *_parentStage = nullptr;
 
-	void moveToCentered(int16 x, int16 y);
 	void setBounds(const Common::Rect &bounds);
-	void setZIndex(int zIndex);
 	virtual void setMousePosition(int16 x, int16 y);
 
 	virtual void setDissolveFactor(double dissolveFactor);

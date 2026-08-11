@@ -518,6 +518,32 @@ end\r\
 ";
 
 /*
+ * Math Heads checks if the program is running from the "HDFiles" folder, infers
+ * that to be on the CD, then bails. This method sets up the path for the game, so we need to
+ * remove the check/abort.
+ */
+const char *const getaheadmathDiskFix = "\
+on readHDPath me\r\
+  set channelsFolder to the pathName\r\
+  setPath(me, #Channels, channelsFolder)\r\
+  set HDPath to channelsFolder\r\
+  set theOldDelim to the itemDelimiter\r\
+  set the itemDelimiter to gColon\r\
+  set lastColon to the number of items in HDPath\r\
+  delete item (lastColon - 1) of HDPath\r\
+  if macOS() then\r\
+    set hardDiskVolume to item 1 of HDPath\r\
+  else\r\
+    set hardDiskVolume to char 1 of HDPath & \":\\\"\r\
+  end if\r\
+  set lastItem to the number of items in HDPath\r\
+  set folderName to item (lastItem - 1) of HDPath\r\
+  set the itemDelimiter to theOldDelim\r\
+  setPath(me, #HD, HDPath)\r\
+end\r\
+";
+
+/*
  * Journeyman Project has inventory scroll buttons which repeat while the mouse button
  * is held down. On fast systems (i.e. us) this is quite unpleasant to use.
  */
@@ -529,6 +555,16 @@ macro InventoryArrowsClicked\r\
   ScrollIt\r\
   set the castnum of sprite 13 to the number of cast \"InventoryArrows\"\r\
   updateStage\r\
+";
+
+/*
+ * Noir: A Shadowy Thriller checks a file to determine if CD 1 or 2 is inserted.
+ * We assume all the files are in the same path.
+ */
+const char *const noirCDCheck = "\
+on hCorrectCD lNeedCD 	\r\
+   return 1 \r\
+end \r\
 ";
 
 struct ScriptHandlerPatch {
@@ -575,7 +611,9 @@ struct ScriptHandlerPatch {
 	{"mcmillennium", nullptr, kPlatformWindows, "PC\\SHARED.DXR", kMovieScript, 1013, DEFAULT_CAST_LIB, &mcmillenniumDriveDetectionFix},
 	{"mcmillennium", nullptr, kPlatformMacintosh, "Mission Code Millennium:SHARED.Dxr", kMovieScript, 1013, DEFAULT_CAST_LIB, &mcmillenniumDriveDetectionFix},
 	{"gordak", nullptr, kPlatformWindows, "GORDAKCD.EXE", kMovieScript, 2, DEFAULT_CAST_LIB, &gordakDetectionFix},
+	{"getaheadmath", nullptr, kPlatformWindows, "HDFILES\\CHANNELS\\BASE.CST", kParentScript, 69, 2, &getaheadmathDiskFix},
 	{"jman", "v1.2", kPlatformMacintosh, "Support Files:Mars ESG Upper 03", kMovieScript, 322, DEFAULT_CAST_LIB, &jmanInventory},
+	{"noir", nullptr, kPlatformWindows, "SHARED.CST", kMovieScript, 9, 2, &noirCDCheck},
 	{nullptr, nullptr, kPlatformUnknown, nullptr, kNoneScript, 0, 0, nullptr},
 
 };

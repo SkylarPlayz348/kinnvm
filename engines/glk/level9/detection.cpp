@@ -249,7 +249,7 @@ long Scanner::ScanV1(byte *startFile, uint32 size) {
 	}
 	_l9V1Game = -1;
 	if (dictVal1 != 0xff || dictVal2 != 0xff) {
-		for (i = 0; i < sizeof L9_V1_GAMES / sizeof L9_V1_GAMES[0]; i++) {
+		for (i = 0; i < ARRAYSIZE(L9_V1_GAMES); i++) {
 			if ((L9_V1_GAMES[i].dictVal1 == dictVal1) && (L9_V1_GAMES[i].dictVal2 == dictVal2)) {
 				_l9V1Game = i;
 				if (_dictData)
@@ -541,7 +541,7 @@ gln_game_tableref_t GameDetection::gln_gameid_identify_game() {
 
 	/* Handle v1 games */
 	if (_l9V1Game >= 0) {
-		assert((unsigned)_l9V1Game < sizeof (GLN_V1GAME_TABLE) / sizeof (GLN_V1GAME_TABLE[0]));
+		assert((unsigned)_l9V1Game < ARRAYSIZE(GLN_V1GAME_TABLE));
 		return &GLN_V1GAME_TABLE[_l9V1Game];
 	}
 
@@ -601,7 +601,7 @@ gln_game_tableref_t GameDetection::gln_gameid_identify_game() {
 	if (!game)
 		game = gln_gameid_lookup_game(length, checksum, crc, true);
 
-	if (!game) {
+	if (!game && 0) {
 		if (is_version2)
 			game = &GLN_UNGAME_TABLE[1];
 		else if (length >= 0x8500)
@@ -755,8 +755,9 @@ const GlkDetectionEntry* Level9MetaEngine::getDetectionEntries() {
 
 GameDescriptor Level9MetaEngine::findGame(const char *gameId) {
 	if (!strncmp(gameId, "level9v", 7)) {
-		GameDescriptor gd(gameId, "Unknown Level 9 game or version", 0);
-		return gd;
+//		GameDescriptor gd(gameId, "Unknown Level 9 game or version", 0);
+//		return gd;
+		return PlainGameDescriptor::empty();
 	}
 	for (const gln_game_table_t *pd = GLN_GAME_TABLE; pd->gameId; ++pd) {
 		if (!strcmp(gameId, pd->gameId)) {

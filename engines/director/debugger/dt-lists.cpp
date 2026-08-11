@@ -62,6 +62,7 @@ void showVars() {
 	ImGui::SetNextWindowSize(ImVec2(300, 250), ImGuiCond_FirstUseEver);
 	if (ImGui::Begin("Vars", &_state->_w.vars)) {
 		Common::Array<Common::String> keyBuffer;
+		_state->_vars._nameFilter.Draw("Filter");
 
 		if (ImGui::CollapsingHeader("Global vars:", ImGuiTreeNodeFlags_DefaultOpen)) {
 			for (auto &it : _state->_vars._globals) {
@@ -71,12 +72,19 @@ void showVars() {
 
 			uint32 id = 0;
 			for (auto &i : keyBuffer) {
+				if (!_state->_vars._nameFilter.PassFilter(i.c_str()))
+					continue;
 				ImGui::PushID(id);
 				Datum &val = _state->_vars._globals.getVal(i);
 				bool changed = !_state->_vars._prevGlobals.contains(i) || !(_state->_vars._globals.getVal(i) == _state->_vars._prevGlobals.getVal(i));
 				displayVariable(i, changed);
 				ImGui::SameLine();
 				ImGui::Text(" - [%s] %s", val.type2str(), formatStringForDump(val.asString(true)).c_str());
+				if (ImGui::BeginPopupContextItem("v")) {
+					if (ImGui::MenuItem("Copy value"))
+						ImGui::SetClipboardText(val.asString(true).c_str());
+					ImGui::EndPopup();
+				}
 				ImGui::PopID();
 				id += 1;
 			}
@@ -91,12 +99,19 @@ void showVars() {
 
 				uint32 id = 0;
 				for (auto &i : keyBuffer) {
+					if (!_state->_vars._nameFilter.PassFilter(i.c_str()))
+						continue;
 					ImGui::PushID(id);
 					Datum &val = _state->_vars._locals.getVal(i);
 					bool changed = !_state->_vars._prevLocals.contains(i) || !(_state->_vars._locals.getVal(i) == _state->_vars._prevLocals.getVal(i));
 					displayVariable(i, changed);
 					ImGui::SameLine();
 					ImGui::Text(" - [%s] %s", val.type2str(), formatStringForDump(val.asString(true)).c_str());
+					if (ImGui::BeginPopupContextItem("v")) {
+						if (ImGui::MenuItem("Copy value"))
+							ImGui::SetClipboardText(val.asString(true).c_str());
+						ImGui::EndPopup();
+					}
 					ImGui::PopID();
 					id += 1;
 				}
@@ -115,11 +130,18 @@ void showVars() {
 
 				uint32 id = 0;
 				for (auto &i : keyBuffer) {
+					if (!_state->_vars._nameFilter.PassFilter(i.c_str()))
+						continue;
 					ImGui::PushID(id);
 					Datum val = script->getProp(i);
 					displayVariable(i, false);
 					ImGui::SameLine();
 					ImGui::Text(" - [%s] %s", val.type2str(), formatStringForDump(val.asString(true)).c_str());
+					if (ImGui::BeginPopupContextItem("v")) {
+						if (ImGui::MenuItem("Copy value"))
+							ImGui::SetClipboardText(val.asString(true).c_str());
+						ImGui::EndPopup();
+					}
 					ImGui::PopID();
 					id += 1;
 				}
@@ -152,10 +174,15 @@ void showWatchedVars() {
 			id += 1;
 			ImGui::PushID(id);
 			displayVariable(v._key, false, outOfScope);
-			ImGui::PopID();
 
 			ImGui::SameLine();
 			ImGui::Text(" - [%s] %s", val.type2str(), formatStringForDump(val.asString(true)).c_str());
+			if (ImGui::BeginPopupContextItem("v")) {
+				if (ImGui::MenuItem("Copy value"))
+					ImGui::SetClipboardText(val.asString(true).c_str());
+				ImGui::EndPopup();
+			}
+			ImGui::PopID();
 		}
 
 		if (_state->_variables.empty())
@@ -206,9 +233,9 @@ void showBreakpointList() {
 	ImGui::SetNextWindowSize(ImVec2(480, 240), ImGuiCond_FirstUseEver);
 	if (ImGui::Begin("Breakpoints", &_state->_w.bpList)) {
 		auto &bps = g_lingo->getBreakpoints();
-		if (ImGui::BeginTable("BreakpointsTable", 5, ImGuiTableFlags_SizingFixedFit)) {
-			for (uint i = 0; i < 5; i++)
-				ImGui::TableSetupColumn(NULL, i == 2 ? ImGuiTableColumnFlags_WidthStretch : ImGuiTableColumnFlags_NoHeaderWidth);
+		if (ImGui::BeginTable("BreakpointsTable", 6, ImGuiTableFlags_SizingFixedFit)) {
+			for (uint i = 0; i < 6; i++)
+				ImGui::TableSetupColumn(NULL, (i == 2 || i == 5) ? ImGuiTableColumnFlags_WidthStretch : ImGuiTableColumnFlags_NoHeaderWidth);
 
 			for (uint i = 0; i < bps.size(); i++) {
 				if (bps[i].type != kBreakpointFunction)
@@ -216,6 +243,8 @@ void showBreakpointList() {
 
 				ImGui::TableNextRow();
 				ImGui::TableNextColumn();
+
+				ImGui::PushID(i);
 
 				ImDrawList *dl = ImGui::GetWindowDrawList();
 				ImVec2 pos = ImGui::GetCursorScreenPos();
@@ -245,7 +274,6 @@ void showBreakpointList() {
 				// enabled column
 				ImGui::TableNextColumn();
 				PushStyleCompact();
-				ImGui::PushID(i);
 				ImGui::Checkbox("", &bps[i].enabled);
 				PopStyleCompact();
 
@@ -275,6 +303,15 @@ void showBreakpointList() {
 				// offset
 				ImGui::TableNextColumn();
 				ImGui::Text("%d", bps[i].funcOffset);
+
+				// condition: fires only when this Lingo expression is true
+				ImGui::TableNextColumn();
+				char cond[128];
+				Common::strlcpy(cond, bps[i].condition.c_str(), sizeof(cond));
+				ImGui::SetNextItemWidth(-FLT_MIN);
+				if (ImGui::InputTextWithHint("##cond", "condition", cond, sizeof(cond)))
+					bps[i].condition = cond;
+
 				ImGui::PopID();
 
 				if (del) {
@@ -321,13 +358,17 @@ void showArchive() {
 									_state->_archive.resId = id;
 
 									free(_state->_archive.data);
+									_state->_archive.data = nullptr;
+									_state->_archive.dataSize = 0;
 
 									Common::SeekableReadStreamEndian *res = archive->getResource(tag, id);
-									_state->_archive.data = (byte *)malloc(res->size());
-									res->read(_state->_archive.data, res->size());
-									_state->_archive.dataSize = res->size();
+									if (res) {
+										_state->_archive.data = (byte *)malloc(res->size());
+										res->read(_state->_archive.data, res->size());
+										_state->_archive.dataSize = res->size();
 
-									delete res;
+										delete res;
+									}
 								}
 							}
 
@@ -403,7 +444,10 @@ void showWindows() {
 			bool isStage = (window == g_director->getStage());
 			const char *title = isStage ? "(stage)" :
 				(window->getMacWindow() ? window->getMacWindow()->getTitle().c_str() : "");
-			ImGui::TextUnformatted(title);
+			if (*title)
+				ImGui::TextUnformatted(title);
+			else
+				ImGui::TextDisabled("(untitled)");
 
 			Movie *movie = window->getCurrentMovie();
 
@@ -428,11 +472,12 @@ void showWindows() {
 				if (score) {
 					const char *stateStr = "unknown";
 					switch (score->_playState) {
-					case kPlayNotStarted: stateStr = "not started"; break;
-					case kPlayStarted:    stateStr = "playing";     break;
-					case kPlayStopped:    stateStr = "stopped";     break;
-					case kPlayPaused:     stateStr = "paused";      break;
-					default:              stateStr = "other";       break;
+					case kPlayNotStarted:         stateStr = "not started"; break;
+					case kPlayLoaded:             stateStr = "loaded";      break;
+					case kPlayStarted:            stateStr = "playing";     break;
+					case kPlayStopped:            stateStr = "stopped";     break;
+					case kPlayPaused:             stateStr = "paused";      break;
+					case kPlayPausedAfterLoading: stateStr = "paused (after load)"; break;
 					}
 					ImGui::TextUnformatted(stateStr);
 				}
@@ -466,9 +511,14 @@ void showWindows() {
 
 	ImGui::SeparatorText("All Movies");
 
+	// .dir (D4+), .dxr (protected), .dcr (Shockwave), .mmm (D2/D3)
+	static const char *moviePatterns[] = {
+		"*.dir", "*.DIR", "*.dxr", "*.DXR",
+		"*.dcr", "*.DCR", "*.mmm", "*.MMM",
+	};
 	Common::ArchiveMemberList dirFiles;
-	SearchMan.listMatchingMembers(dirFiles, "*.dir");
-	SearchMan.listMatchingMembers(dirFiles, "*.DIR");
+	for (auto pattern : moviePatterns)
+		SearchMan.listMatchingMembers(dirFiles, pattern);
 
 	// deduplicate by name
 	Common::HashMap<Common::String, bool, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> seen;
@@ -497,7 +547,8 @@ void showWindows() {
 				Datum frame, movie;
 				movie.type = STRING;
 				movie.u.s = new Common::String(f->getName());
-				g_lingo->func_goto(frame, movie);
+				// commandgo resets go-registered handlers on the movie swap
+				g_lingo->func_goto(frame, movie, true);
 			}
 		}
 

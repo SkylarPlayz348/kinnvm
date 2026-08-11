@@ -50,6 +50,14 @@ static const int8 kEvNoEvent						= -1;
 static const int8 kFrNoFrame						= -1;
 static const uint16 kNoScene						= 9999;
 
+// Taskbar popup UI types. Shared by ControlUIItems (AR 29), UIPopupPrepScene
+// (AR 32) and the Scene UI-prep-scene machinery.
+enum UIType {
+	kUITypeInventory = 1,
+	kUITypeNotebook  = 2,
+	kUITypeCellphone = 3
+};
+
 // Inventory items use types
 static const byte kInvItemUseThenLose				= 0;
 static const byte kInvItemKeepAlways				= 1;
@@ -96,9 +104,12 @@ static const byte kLargeVideoFormat					= 2;
 static const byte kVideoPlaytypeAVF					= 0;
 static const byte kVideoPlaytypeBink				= 1;
 
-// Overlay
+// Overlay transparency mode. 1 = opaque, anything >= kPlayOverlayTransparent is
+// drawn transparent (the original engine is 16bpp color-key, with no alpha/blend
+// path, so every transparent mode - Nancy12 also uses 3 - is a plain color key).
 static const byte kPlayOverlayPlain					= 1;
 static const byte kPlayOverlayTransparent			= 2;
+static const byte kPlayOverlayTransparent2			= 3;
 
 static const byte kPlayOverlaySceneChange			= 1;
 static const byte kPlayOverlayNoSceneChange			= 2;
@@ -204,13 +215,27 @@ struct MultiEventFlagDescription {
 	void execute();
 };
 
+// A Nancy 10+ cellphone list entry: an email message (mode 0) or a web-search
+// link (mode 1). Added at runtime by AR 131 (AddSearchLink); the first entry of
+// each list may instead be embedded in the UICL chunk. Which fields are used
+// depends on the mode (see CellPhonePopup). The byte layout differs per source,
+// so each site fills the fields itself rather than sharing a readData.
+struct SearchLink {
+	Common::String key;       // CVTX key whose looked-up text is the list row
+	Common::String value;     // body CVTX key (email); unused for search
+	int16 extra = 0;          // page index (search); unused for email
+	int16 flag = 0;           // stored by the original but unused; reserved
+	int16 eventFlag = -1;     // event-flag index set when the entry is opened
+	bool read = false;        // email only: set once the message is opened
+};
+
 struct SecondaryVideoDescription {
 	int16 frameID = kFrNoFrame;
 	Common::Rect srcRect;
 	Common::Rect destRect;
 	// 2 unknown/empty rects
 
-	void readData(Common::SeekableReadStream &stream);
+	void readData(Common::SeekableReadStream &stream, bool hasTrailingRects = false);
 };
 
 // Describes set of effects that can be applied to sounds.

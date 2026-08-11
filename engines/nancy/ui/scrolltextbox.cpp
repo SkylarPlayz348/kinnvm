@@ -42,6 +42,7 @@ ScrollTextBox::ScrollTextBox() :
 		_scrollbarDragging(false),
 		_scrollbarHovered(false),
 		_scrollbarGrabOffset(0),
+		_fullMode(false),
 		_expanded(false),
 		_fontIDOverride(-1),
 		_autoClearTime(0) {}
@@ -75,14 +76,22 @@ void ScrollTextBox::init() {
 	}
 	moveTo(_fullPopupRect);
 
+	// The taskbar owns the caption strip, so take the strip's text origin from the
+	// TASK chunk rather than the conversation overlay.
+	auto *task = GetEngineData(TASK);
+	if (task) {
+		_stripScreenRect = task->ccTextboxScreenRect;
+	}
+
 	Common::Rect bounds = _screenPosition;
 	bounds.moveTo(0, 0);
 	_drawSurface.create(bounds.width(), bounds.height(), g_nancy->_graphics->getInputPixelFormat());
 
-	// Key the text surface on the transparent color so only glyphs composite,
-	// over the chrome when expanded or onto the taskbar strip when mini.
+	// Key on the transparent color so only glyphs composite. Size for the wider
+	// (strip) layout plus the line-start inset so either fits.
 	const uint32 transColor = g_nancy->_graphics->getTransColor();
-	initSurfaces(textViewportLocal().width(), kHypertextSurfaceHeight,
+	const int surfaceWidth = _tboxData->lineStartXCursor + MAX<int>(stripTextWidth(), textViewportLocal().width());
+	initSurfaces(surfaceWidth, kHypertextSurfaceHeight,
 				 g_nancy->_graphics->getInputPixelFormat(), transColor, transColor);
 	_fullSurface.setTransparentColor(transColor);
 
@@ -104,12 +113,21 @@ void ScrollTextBox::updateGraphics() {
 }
 
 Common::Rect ScrollTextBox::textViewportLocal() const {
-	// The viewport is in screen space; the overlay shares it, so subtract the
-	// dest origin to get popup-local coordinates.
+	// Nancy13 stores the viewport as a source rect within the overlay image, so
+	// it's already popup-local. Earlier games store it in screen space and share
+	// the popup origin, so subtract the dest origin there.
 	Common::Rect r = _textViewportScreen;
-	r.translate(-_header->normalDestRect.left,
-				-_header->normalDestRect.top);
+	if (g_nancy->getGameType() < kGameTypeNancy13) {
+		r.translate(-_header->normalDestRect.left,
+					-_header->normalDestRect.top);
+	}
 	return r;
+}
+
+int ScrollTextBox::stripTextWidth() const {
+	// Strip text spans lineStartXCursor..(contentWidth - stripRightMargin), narrower
+	// than the conversation viewport (matches FrameTextBox's normal path).
+	return (_tboxData->contentWidth - _tboxData->stripRightMargin - _tboxData->lineStartXCursor) + 1;
 }
 
 void ScrollTextBox::drawBackground() {
@@ -118,8 +136,7 @@ void ScrollTextBox::drawBackground() {
 	_needsRedraw = true;
 }
 
-void ScrollTextBox::drawContent() {
-	// Render all text into the scratch surface to measure its height.
+void ScrollTextBox::layoutText(int wrapWidth, uint16 fontID) {
 	const uint32 transColor = g_nancy->_graphics->getTransColor();
 	_drawnTextHeight = 0;
 	_numDrawnLines = 0;
@@ -127,23 +144,34 @@ void ScrollTextBox::drawContent() {
 	_fullSurface.fillRect(Common::Rect(0, 0, _fullSurface.w, _fullSurface.h), transColor);
 	_textHighlightSurface.fillRect(Common::Rect(0, 0, _textHighlightSurface.w, _textHighlightSurface.h), transColor);
 
-	Common::Rect textBounds(0, 0, _fullSurface.w, _fullSurface.h);
-	textBounds.top  += _tboxData->scrollbarDefaultPos.y;
-	textBounds.left += _tboxData->scrollbarDefaultPos.x;
+	// The line-start X cursor is the text's horizontal inset; there is no vertical
+	// inset, so the first line starts at the top of the text area.
+	Common::Rect textBounds(_tboxData->lineStartXCursor, 0,
+							_tboxData->lineStartXCursor + wrapWidth, _fullSurface.h);
+	drawAllText(textBounds, 0, fontID, _tboxData->highlightConversationFontID);
+}
+
+void ScrollTextBox::drawContent() {
+	const uint32 transColor = g_nancy->_graphics->getTransColor();
+	const Common::Rect viewport = textViewportLocal();
+	const int fullHeight = _fullPopupRect.height();
 
 	// Narration/caption text uses the (white) highlight font, not the (cyan)
 	// conversation body font that the ConversationPopup uses.
 	const uint16 fontID = _fontIDOverride != -1 ? (uint16)_fontIDOverride : _tboxData->highlightConversationFontID;
-	drawAllText(textBounds, 0, fontID, _tboxData->highlightConversationFontID);
 
-	// Two discrete states: "mini" (<= 2 lines) is a short strip above the
-	// taskbar with no scrollbar; "expanded" (> 2 lines) is the full overlay
-	// covering the taskbar, with a scrollbar.
-	const Common::Rect viewport = textViewportLocal();
-	const int fullHeight = _fullPopupRect.height();
+	// Lay out at the strip's text width first, then pick the box: Nancy 11+ by line
+	// count, Nancy 10 by which FrameTextBox AR wrote the text (74 full / 75 strip).
+	layoutText(stripTextWidth(), fontID);
+	_expanded = g_nancy->getGameType() >= kGameTypeNancy11 ? (_numDrawnLines > 2) : _fullMode;
+
+	if (_expanded) {
+		// The expanded box reserves the gutter for its slider, so re-lay-out
+		// narrower to clear it.
+		layoutText(viewport.width(), fontID);
+	}
+
 	const int contentHeight = getInnerHeight();
-
-	_expanded = _numDrawnLines > 2;
 
 	Common::Rect boxRect;
 	int visibleTextHeight;
@@ -156,43 +184,74 @@ void ScrollTextBox::drawContent() {
 			scrollY = (int)(_scrollPos * (contentHeight - visibleTextHeight));
 		}
 	} else {
-		// Fixed two-line strip at the top of the overlay. Drop the chrome's
-		// bottom margin so it's just tall enough for two lines.
+		// Fixed two-line strip; overflow is clipped (hidden beneath the taskbar).
+		// Line 3 starts at exactly 2 * lineStep, so the clip must add no padding.
 		const Font *font = g_nancy->_graphics->getFont(fontID);
-		const int lineStep = font->getFontHeight() + font->getFontHeight() / 9;
-		const int twoLineContent = _tboxData->scrollbarDefaultPos.y + 2 * lineStep;
-		const int miniHeight = MIN(viewport.top + MAX(contentHeight, twoLineContent), fullHeight);
+		const int lineStep = font->getLineHeight() + font->getLineHeight() / 9;
+		const int stripContent = 2 * lineStep;
+		const int miniHeight = MIN(viewport.top + 1 + stripContent, fullHeight);
 		boxRect = Common::Rect(_fullPopupRect.left, _fullPopupRect.top,
 							   _fullPopupRect.right, _fullPopupRect.top + miniHeight);
-		visibleTextHeight = contentHeight;
+		visibleTextHeight = MIN(contentHeight, stripContent);
 	}
 
 	moveTo(boxRect);
 	_drawSurface.create(boxRect.width(), boxRect.height(), g_nancy->_graphics->getInputPixelFormat());
 
-	int textLeft = viewport.left;
+	// Expanded text clears the slider gutter; the strip aligns to the taskbar's
+	// caption rect (on top of the baked-in lineStartXCursor), or falls back to 0.
+	const bool haveStripRect = !_expanded && !_stripScreenRect.isEmpty();
+	int textLeft = _expanded ? viewport.left
+							 : (haveStripRect ? _stripScreenRect.left - _fullPopupRect.left : 0);
+	int textTop = viewport.top;
 	if (_expanded) {
+		// The textured overlay panel, with its slider.
 		setTransparent(false);
 		drawBackground();
 	} else {
-		// The taskbar draws the strip, so keep mini transparent with no chrome,
-		// and pull the text left into the unused scrollbar gap.
+		// The taskbar already draws the strip, so keep it transparent with no chrome.
 		setTransparent(true);
 		_drawSurface.clear(transColor);
-		const UISliderRecord &sl = _header->slider;
-		if (_header->sliderEnabled && !sl.destRect.isEmpty()) {
-			textLeft = toPopupLocal(sl.destRect, sl.destUsesGameFrameOffset != 0).left;
+		if (haveStripRect) {
+			// The caption rect has a small top inset (the vertical counterpart of
+			// lineStartXCursor).
+			textTop = (_stripScreenRect.top - _fullPopupRect.top) + 2;
+		} else {
+			// Nudge the first line down one pixel so its top padding matches the
+			// original's caption strip.
+			textTop += 1;
 		}
 	}
 
 	_drawSurface.blitFrom(_fullSurface,
 		Common::Rect(0, scrollY, _fullSurface.w, scrollY + visibleTextHeight),
-		Common::Point(textLeft, viewport.top));
+		Common::Point(textLeft, textTop));
 
 	if (_expanded) {
 		drawScrollbar(_scrollbarDragging ? kUIButtonPressed : (_scrollbarHovered ? kUIButtonHover : kUIButtonIdle));
 	}
 
+	_needsRedraw = true;
+}
+
+void ScrollTextBox::redrawScroll() {
+	// Only runs while dragging the scrollbar, so the layout is already settled:
+	// re-composite the visible slice at the new scroll offset, no re-layout.
+	const Common::Rect viewport = textViewportLocal();
+	const int visibleTextHeight = viewport.height();
+	const int contentHeight = getInnerHeight();
+	int scrollY = 0;
+	if (contentHeight > visibleTextHeight) {
+		scrollY = (int)(_scrollPos * (contentHeight - visibleTextHeight));
+	}
+
+	// drawBackground() repaints the chrome, wiping the previous (transparent-keyed)
+	// text so the new slice doesn't smear over the old one.
+	drawBackground();
+	_drawSurface.blitFrom(_fullSurface,
+		Common::Rect(0, scrollY, _fullSurface.w, scrollY + visibleTextHeight),
+		Common::Point(viewport.left, viewport.top));
+	drawScrollbar(_scrollbarDragging ? kUIButtonPressed : (_scrollbarHovered ? kUIButtonHover : kUIButtonIdle));
 	_needsRedraw = true;
 }
 
@@ -271,12 +330,27 @@ void ScrollTextBox::setOverrideFont(uint fontID) {
 	_fontIDOverride = (int)fontID;
 }
 
+void ScrollTextBox::setFullMode(bool fullMode) {
+	// Nancy 11+ has no second box; the mode only matters for Nancy 10.
+	if (g_nancy->getGameType() >= kGameTypeNancy11 || _fullMode == fullMode) {
+		return;
+	}
+
+	_fullMode = fullMode;
+
+	// The AR writes its text before selecting the mode, so re-render.
+	if (_isVisible) {
+		drawContent();
+	}
+}
+
 void ScrollTextBox::clear() {
 	HypertextParser::clear();
 
 	_scrollPos = 0.0f;
 	_scrollbarDragging = false;
 	_scrollbarHovered = false;
+	_fullMode = false;
 	_expanded = false;
 	_fontIDOverride = -1;
 	_autoClearTime = 0;
@@ -297,7 +371,7 @@ void ScrollTextBox::handleInput(NancyInput &input) {
 	const Common::Point localMouse = popupLocalMouse(input.mousePos);
 	const UISliderRecord &slider = _header->slider;
 
-	// The scrollbar only exists in the expanded state.
+	// The scrollbar only exists on the expanded box.
 	if (_header->sliderEnabled && _expanded) {
 		const Common::Rect trackLocal = toPopupLocal(slider.destRect, slider.destUsesGameFrameOffset != 0);
 		const int trackHeight = trackLocal.height();
@@ -314,13 +388,21 @@ void ScrollTextBox::handleInput(NancyInput &input) {
 
 			const int newThumbTop = localMouse.y - _scrollbarGrabOffset;
 			const int clamped = CLIP<int>(newThumbTop, trackLocal.top, trackLocal.top + travel);
-			_scrollPos = travel > 0 ? (float)(clamped - trackLocal.top) / (float)travel : 0.0f;
+			const float newScrollPos = travel > 0 ? (float)(clamped - trackLocal.top) / (float)travel : 0.0f;
 
+			bool released = false;
 			if (input.input & NancyInput::kLeftMouseButtonUp) {
 				_scrollbarDragging = false;
+				released = true;
 			}
 
-			drawContent();
+			// Re-composite (via the cheap redrawScroll()) only when the thumb moves
+			// or the drag ends, to keep dragging smooth.
+			if (newScrollPos != _scrollPos || released) {
+				_scrollPos = newScrollPos;
+				redrawScroll();
+			}
+
 			input.eatMouseInput();
 			return;
 		}

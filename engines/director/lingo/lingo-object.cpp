@@ -24,6 +24,7 @@
 #include "graphics/macgui/mactext.h"
 
 #include "director/director.h"
+#include "director/cast.h"
 #include "director/movie.h"
 #include "director/window.h"
 #include "director/lingo/lingo-ast.h"
@@ -74,6 +75,7 @@
 #include "director/lingo/xlibs/f/fsutil.h"
 #include "director/lingo/xlibs/f/flushmousexfcn.h"
 #include "director/lingo/xlibs/g/genutils.h"
+#include "director/lingo/xlibs/g/getpath.h"
 #include "director/lingo/xlibs/g/getscreenrectsxfcn.h"
 #include "director/lingo/xlibs/g/getscreensizexfcn.h"
 #include "director/lingo/xlibs/g/getsoundinlevel.h"
@@ -157,15 +159,20 @@
 #include "director/lingo/xlibs/x/xwin.h"
 #include "director/lingo/xlibs/y/yasix.h"
 #include "director/lingo/xtras/a/audio.h"
+#include "director/lingo/xtras/b/border.h"
 #include "director/lingo/xtras/b/budapi.h"
 #include "director/lingo/xtras/d/directsound.h"
 #include "director/lingo/xtras/d/displayres.h"
 #include "director/lingo/xtras/d/datetime.h"
+#include "director/lingo/xtras/f/fileflex.h"
+#include "director/lingo/xtras/f/fileutil.h"
 #include "director/lingo/xtras/f/filextra.h"
 #include "director/lingo/xtras/f/filextra4.h"
 #include "director/lingo/xtras/g/getdir.h"
+#include "director/lingo/xtras/g/glu32.h"
 #include "director/lingo/xtras/k/keypoll.h"
 #include "director/lingo/xtras/m/masterapp.h"
+#include "director/lingo/xtras/m/mbox.h"
 #include "director/lingo/xtras/m/mui.h"
 #include "director/lingo/xtras/n/netlingo.h"
 #include "director/lingo/xtras/o/openurl.h"
@@ -269,6 +276,7 @@ static const struct XLibProto {
 	XLIBDEF(BIMXObj,			kXObj,			400),	// D4
 	XLIBDEF(BlitPictXObj,		kXObj,			400),	// D4
 	XLIBDEF(BlockTheDrawingXObj,			kXObj,					400),	// D4
+	XLIBDEF(BorderXtra,			kXtraObj,		500),	// D5
 	XLIBDEF(BudAPIXtra,			kXtraObj,					500),	// D5
 	XLIBDEF(CDROMXObj,			kXObj,			200),	// D2
 	XLIBDEF(CloseBleedWindowXCMD,kXObj,			300),	// D3
@@ -299,7 +307,9 @@ static const struct XLibProto {
 	XLIBDEF(FadeGammaUpXCMD,	kXObj,			400),	// D4
 	XLIBDEF(FadeGammaXCMD,		kXObj,			400),	// D4
 	XLIBDEF(FileExists,			kXObj,			300),	// D3
+	XLIBDEF(FileFlexXtra,			kXtraObj,					500),	// D5
 	XLIBDEF(FileIO,				kXObj | kXtraObj,200),	// D2
+	XLIBDEF(FileUtilXtra,			kXtraObj,					500),	// D5
 	XLIBDEF(FileXtra,			kXtraObj,		500),	// D5
 	XLIBDEF(FileXtra4Xtra,			kXtraObj,					500),	// D5
 	XLIBDEF(FindFolder,			kXObj,			300),	// D3
@@ -309,8 +319,10 @@ static const struct XLibProto {
 	XLIBDEF(FlushMouseXFCN,			kXObj,					300),	// D3
 	XLIBDEF(FlushXObj,			kXObj,			300),	// D3
 	XLIBDEF(FPlayXObj,			kXObj,			200),	// D2
+	XLIBDEF(GLU32Xtra,			kXtraObj,					500),	// D5
 	XLIBDEF(GenUtilsXObj,		kXObj,			400),	// D4
 	XLIBDEF(GetDirXtra,			kXtraObj,					500),	// D5
+	XLIBDEF(GetPathXObj,			kXObj,					400),	// D4
 	XLIBDEF(GetScreenRectsXFCN,	kXObj,			300),	// D3
 	XLIBDEF(GetScreenSizeXFCN,	kXObj,			300),	// D3
 	XLIBDEF(GetSoundInLevelXObj,kXObj,			400),	// D4
@@ -318,7 +330,7 @@ static const struct XLibProto {
 	XLIBDEF(GetUInfoXObj,			kXObj,					400),	// D4
 	XLIBDEF(GpidXObj,			kXObj,			400),	// D4
 	XLIBDEF(HenryXObj,			kXObj,			400),	// D4
-	XLIBDEF(HitMap,				kXObj,			400),	// D4
+	XLIBDEF(HitMapXObj,			kXObj,			400),	// D4
 	XLIBDEF(IniXObj,			kXObj,			400),	// D4
 	XLIBDEF(InstObjXObj,		kXObj,			400),	// D4
 	XLIBDEF(IsCD,				kXObj,			300),	// D3
@@ -328,6 +340,7 @@ static const struct XLibProto {
 	XLIBDEF(KeypollXtra,		kXtraObj,		500),	// D5
 	XLIBDEF(LabelDrvXObj,		kXObj,			400),	// D4
 	XLIBDEF(ListDevXObj,		kXObj,			500),	// D5
+	XLIBDEF(MBoxXtra,			kXtraObj,					500),	// D5
 	XLIBDEF(MMovieXObj,			kXObj,			400),	// D4
 	XLIBDEF(ManiacBgXObj,		kXObj,			300),	// D3
 	XLIBDEF(MapNavigatorXObj,	kXObj,			400),	// D4
@@ -507,6 +520,10 @@ void Lingo::openXLib(Common::String name, ObjectType type, const Common::Path &p
 		(*_xlibOpeners[name])(type, path);
 	} else {
 		warning("Lingo::openXLib: Unimplemented xlib: '%s'", name.c_str());
+		// in strict mode, break if the library is missing
+		if (debugChannelSet(-1, kDebugLingoStrict)) {
+			error("Lingo::openXLib: Unimplemented xlib: '%s'", name.c_str());
+		}
 	}
 }
 
@@ -586,9 +603,26 @@ ScriptContext::ScriptContext(const ScriptContext &sc) : Object<ScriptContext>(sc
 
 	_id = sc._id;
 	_castLibHint = sc._castLibHint;
+	setCast(sc._cast);
 }
 
 ScriptContext::~ScriptContext() {
+	if (_cast) {
+		_cast->unregisterScriptContext(this);
+	}
+}
+
+void ScriptContext::setCast(Cast *cast) {
+	if (_cast == cast) {
+		return;
+	}
+	if (_cast) {
+		_cast->unregisterScriptContext(this);
+	}
+	_cast = cast;
+	if (_cast) {
+		_cast->registerScriptContext(this);
+	}
 }
 
 Common::String ScriptContext::asString() {

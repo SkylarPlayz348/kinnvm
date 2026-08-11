@@ -168,8 +168,8 @@ void Window::drawChannelBox(Director::Movie *currentMovie, Graphics::ManagedSurf
 		Common::Rect bbox = channel->getBbox();
 		blitTo->frameRect(bbox, g_director->_wm->_colorWhite);
 
-		font->drawString(blitTo, Common::String::format("m: %d, ch: %d, fr: %d", channel->_sprite->_castId.member, selectedChannel, channel->_filmLoopFrame ? channel->_filmLoopFrame : channel->_movieTime), bbox.left + 3, bbox.top + 3, 128, g_director->_wm->_colorBlack);
-		font->drawString(blitTo, Common::String::format("m: %d, ch: %d, fr: %d", channel->_sprite->_castId.member, selectedChannel, channel->_filmLoopFrame ? channel->_filmLoopFrame : channel->_movieTime), bbox.left + 2, bbox.top + 2, 128, g_director->_wm->_colorWhite);
+		font->drawString(blitTo, Common::String::format("m: %d, l: %d, ch: %d, fr: %d", channel->_sprite->_castId.member, channel->_sprite->_castId.castLib, selectedChannel, channel->_filmLoopFrame ? channel->_filmLoopFrame : channel->_movieTime), bbox.left + 3, bbox.top + 3, 128, g_director->_wm->_colorBlack);
+		font->drawString(blitTo, Common::String::format("m: %d, l: %d, ch: %d, fr: %d", channel->_sprite->_castId.member, channel->_sprite->_castId.castLib, selectedChannel, channel->_filmLoopFrame ? channel->_filmLoopFrame : channel->_movieTime), bbox.left + 2, bbox.top + 2, 128, g_director->_wm->_colorWhite);
 	}
 }
 
@@ -231,6 +231,12 @@ void Window::renderChannel(Channel *channel, const Common::Rect &rect, Graphics:
 
 bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
 	if (!_currentMovie)
+		return false;
+
+	// An embedded movie is composited via getSubChannels(); it must never
+	// render the shared window itself (e.g. from its own updateStage), which
+	// would draw its channels at the embedded movie's native origin.
+	if (_currentMovie->_isEmbedded)
 		return false;
 
 	if (!blitTo)
@@ -313,8 +319,8 @@ bool Window::render(bool forceRedraw, Graphics::ManagedSurface *blitTo) {
 				Common::Rect bbox = channel->getBbox();
 				blitTo->frameRect(bbox, g_director->_wm->_colorWhite);
 
-				font->drawString(blitTo, Common::String::format("m: %d, ch: %d, fr: %d", channel->_sprite->_castId.member, i, channel->_filmLoopFrame ? channel->_filmLoopFrame : channel->_movieTime), bbox.left + 3, bbox.top + 3, 128, g_director->_wm->_colorBlack);
-				font->drawString(blitTo, Common::String::format("m: %d, ch: %d, fr: %d", channel->_sprite->_castId.member, i, channel->_filmLoopFrame ? channel->_filmLoopFrame : channel->_movieTime), bbox.left + 2, bbox.top + 2, 128, g_director->_wm->_colorWhite);
+				font->drawString(blitTo, Common::String::format("m: %d, l: %d, ch: %d, fr: %d", channel->_sprite->_castId.member, channel->_sprite->_castId.castLib, i, channel->_filmLoopFrame ? channel->_filmLoopFrame : channel->_movieTime), bbox.left + 3, bbox.top + 3, 128, g_director->_wm->_colorBlack);
+				font->drawString(blitTo, Common::String::format("m: %d, l: %d, ch: %d, fr: %d", channel->_sprite->_castId.member, channel->_sprite->_castId.castLib, i, channel->_filmLoopFrame ? channel->_filmLoopFrame : channel->_movieTime), bbox.left + 2, bbox.top + 2, 128, g_director->_wm->_colorWhite);
 			}
 		}
 	}
@@ -569,6 +575,7 @@ void Window::loadNewSharedCast(Cast *previousSharedCast) {
 		// Clear those previous widget pointers
 		previousSharedCast->releaseCastMemberWidget();
 		_currentMovie->_sharedCast = previousSharedCast;
+		previousSharedCast->setMovie(_currentMovie);
 
 		debugC(1, kDebugLoading, "Skipping loading already loaded shared cast, path: %s", previousSharedCastPath.toString(Common::Path::kNativeSeparator).c_str());
 		return;
@@ -609,6 +616,9 @@ bool Window::loadNextMovie() {
 	if (_currentMovie) {
 		previousSharedCast = _currentMovie->getSharedCast();
 		_currentMovie->_sharedCast = nullptr;
+		if (previousSharedCast) {
+			previousSharedCast->setMovie(nullptr);
+		}
 	}
 
 	if (_currentMovie) {

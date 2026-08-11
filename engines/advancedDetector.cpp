@@ -732,20 +732,6 @@ ADDetectedGames AdvancedMetaEngineDetectionBase::detectGame(const Common::FSNode
 
 	preprocessDescriptions();
 
-	// Early rejection: if none of the file names referenced by this engine's
-	// detection entries exist in the game folder, there is no chance of a match.
-	bool anyFileFound = false;
-	for (auto it = allFiles.begin(); it != allFiles.end(); ++it) {
-		if (_fileNamesMap.contains(it->_key)) {
-			anyFileFound = true;
-			break;
-		}
-	}
-	if (!anyFileFound) {
-		debugC(3, kDebugGlobalDetection, "Skipping engine '%s': no matching file names in directory", getName());
-		return matched;
-	}
-
 	// Check which files are included in some ADGameDescription *and* whether
 	// they are present. Compute MD5s and file sizes for the available files.
 	for (descPtr = _gameDescriptors; ((const ADGameDescription *)descPtr)->gameId != nullptr; descPtr += _descItemSize) {
@@ -843,7 +829,7 @@ ADDetectedGames AdvancedMetaEngineDetectionBase::detectGame(const Common::FSNode
 			curFilesMatched++;
 		}
 
-		debugC(3, kDebugGlobalDetection, "Game '%s' matched %d files all files present: %d has unknown files: %d, total files: %d",
+		debugC(5, kDebugGlobalDetection, "Game '%s' matched %d files all files present: %d has unknown files: %d, total files: %d",
 				g->gameId, curFilesMatched, allFilesPresent, game.hasUnknownFiles, numFilesInEntry);
 
 		// We found at least one entry with all required files present.
@@ -1031,27 +1017,6 @@ void AdvancedMetaEngineDetectionBase::preprocessDescriptions() {
 	// Now scan all detection entries
 	for (const byte *descPtr = _gameDescriptors; ((const ADGameDescription *)descPtr)->gameId != nullptr; descPtr += _descItemSize) {
 		const ADGameDescription *g = (const ADGameDescription *)descPtr;
-
-		// Collect all unique file names for early rejection
-		for (const ADGameFileDescription *fileDesc = g->filesDescriptions; fileDesc->fileName; fileDesc++) {
-			Common::String fname = fileDesc->fileName;
-
-			// For archive entries, extract the archive name
-			if (gameFileToMD5Props(fileDesc, g->flags) & kMD5Archive) {
-				Common::StringTokenizer tok(fname, ":");
-				tok.nextToken(); // skip archive type
-				fname = tok.nextToken(); // archive name
-			}
-
-			// For paths with directory components, extract the leaf filename
-			// unless kADFlagMatchFullPaths is set
-			if (!(_flags & kADFlagMatchFullPaths) && fname.contains('/')) {
-				fname = Common::Path(fname).baseName();
-			}
-
-			_fileNamesMap.setVal(Common::Path(fname, fname.contains('/')
-				? '/' : Common::Path::kNoSeparator), true);
-		}
 
 		// Scan for potential directory globs
 		for (const ADGameFileDescription *fileDesc = g->filesDescriptions; fileDesc->fileName; fileDesc++) {

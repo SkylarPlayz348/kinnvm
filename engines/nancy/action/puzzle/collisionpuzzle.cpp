@@ -91,15 +91,21 @@ void CollisionPuzzle::init() {
 					continue;
 				}
 
+				// Start the solve piece in the slot two cells left of the grid
+				int pieceX = (int)x;
+				if (id == 6 && _tileMoveSolveStartsInSlot) {
+					pieceX -= 2;
+				}
+
 				newPiece._drawSurface.create(_image, _pieceSrcs[id - 1]);
-				Common::Rect pos = getScreenPosition(Common::Point(x, y));
+				Common::Rect pos = getScreenPosition(Common::Point(pieceX, y));
 				if (_lineWidth == 6) {
 					pos.translate(-1, 0); // Improvement
 				}
 				pos.setWidth(newPiece._drawSurface.w);
 				pos.setHeight(newPiece._drawSurface.h);
 				newPiece.moveTo(pos);
-				newPiece._gridPos = Common::Point(x, y);
+				newPiece._gridPos = Common::Point(pieceX, y);
 				newPiece.setVisible(true);
 				newPiece.setTransparent(true);
 
@@ -210,6 +216,11 @@ void CollisionPuzzle::readData(Common::SeekableReadStream &stream) {
 		_tileMoveExitPos.x = stream.readUint16LE();
 		_tileMoveExitIndex = stream.readUint16LE();
 		numPieces = 6;
+
+		// Nancy 12: when set, the solve piece starts in the slot left of the grid
+		if (g_nancy->getGameType() >= kGameTypeNancy12) {
+			_tileMoveSolveStartsInSlot = stream.readByte() == 1;
+		}
 	}
 
 	// Nancy 12 enlarged the Collision grid from 8x8 to 12x12; TileMove went 8 to 11 in Nancy 10
@@ -364,6 +375,12 @@ void CollisionPuzzle::execute() {
 			int16 w = g_nancy->getGameType() <= kGameTypeNancy9 ? _grid.size() : _grid[0].size();
 			int16 h = g_nancy->getGameType() <= kGameTypeNancy9 ? _grid[0].size() : _grid.size();
 			Common::Rect gridRect(w, h);
+
+			// The left start slot is outside the grid too, but isn't the exit
+			if (_tileMoveSolveStartsInSlot && pos.x < 0) {
+				return;
+			}
+
 			if (!posRect.contains(_tileMoveExitPos) && gridRect.contains(pos)) {
 				return;
 			}
@@ -510,8 +527,10 @@ Common::Point CollisionPuzzle::movePiece(uint pieceID, WallType direction) {
 		}
 	}
 
-	// Move result outside of grid when the exit is at an edge, and the moved piece is on top of the exit
-	if (_puzzleType == kTileMove && pieceID == 0) {
+	// Move result outside of grid when the exit is at an edge, and the moved piece is on top of the exit.
+	// Stair-slider puzzles solve by uncovering the exit cell instead, so their solve piece stays in the grid.
+	const bool isStairSlider = _tileMoveExitIndex == 20 && g_nancy->getGameType() >= kGameTypeNancy10;
+	if (_puzzleType == kTileMove && pieceID == 0 && !isStairSlider) {
 		Common::Rect compareRect(newPos.x, newPos.y, newPos.x + _pieces[pieceID]._w, newPos.y + _pieces[pieceID]._h);
 		if (compareRect.contains(_tileMoveExitPos)) {
 			if (horizontal && (_tileMoveExitPos.x == 0 || _tileMoveExitPos.x == (int)_grid[0].size() - 1)) {
@@ -534,7 +553,8 @@ Common::Rect CollisionPuzzle::getScreenPosition(Common::Point gridPos) {
 	dest.bottom -= 1;
 
 	if (_puzzleType == kTileMove) {
-		dest.setWidth(dest.width() / 2);
+		// The cell width is that of a 1-wide piece; halving the 2-wide sprite rounds up
+		dest.setWidth(_pieceSrcs[1].width() - 1);
 	}
 
 	dest.moveTo(_gridPos);
@@ -648,6 +668,15 @@ void CollisionPuzzle::handleInput(NancyInput &input) {
 		return;
 	}
 
+	// Nancy 10 gave both puzzle variants dedicated slide-arrow cursors (system cursor types 23-26);
+	// earlier games reuse the generic scene-movement arrows.
+	const bool useSlideCursors =
+		g_nancy->getGameType() >= kGameTypeNancy10 && g_nancy->getGameType() <= kGameTypeNancy12;
+	const CursorManager::CursorType leftCursor = useSlideCursors ? CursorManager::kNewPuzzleSlideLeft : CursorManager::kMoveLeft;
+	const CursorManager::CursorType rightCursor = useSlideCursors ? CursorManager::kNewPuzzleSlideRight : CursorManager::kMoveRight;
+	const CursorManager::CursorType upCursor = useSlideCursors ? CursorManager::kNewPuzzleSlideUp : CursorManager::kMoveUp;
+	const CursorManager::CursorType downCursor = useSlideCursors ? CursorManager::kNewPuzzleSlideDown : CursorManager::kMoveDown;
+
 	for (uint i = 0; i < _pieces.size(); ++i) {
 		Common::Point checkPos;
 		Common::Rect left, right, up, down;
@@ -686,7 +715,7 @@ void CollisionPuzzle::handleInput(NancyInput &input) {
 			if (left.contains(input.mousePos)) {
 				checkPos = movePiece(i, kWallLeft);
 				if (checkPos != _pieces[i]._gridPos) {
-					g_nancy->_cursor->setCursorType(CursorManager::kMoveLeft);
+					g_nancy->_cursor->setCursorType(leftCursor);
 
 					if (input.input & NancyInput::kLeftMouseButtonUp) {
 						_lastPosition = _pieces[i]._gridPos;
@@ -704,7 +733,7 @@ void CollisionPuzzle::handleInput(NancyInput &input) {
 			if (right.contains(input.mousePos)) {
 				checkPos = movePiece(i, kWallRight);
 				if (checkPos != _pieces[i]._gridPos) {
-					g_nancy->_cursor->setCursorType(CursorManager::kMoveRight);
+					g_nancy->_cursor->setCursorType(rightCursor);
 
 					if (input.input & NancyInput::kLeftMouseButtonUp) {
 						_lastPosition = _pieces[i]._gridPos;
@@ -722,7 +751,7 @@ void CollisionPuzzle::handleInput(NancyInput &input) {
 			if (up.contains(input.mousePos)) {
 				checkPos = movePiece(i, kWallUp);
 				if (checkPos != _pieces[i]._gridPos) {
-					g_nancy->_cursor->setCursorType(CursorManager::kMoveUp);
+					g_nancy->_cursor->setCursorType(upCursor);
 
 					if (input.input & NancyInput::kLeftMouseButtonUp) {
 						_lastPosition = _pieces[i]._gridPos;
@@ -740,7 +769,7 @@ void CollisionPuzzle::handleInput(NancyInput &input) {
 			if (down.contains(input.mousePos)) {
 				checkPos = movePiece(i, kWallDown);
 				if (checkPos != _pieces[i]._gridPos) {
-					g_nancy->_cursor->setCursorType(CursorManager::kMoveDown);
+					g_nancy->_cursor->setCursorType(downCursor);
 
 					if (input.input & NancyInput::kLeftMouseButtonUp) {
 						_lastPosition = _pieces[i]._gridPos;

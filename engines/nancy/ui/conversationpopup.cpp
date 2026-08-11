@@ -118,6 +118,11 @@ void ConversationPopup::drawBackground() {
 }
 
 void ConversationPopup::drawContent() {
+	layoutText();
+	paintVisibleText();
+}
+
+void ConversationPopup::layoutText() {
 	_drawnTextHeight = 0;
 	_numDrawnLines = 0;
 	_hotspots.clear();
@@ -129,10 +134,10 @@ void ConversationPopup::drawContent() {
 	textBounds.left += _tboxData->scrollbarDefaultPos.x;
 
 	drawAllText(textBounds, 0, _tboxData->conversationFontID, _tboxData->highlightConversationFontID);
+}
 
-	Common::Rect localTextRect = _uicoData->textRect;
-	localTextRect.translate(-_uicoData->header.normalDestRect.left,
-							-_uicoData->header.normalDestRect.top);
+void ConversationPopup::paintVisibleText() {
+	Common::Rect localTextRect = getLocalTextRect();
 
 	const uint16 inner = getInnerHeight();
 	const uint16 outer = localTextRect.height();
@@ -142,6 +147,8 @@ void ConversationPopup::drawContent() {
 						   MAX<int>(0, _fullSurface.h - outer));
 	}
 
+	// The text is already laid out in _fullSurface; scrolling just re-blits a
+	// different vertical slice of it.
 	_drawSurface.blitFrom(_fullSurface,
 		Common::Rect(0, scrollY, _fullSurface.w, scrollY + outer),
 		Common::Point(localTextRect.left, localTextRect.top));
@@ -149,8 +156,26 @@ void ConversationPopup::drawContent() {
 	_needsRedraw = true;
 }
 
+void ConversationPopup::redrawScroll() {
+	// The text layout in _fullSurface is unchanged; re-composite the popup at the
+	// new scroll offset. drawBackground() wipes the previous slice, then the text
+	// slice and scrollbar are repainted, skipping the expensive text re-layout.
+	drawBackground();
+	paintVisibleText();
+	drawScrollbar(_scrollbarDragging ? kUIButtonPressed : (_scrollbarHovered ? kUIButtonHover : kUIButtonIdle));
+}
+
 uint16 ConversationPopup::getInnerHeight() const {
 	return _drawnTextHeight + _tboxData->scrollbarDefaultPos.y;
+}
+
+Common::Rect ConversationPopup::getLocalTextRect() const {
+	Common::Rect r = _uicoData->textRect;
+	if (g_nancy->getGameType() < kGameTypeNancy13) {
+		r.translate(-_uicoData->header.normalDestRect.left,
+					-_uicoData->header.normalDestRect.top);
+	}
+	return r;
 }
 
 Common::Rect ConversationPopup::toPopupLocal(const Common::Rect &chunkRect, bool useGameFrame) const {
@@ -229,11 +254,15 @@ void ConversationPopup::handleInput(NancyInput &input) {
 
 			const int newThumbTop = localMouse.y - _scrollbarGrabOffset;
 			const int clamped = CLIP<int>(newThumbTop, trackLocal.top, trackLocal.top + travel);
-			_scrollPos = travel > 0 ? (float)(clamped - trackLocal.top) / (float)travel : 0.0f;
+			const float newScrollPos = travel > 0 ? (float)(clamped - trackLocal.top) / (float)travel : 0.0f;
 
-			drawBackground();
-			drawContent();
-			drawScrollbar(kUIButtonPressed);
+			// Re-composite only when the thumb actually moves, and via redrawScroll()
+			// (a cheap slice re-blit) rather than a full text re-layout. This keeps
+			// dragging smooth instead of re-rendering the whole text surface each frame.
+			if (newScrollPos != _scrollPos) {
+				_scrollPos = newScrollPos;
+				redrawScroll();
+			}
 
 			if (input.input & NancyInput::kLeftMouseButtonUp) {
 				_scrollbarDragging = false;
@@ -264,19 +293,22 @@ void ConversationPopup::handleInput(NancyInput &input) {
 	}
 
 	// Response hotspot handling — mirrors Textbox::handleInput().
-	Common::Rect localTextRect = _uicoData->textRect;
-	localTextRect.translate(-_uicoData->header.normalDestRect.left,
-							-_uicoData->header.normalDestRect.top);
+	Common::Rect localTextRect = getLocalTextRect();
 
 	const uint16 inner = getInnerHeight();
 	const uint16 outer = localTextRect.height();
 	const int scrollY = inner > outer ? (int)(_scrollPos * (inner - outer)) : 0;
 
+	// Clip hit-testing and highlighting to the visible text viewport, not the
+	// whole popup: a response scrolled out of view still overlaps the popup rect,
+	// so intersecting with the popup would highlight text that is clipped away.
+	const Common::Rect textAreaOnScreen = convertToScreen(localTextRect);
+
 	bool hasHighlight = false;
 	for (uint i = _responseStartIdx; i < _hotspots.size(); ++i) {
 		Common::Rect hotspot = _hotspots[i];
 		hotspot.translate(localTextRect.left, localTextRect.top - scrollY);
-		Common::Rect hotspotOnScreen = convertToScreen(hotspot).findIntersectingRect(_screenPosition);
+		Common::Rect hotspotOnScreen = convertToScreen(hotspot).findIntersectingRect(textAreaOnScreen);
 		if (hotspotOnScreen.contains(input.mousePos)) {
 			g_nancy->_cursor->setCursorType(CursorManager::kHotspotArrow);
 

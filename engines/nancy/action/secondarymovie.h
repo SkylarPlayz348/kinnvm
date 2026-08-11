@@ -25,10 +25,7 @@
 #include "common/ptr.h"
 
 #include "engines/nancy/action/actionrecord.h"
-
-namespace Video {
-class VideoDecoder;
-}
+#include "engines/nancy/movieplayer.h"
 
 namespace Nancy {
 namespace Action {
@@ -98,13 +95,29 @@ public:
 	Common::Path _paletteName;
 	Common::Path _bitmapOverlayName;
 
-	uint16 _videoType = kVideoPlaytypeAVF;
 	uint16 _videoFormat = kLargeVideoFormat;
 	uint16 _videoSceneChange = kMovieNoSceneChange;
 	byte _playerCursorAllowed = kPlayerCursorAllowed;
 	byte _playDirection = kPlayMovieForward;
 	uint16 _firstFrame = 0;
 	uint16 _lastFrame = 0;
+	// Nancy14-only: when non-zero, hide the movie once it reaches its last frame.
+	uint16 _hideOnFinish = 0;
+	// Nancy15 AR 44: a "play style" selector (1 or 3). Read but currently
+	// unused by playback.
+	uint16 _playStyle = 1;
+
+	// AR 47 "InteractiveVideo" (a PlaySecondaryMovie subclass): after the
+	// normal AR-44-style movie data it carries a name, a flag byte, and a
+	// list of named {value, flag} entries. Read but not yet acted on.
+	struct InteractiveEntry {
+		Common::Path name;
+		uint32 value = 0;
+		byte flag = 0;
+	};
+	Common::Path _interactiveName;
+	bool _interactiveFlag = false;
+	Common::Array<InteractiveEntry> _interactiveEntries;
 	Common::Array<FlagAtFrame> _frameFlags;
 	MultiEventFlagDescription _triggerFlags;
 	FlagDescription _videoStartFlag;
@@ -114,7 +127,7 @@ public:
 	SceneChangeDescription _sceneChange;
 	Common::Array<SecondaryVideoDescription> _videoDescs;
 
-	Common::ScopedPtr<Video::VideoDecoder> _decoder;
+	MoviePlayer _decoder;
 
 	// Random-movie state (only populated when _isRandom).
 	bool _isRandom = false;
@@ -122,6 +135,17 @@ public:
 	Common::String _startingSequenceName;
 	uint16 _randomPlayerCursorAllowed = kPlayerCursorAllowed;
 	Common::Array<RandomSequence> _sequences;
+
+	// Nancy13+ carries one extra "secondary" movie (a recognition animation)
+	// after the sequence list. Stored for future playback; reading it is
+	// required so the trailing hotspot list stays aligned.
+	RandomSequence _secondaryMovie;
+
+	// Nancy13 talkable characters: the scene to open when the character is
+	// clicked (its conversation). kNoScene means the character isn't clickable.
+	uint16 _talkSceneID = kNoScene;
+	// Hover cursor for the character (a raw Nancy13 cursor id from the chunk).
+	uint16 _talkCursorType = 0;
 
 	// Chain state. After a sequence's movie finishes the engine rolls a
 	// weighted pick: "stay" -> enter pause for a random duration and
@@ -132,6 +156,11 @@ public:
 	uint32 _randomPauseEndTime = 0;
 	bool _randomStopRequested = false;
 
+	// Talkable-character hover state: whether the mouse is over the character,
+	// and whether the recognition (secondary) movie is currently playing.
+	bool _isHovered = false;
+	bool _playingSecondary = false;
+
 	// Called by PlayRandomMovieControl::execute() to wind down the AR.
 	void stopRandom() { _randomStopRequested = true; }
 
@@ -140,9 +169,16 @@ public:
 
 	bool isViewportRelative() const override { return true; }
 
-	bool isPersistentAcrossScenes() const override {
-		return _isRandom && !_isDone && !_randomStopRequested;
-	}
+	bool survivesSceneChange(bool nextSceneIsNoArt) const override;
+
+	// Nancy13 talkable characters expose the character's on-screen box as a
+	// clickable hotspot with a talk cursor; clicking opens _talkSceneID, and
+	// hovering plays the recognition ("turn around") movie.
+	void handleInput(NancyInput &input) override;
+	CursorManager::CursorType getHoverCursor() const override;
+	bool cursorSetFromScript() const override { return _isRandom && _talkSceneID != kNoScene; }
+
+	Common::String getRecordExtraInfo() const override { return Common::String::format("Scene %d", _sceneChange.sceneID); }
 
 protected:
 	Common::String getRecordTypeName() const override {
@@ -152,19 +188,46 @@ protected:
 	// `ser` and `stream` must wrap the same input; `stream` is only
 	// needed for SecondaryVideoDescription::readData.
 	void readRandomMovieData(Common::Serializer &ser, Common::SeekableReadStream &stream);
+	// Nancy14 reworked the random-movie layout (confirmed identical in Nancy15):
+	// a larger header (shared with the non-random AR) and a tail of two
+	// blt-descriptor lists separated by the recognition movie's name, in place
+	// of Nancy13's secondaryMovie record + hotspot list.
+	void readRandomMovieDataNancy14(Common::Serializer &ser, Common::SeekableReadStream &stream);
 	void readRandomSequence(Common::Serializer &ser, RandomSequence &seq);
+	void readSecondaryRandomMovie(Common::Serializer &ser, RandomSequence &seq);
 
-	// (Re)create _decoder as an AVFDecoder or BinkDecoder matching _videoType.
-	void resetDecoder();
+	// Shared tail of the random-movie readers: pick the starting sequence
+	// (random or by name) and seed the flat playback fields from it.
+	void applyStartingRandomSequence();
+
+	void readDataNancy14(Common::Serializer &ser, Common::SeekableReadStream &stream);
 
 	// Apply a RandomSequence's playback config to the PSM flat fields
 	// and reload the decoder. Returns true on success.
 	bool activateRandomSequence(int index);
 
+	// Load & start the recognition (secondary) movie in place of the idle loop.
+	bool activateSecondaryMovie();
+
+	// A Nancy13 talkable character: has a conversation scene and a recognition
+	// movie to swap to on hover.
+	bool isTalkable() const { return _isRandom && _talkSceneID != kNoScene && !_secondaryMovie.name.empty(); }
+
 	// Pick the next sequence (or "stay") per the weighted random rules.
 	// Returns -1 if "stay" was picked (and sets up the pause state),
 	// or the chosen sequence index otherwise.
 	int rollNextSequence();
+
+	// Enter the paused chain state for a random duration in the sequence's
+	// [minPauseMs, maxPauseMs] range. Always returns -1.
+	int beginRandomPause(const RandomSequence &seq);
+
+	// Find a sequence by name, warning and returning -1 if it isn't present.
+	int lookupSequence(const Common::Path &name) const;
+
+	// Resolve the -1/-2 "whole movie" sentinels in _firstFrame/_lastFrame
+	// against the loaded decoder's frame count. Random sequences only.
+	void resolveSentinelFrames();
 
 	Graphics::ManagedSurface _fullFrame;
 	int _curViewportFrame = -1;

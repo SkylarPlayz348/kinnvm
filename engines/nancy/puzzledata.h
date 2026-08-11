@@ -214,6 +214,14 @@ struct TableData : public PuzzleData {
 	void setComboValue(uint16 index, float value);
 	float getComboValue(uint16 index) const;
 
+	// The number of single (non-combo) values, i.e. the boundary between the
+	// single-value and combo-value index ranges: 20 up to nancy8, 30 afterwards.
+	uint getNumSingleValues() const;
+
+	// Reads a value by its combined index (single values come first, then combos).
+	// Combo (float) values are rounded to the nearest integer.
+	int16 getValue(uint16 index) const;
+
 	Common::Array<int16> singleValues;
 	Common::Array<float> comboValues;
 };
@@ -222,15 +230,6 @@ struct TableData : public PuzzleData {
 // SetCellPhoneBatteryAndSignal and AddSearchLink action records,
 // persisted between saves.
 struct CellPhoneData : public PuzzleData {
-	struct LinkEntry {
-		Common::String key;       // CVTX key whose looked-up text is shown in the list
-		Common::String value;     // CVTX key for the body (email only); unused for search
-		int16 extra = 0;          // search mode: page index (mode-1 only); unused for email
-		int16 flag = -1;          // stored by the AR but unused by the original; reserved
-		int16 eventFlag = -1;     // event-flag index set when the entry is opened
-		bool read = false;        // email only: set once the message is opened
-	};
-
 	CellPhoneData() {}
 	virtual ~CellPhoneData() {}
 
@@ -247,19 +246,55 @@ struct CellPhoneData : public PuzzleData {
 	// Populated by AR 131 (AddSearchLink). Mode 0 → emailMessages (each
 	// with a body-text CVTX key + read flag); any non-zero mode →
 	// searchLinks (web search topics).
-	Common::Array<LinkEntry> emailMessages;
-	Common::Array<LinkEntry> searchLinks;
+	Common::Array<SearchLink> emailMessages;
+	Common::Array<SearchLink> searchLinks;
 
 private:
-	void syncLinkArray(Common::Serializer &ser, Common::Array<LinkEntry> &arr);
+	void syncLinkArray(Common::Serializer &ser, Common::Array<SearchLink> &arr);
+};
+
+// A cell-phone camera snapshot (Nancy 13). Stored as raw BGRA32 pixels so it
+// survives save/load independently of the scene it was taken from.
+struct CapturedPicture {
+	uint16 width = 0;
+	uint16 height = 0;
+	Common::Array<byte> pixels;   // width * height * 4, BGRA32
+	bool sent = false;            // true once the player has "sent" it
+};
+
+// Nancy 13 camera snapshots. Kept in its own lazily-created PuzzleData chunk so
+// existing saves and the CELL chunk are untouched (no save-version bump).
+struct CellPhonePictureData : public PuzzleData {
+	CellPhonePictureData() {}
+	virtual ~CellPhonePictureData() {}
+
+	static constexpr uint32 getTag() { return MKTAG('C', 'P', 'I', 'C'); }
+	virtual void synchronize(Common::Serializer &ser);
+
+	Common::Array<CapturedPicture> pictures;
 };
 
 // Nancy 11+ AR 69 (TimerControl). 10 software timers, each counting up from
-// zero. A "configured" timer (state 5/6) fires a set of event flags, plays an
-// optional sound and shows an optional caption once its target duration
-// elapses. Started/stopped via ResetAndStartTimer (104) and StopTimer (105),
-// which in Nancy 11 carry a timer-slot index.
+// zero. In Nancy 11 a "configured" timer (state 5/6) fires a set of event flags,
+// plays an optional sound and shows an optional caption once its target duration
+// elapses. From Nancy 12 a running timer instead carries up to kNumTriggers
+// independent triggers (see ResetAndStartTimer), each firing its own flags and
+// sound. Started/stopped via ResetAndStartTimer (104) and StopTimer (105), which
+// in Nancy 11 carry a timer-slot index.
 struct TimerData : public PuzzleData {
+	// Nancy 12+ per-timer trigger: fires its flags and sound once its target
+	// duration is reached. A one-shot trigger clears the whole timer when it
+	// fires; a repeating one leaves the timer counting.
+	struct Trigger {
+		enum Type { kOneShot = 1, kRepeating = 2 };
+
+		int32 type = kOneShot;
+		uint32 durationMs = 0;
+		bool hasFired = false;
+		SoundDescription sound;
+		FlagDescription flags[10];
+	};
+
 	struct Timer {
 		enum State { kIdle = 0, kRunning = 1, kPaused = 2, kOneShot = 5, kRepeating = 6 };
 
@@ -271,11 +306,13 @@ struct TimerData : public PuzzleData {
 		Common::String autotextKey;
 		Common::String caption;
 		FlagDescription flags[10];
+		Common::Array<Trigger> triggers; // Nancy 12+
 
 		void reset() { *this = Timer(); }
 	};
 
 	static const uint kNumTimers = 10;
+	static const uint kNumTriggers = 20;
 
 	TimerData() {}
 	virtual ~TimerData() {}
@@ -299,6 +336,83 @@ struct UIResourceData : public PuzzleData {
 	// Set true once seeded from UIRC, so a loaded save isn't re-seeded.
 	bool seeded = false;
 	Common::Array<int32> values;
+};
+
+// Nancy 10+ taskbar button-disable overrides, set by AR 29 (ControlUIItems).
+// A disable can span a range of scenes set from an earlier scene's AR, so the
+// override has to persist across saves for the button to stay disabled after a
+// load into a scene that doesn't itself re-run the AR.
+struct TaskbarData : public PuzzleData {
+	static const uint kNumButtons = 6;
+	static const uint kNumNotificationSubCategories = 3;
+
+	struct Override {
+		bool active = false;
+		int16 startScene = -1;
+		int16 endScene = -1;
+		uint16 clickSoundMode = 0;
+	};
+
+	TaskbarData() {}
+	virtual ~TaskbarData() {}
+
+	static constexpr uint32 getTag() { return MKTAG('T', 'S', 'K', 'B'); }
+	virtual void synchronize(Common::Serializer &ser);
+
+	Override overrides[kNumButtons];
+	// Notification badge flags, mirrored from the Taskbar so they survive a
+	// load. Set by AR triggers (inventory add, ModifyListEntryAdd, etc.) that
+	// won't re-run when loading into a later scene.
+	bool notifications[kNumButtons][kNumNotificationSubCategories] = {};
+};
+
+// Nancy13+ WordFindPuzzle (AR 170). The puzzle is solved one word at a time across
+// several scene visits; this remembers which word is currently active so progress
+// survives leaving and re-entering the scene (and saving/loading).
+struct WordFindPuzzleData : public PuzzleData {
+	WordFindPuzzleData() {}
+	virtual ~WordFindPuzzleData() {}
+
+	static constexpr uint32 getTag() { return MKTAG('W', 'F', 'N', 'D'); }
+	virtual void synchronize(Common::Serializer &ser);
+
+	int16 currentWord = 0;
+};
+
+// Nancy14+ HangmanPuzzle (AR 177). Remembers which words have already been used
+// so a fresh visit picks a new one; once every word has been used the set is
+// cleared and words become available again (matching the original's word-reuse
+// bitmap). Persisted so progress survives leaving the scene and saving.
+struct HangmanData : public PuzzleData {
+	HangmanData() {}
+	virtual ~HangmanData() {}
+
+	static constexpr uint32 getTag() { return MKTAG('H', 'A', 'N', 'G'); }
+	virtual void synchronize(Common::Serializer &ser);
+
+	Common::Array<Common::String> usedWords;
+};
+
+// Nancy12 DrivingPuzzle (AR 160). The car's position, heading and tire state persist
+// across visits to the driving map (driving into a location, then coming back), matching
+// the original's retainState mechanism, which saves the car to globals every frame and
+// restores it on setup. `valid` is false until the car has been driven, so the first
+// visit starts from the header's start position.
+struct DrivingData : public PuzzleData {
+	DrivingData() {}
+	virtual ~DrivingData() {}
+
+	static constexpr uint32 getTag() { return MKTAG('D', 'R', 'V', 'G'); }
+	virtual void synchronize(Common::Serializer &ser);
+
+	bool valid = false;
+	int32 carX = 0;
+	int32 carY = 0;
+	double heading = 0.0;
+	int32 tireDamage = 0;
+	bool flatTire = false;
+	double fuelBurnAccum = 0.0;	// fractional fuel drained but not yet a whole unit
+	bool infiniteFuel = false;	// cheat toggle, kept across building visits
 };
 
 PuzzleData *makePuzzleData(const uint32 tag);

@@ -950,10 +950,10 @@ bool animateCaseSelectionReveal(EEMEngine *vm, const Picture *caseBg,
 								bool haveRevealPic, const Animation *kdAnim,
 								bool haveKdAnim, int kdAnimX, int kdAnimY,
 								uint book) {
-	if (!haveRevealPic || !revealPic || revealPic->surface.empty())
+	if (!vm || !haveRevealPic || !revealPic || revealPic->surface.empty())
 		return false;
 
-	const int steps = vm && vm->isFloppy()
+	const int steps = vm->isFloppy()
 		? revealPic->surface.w : revealPic->surface.h;
 	for (int i = 1; i <= steps; i++) {
 		if (pumpQuitEvents(vm))
@@ -963,7 +963,7 @@ bool animateCaseSelectionReveal(EEMEngine *vm, const Picture *caseBg,
 		scratch.clear();
 		if (haveCaseBg && caseBg)
 			scratch.simpleBlitFrom(caseBg->surface);
-		if (vm && vm->isFloppy()) {
+		if (vm->isFloppy()) {
 			blitMaskedPicRightReveal(scratch, *revealPic,
 									  vm->scaleX(kCaseSelectionRevealX),
 									  vm->scaleY(kCaseSelectionRevealY), i);
@@ -1413,7 +1413,7 @@ int EEMEngine::doShowEnding(uint num, bool firstPage) {
 		scaleDosRectIfMac(*this, kEndingNextPageRect);
 	uint pageOffsets[8];
 	const uint pageOffsetCap =
-		(uint)(sizeof(pageOffsets) / sizeof(pageOffsets[0]));
+		(uint)ARRAYSIZE(pageOffsets);
 	uint validPages = 0;
 	const bool compactEnding = floppyEnding || (macEnding && !macLooseEnding);
 	const bool cdEnding = !compactEnding;
@@ -1664,8 +1664,7 @@ void EEMEngine::doShowScrapbook(uint stage) {
 	uint tierLo = 0, tierHi = 0;
 	if (stage < 1 || !mysteryTierRange(stage, tierLo, tierHi))
 		return;
-	const int solvedCount =
-		(int)(sizeof(_mysteriesSolved) / sizeof(_mysteriesSolved[0]));
+	const int solvedCount = ARRAYSIZE(_mysteriesSolved);
 	const int lo = (int)tierLo;
 	const int hi = MIN<int>((int)tierHi + 1, solvedCount);
 	if (lo >= hi)

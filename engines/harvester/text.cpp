@@ -21,12 +21,14 @@
 
 #include "harvester/text.h"
 
+#include "common/algorithm.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
 #include "common/endian.h"
 #include "common/fs.h"
 #include "common/ptr.h"
 #include "common/stream.h"
+#include "harvester/harvester.h"
 #include "harvester/parse_utils.h"
 #include "harvester/resources.h"
 
@@ -60,7 +62,7 @@ static void parseDialogueResponseLines(const Common::Array<byte> &responseData,
 		if (value == '\r')
 			continue;
 		if (value == '\n') {
-			lines.push_back(line);
+			lines.push_back(Common::move(line));
 			line.clear();
 			continue;
 		}
@@ -69,7 +71,7 @@ static void parseDialogueResponseLines(const Common::Array<byte> &responseData,
 	}
 
 	if (!line.empty())
-		lines.push_back(line);
+		lines.push_back(Common::move(line));
 }
 
 static bool hasNativeHankDialogueResponseLayout(const Common::Array<Common::String> &lines) {
@@ -110,7 +112,7 @@ static bool tryLoadPreferredDialogueResponsesFromGamePath(Common::Array<Common::
 		Common::Array<Common::String> candidateLines;
 		if (loadDialogueResponseLinesFromNode(candidate, candidateLines) &&
 				hasNativeHankDialogueResponseLayout(candidateLines)) {
-			lines = candidateLines;
+			lines = Common::move(candidateLines);
 			debug(1, "Harvester: using native-compatible DIALOG.RSP from '%s'",
 				candidate.getPath().toString(Common::Path::kNativeSeparator).c_str());
 			return true;
@@ -181,7 +183,7 @@ bool Text::loadDialogueIndex(ResourceManager &resources) {
 		entry.textLength = MIN<uint32>(cursor - entry.textOffset, 0x19a);
 
 		if (entry.wavId > 0 && entry.textLength != 0)
-			_dialogueEntries.push_back(entry);
+			_dialogueEntries.push_back(Common::move(entry));
 	}
 
 	return !_dialogueEntries.empty();
@@ -198,10 +200,11 @@ bool Text::loadDialogueResponses(ResourceManager &resources) {
 	if (_dialogueResponseLines.empty())
 		return false;
 
-	if (!hasNativeHankDialogueResponseLayout(_dialogueResponseLines)) {
+	if ((!g_engine || !g_engine->isDemo()) &&
+			!hasNativeHankDialogueResponseLayout(_dialogueResponseLines)) {
 		Common::Array<Common::String> preferredLines;
 		if (tryLoadPreferredDialogueResponsesFromGamePath(preferredLines))
-			_dialogueResponseLines = preferredLines;
+			_dialogueResponseLines = Common::move(preferredLines);
 	}
 
 	return !_dialogueResponseLines.empty();
@@ -236,7 +239,7 @@ bool Text::loadFont(ResourceManager &resources, const Common::String &path) {
 	font.atlasPixels.resize(pixelCount);
 	memcpy(font.atlasPixels.data(), data.data() + kCftBitmapHeaderSize, pixelCount);
 
-	_fonts.push_back(font);
+	_fonts.push_back(Common::move(font));
 	return true;
 }
 

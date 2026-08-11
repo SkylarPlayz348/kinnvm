@@ -24,6 +24,7 @@
 #include "graphics/screen.h"
 #include "macs2/detection.h"
 #include "macs2/macs2.h"
+#include "macs2/macs2_constants.h"
 #include "macs2/view1.h"
 
 namespace Macs2 {
@@ -48,13 +49,12 @@ void Events::runGame() {
 	if (saveSlot != -1)
 		g_engine->loadGameState(saveSlot);
 
-	// DOS timer ISR fires at ~21.6Hz (PIT divisor 0xD7B0 = 55216, 1193182/55216).
-	// Main loop processes a game frame when g_wTimerTickCounter > 1 (every ~2 ticks).
-	// Effective game frame rate: ~10.8fps (every ~92ms).
-	// We use wall-clock timing to match the original rate precisely.
+	// DOS: PIT ISR ~21.6Hz (divisor 0xD7B0). Main loop runs a game frame when the
+	// ISR counter exceeds 1 (every 2 ticks) -> ~10.8fps / ~92.6ms.
+	// Tick period / ticks-per-frame come from engine facades for later platforms.
 	uint32 lastTickTime = g_system->getMillis();
-	// One timer tick = 1000/21.6 ≈ 46.3ms. Game ticks every 2 timer ticks = ~92.6ms.
-	static constexpr uint32 kTimerTickMs = 46;
+	const uint32 kTimerTickMs = g_engine->timerTickMs();
+	const uint16 kNormalTicksPerGameFrame = g_engine->ticksPerGameFrame();
 	uint16 timerTickCounter = 0;
 
 	Common::Event e;
@@ -75,9 +75,9 @@ void Events::runGame() {
 		currentMillis = g_system->getMillis();
 
 		// Accumulate timer ticks based on elapsed wall-clock time
-		uint32 elapsed = currentMillis - lastTickTime;
+		const uint32 elapsed = currentMillis - lastTickTime;
 		if (elapsed >= kTimerTickMs) {
-			uint16 ticks = elapsed / kTimerTickMs;
+			const uint16 ticks = elapsed / kTimerTickMs;
 			timerTickCounter += ticks;
 			lastTickTime += ticks * kTimerTickMs;
 		}
@@ -88,10 +88,10 @@ void Events::runGame() {
 			doTick = true;
 			break;
 		case 2: // slow mode: tick when counter >= 0x12
-			doTick = (timerTickCounter >= 0x12);
+			doTick = (timerTickCounter >= 0x12); // TODO: this is running at different speed compared to running this in dosbox
 			break;
-		default: // normal: tick when counter > 1
-			doTick = (timerTickCounter > 1);
+		default: // normal: every kNormalTicksPerGameFrame timer ticks
+			doTick = (timerTickCounter >= kNormalTicksPerGameFrame);
 			break;
 		}
 
@@ -149,27 +149,6 @@ void Events::processEvent(Common::Event &ev) {
 	}
 }
 
-void Events::replaceView(UIElement *ui, bool replaceAllViews) {
-	assert(ui);
-	UIElement *priorView = focusedView();
-
-	if (replaceAllViews) {
-		clearViews();
-
-	} else if (!_views.empty()) {
-		priorView->msgUnfocus(UnfocusMessage());
-		_views.pop();
-	}
-
-	_views.push(ui);
-	ui->redraw();
-	ui->msgFocus(FocusMessage(priorView));
-}
-
-void Events::replaceView(const Common::String &name, bool replaceAllViews) {
-	replaceView(findView(name));
-}
-
 void Events::addView(UIElement *ui) {
 	assert(ui);
 	UIElement *priorView = focusedView();
@@ -182,91 +161,27 @@ void Events::addView(UIElement *ui) {
 	ui->msgFocus(FocusMessage(priorView));
 }
 
-void Events::addView(const Common::String &name) {
-	addView(findView(name));
-}
-
-void Events::popView() {
-	UIElement *priorView = focusedView();
-	priorView->msgUnfocus(UnfocusMessage());
-	_views.pop();
-
-	for (int i = 0; i < (int)_views.size() - 1; ++i) {
-		_views[i]->redraw();
-		_views[i]->draw();
-	}
-
-	if (!_views.empty()) {
-		UIElement *view = focusedView();
-		view->msgFocus(FocusMessage(priorView));
-		view->redraw();
-		view->draw();
-	}
-}
-
-void Events::redrawViews() {
-	for (uint i = 0; i < _views.size(); ++i) {
-		_views[i]->redraw();
-		_views[i]->draw();
-	}
-}
-
-bool Events::isPresent(const Common::String &name) const {
-	for (uint i = 0; i < _views.size(); ++i) {
-		if (_views[i]->_name == name)
-			return true;
-	}
-
-	return false;
-}
-
-void Events::clearViews() {
-	if (!_views.empty())
-		focusedView()->msgUnfocus(UnfocusMessage());
-
-	_views.clear();
-}
-
-void Events::addKeypress(const Common::KeyCode kc) {
-	Common::KeyState ks;
-	ks.keycode = kc;
-	if (kc >= Common::KEYCODE_SPACE && kc <= Common::KEYCODE_TILDE)
-		ks.ascii = kc;
-
-	focusedView()->msgKeypress(KeypressMessage(ks));
-}
-
 /*------------------------------------------------------------------------*/
 
-Bounds::Bounds(Common::Rect &innerBounds) : _bounds(0, 0, 320, 200),
-											_innerBounds(innerBounds),
-											left(_bounds.left), top(_bounds.top),
-											right(_bounds.right), bottom(_bounds.bottom) {
+Bounds::Bounds(Common::Rect &innerBounds) : _bounds(0, 0, kScreenWidth, kGameHeight),
+											_innerBounds(innerBounds) {
 }
 
 Bounds &Bounds::operator=(const Common::Rect &r) {
 	_bounds = r;
 	_innerBounds = r;
-	_innerBounds.grow(-_borderSize);
 	return *this;
-}
-
-void Bounds::setBorderSize(size_t borderSize) {
-	_borderSize = borderSize;
-	_innerBounds = *this;
-	_innerBounds.grow(-_borderSize);
 }
 
 /*------------------------------------------------------------------------*/
 
-UIElement::UIElement(const Common::String &name) : _name(name), _parent(g_engine), _bounds(_innerBounds) {
+UIElement::UIElement(const Common::String &name) : _name(name), _bounds(_innerBounds) {
 	g_engine->_children.push_back(this);
 }
 
-UIElement::UIElement(const Common::String &name, UIElement *uiParent) : _name(name), _parent(uiParent),
-																		_bounds(_innerBounds) {
-	if (_parent)
-		_parent->_children.push_back(this);
+UIElement::UIElement(const Common::String &name, UIElement *uiParent) : _name(name), _bounds(_innerBounds) {
+	if (uiParent)
+		uiParent->_children.push_back(this);
 }
 
 void UIElement::redraw() {
@@ -286,28 +201,6 @@ void UIElement::drawElements() {
 		_children[i]->drawElements();
 }
 
-UIElement *UIElement::findViewGlobally(const Common::String &name) {
-	return g_events->findView(name);
-}
-
-void UIElement::focus() {
-	g_events->replaceView(this);
-}
-
-void UIElement::close() {
-	assert(g_events->focusedView() == this);
-	g_events->popView();
-}
-
-bool UIElement::isFocused() const {
-	return g_events->focusedView() == this;
-}
-
-void UIElement::clearSurface() {
-	Graphics::ManagedSurface s = getSurface();
-	s.fillRect(Common::Rect(s.w, s.h), 0);
-}
-
 void UIElement::draw() {
 	for (size_t i = 0; i < _children.size(); ++i) {
 		_children[i]->draw();
@@ -315,10 +208,6 @@ void UIElement::draw() {
 }
 
 bool UIElement::tick() {
-	if (_timeoutCtr && --_timeoutCtr == 0) {
-		timeout();
-	}
-
 	for (size_t i = 0; i < _children.size(); ++i) {
 		if (_children[i]->tick())
 			return true;
@@ -340,40 +229,8 @@ UIElement *UIElement::findView(const Common::String &name) {
 	return nullptr;
 }
 
-void UIElement::replaceView(UIElement *ui, bool replaceAllViews) {
-	g_events->replaceView(ui, replaceAllViews);
-}
-
-void UIElement::replaceView(const Common::String &name, bool replaceAllViews) {
-	g_events->replaceView(name, replaceAllViews);
-}
-
-void UIElement::addView(UIElement *ui) {
-	g_events->addView(ui);
-}
-
-void UIElement::addView(const Common::String &name) {
-	g_events->addView(name);
-}
-
-void UIElement::addView() {
-	g_events->addView(this);
-}
-
 Graphics::ManagedSurface UIElement::getSurface() const {
 	return Graphics::ManagedSurface(*g_events->getScreen(), _bounds);
-}
-
-void UIElement::delaySeconds(uint seconds) {
-	_timeoutCtr = seconds * (1000 / FRAME_DELAY);
-}
-
-void UIElement::delayFrames(uint frames) {
-	_timeoutCtr = frames;
-}
-
-void UIElement::timeout() {
-	redraw();
 }
 
 } // namespace Macs2

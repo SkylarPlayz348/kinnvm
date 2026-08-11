@@ -38,10 +38,16 @@ public:
 	virtual void readParameter(Chunk &chunk, ActorHeaderSectionType paramType) override;
 	virtual ScriptValue callMethod(BuiltInMethod methodId, Common::Array<ScriptValue> &args) override;
 	virtual void readChunk(Chunk &chunk) override;
+	virtual bool isActive() const override { return _playState == kSoundPlayStatePlaying; }
 
 	virtual void onEvent(const ActorEvent &event) override;
 	virtual void timerEvent(const TimerEvent &event) override;
 	virtual void soundPlayStateChanged(SoundPlayState state, SoundStopReason why) override;
+
+	void start();
+	void stop();
+	void pause();
+	void resume(bool restart);
 
 private:
 	ImtStreamFeed *_streamFeed = nullptr;
@@ -49,11 +55,6 @@ private:
 	bool _discardAfterUse = false;
 	SoundPlayState _playState = kSoundPlayStateStopped;
 	AudioSequence _sequence;
-
-	void start();
-	void stop();
-	void pause();
-	void resume(bool restart);
 
 	void openStream();
 };

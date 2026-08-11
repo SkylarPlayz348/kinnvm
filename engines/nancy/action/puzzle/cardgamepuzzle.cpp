@@ -79,22 +79,45 @@ void CardGamePuzzle::readData(Common::SeekableReadStream &stream) {
 	for (uint i = 0; i < _faceDownSrc.size(); ++i)
 		readRect(stream, _faceDownSrc[i]);
 
-	// 0x993: deal animation params + frames, then the voiced-line block (0xba3..0x1304, 33-byte
-	// name slots, per-side blocks 0x33d apart). Pull out the few lines we play; skip the rest.
-	stream.skip(0xbc4 - 0x993);                    // deal animation params + frames
+	// 0x993: per-turn hand-delivery animation (automaton variant), player (side 1) then Betty (side 0):
+	// {u16 frameCount, u16, u32 delay, 15 frame src rects, 1 delivery dest}. Empty in the grid variant.
+	_dealFrameCount[1] = stream.readUint16LE();    // 0x993
+	stream.skip(2);                                // 0x995
+	_dealFrameDelay[1] = stream.readUint32LE();    // 0x997
+	_dealFrames[1].resize(15);                     // 0x99b
+	for (uint i = 0; i < _dealFrames[1].size(); ++i)
+		readRect(stream, _dealFrames[1][i]);
+	readRect(stream, _deliverDest[1]);             // 0xa8b
+	_dealFrameCount[0] = stream.readUint16LE();    // 0xa9b
+	stream.skip(2);                                // 0xa9d
+	_dealFrameDelay[0] = stream.readUint32LE();    // 0xa9f
+	_dealFrames[0].resize(15);                     // 0xaa3
+	for (uint i = 0; i < _dealFrames[0].size(); ++i)
+		readRect(stream, _dealFrames[0][i]);
+	readRect(stream, _deliverDest[0]);             // 0xb93
+
+	// 0xba3: deal SFX name slot, then the voiced-line block (0xba3..0x1304, 33-byte name slots, per-
+	// side blocks 0x33d apart). Pull out the few lines we play; skip the rest.
+	stream.skip(0xbc4 - 0xba3);                    // deal SFX name
 	readFilename(stream, _moveVoiceName);          // 0xbc4
 	readFilename(stream, _dealVoiceName);          // 0xbe5
 	stream.skip(0xc2b - 0xc06);                    // 0xc06 deal SFX (alt)
-	for (int i = 0; i < kMaxCols; ++i)             // 0xc2b AI per-column match table (-> 0xdd8)
+	for (int i = 0; i < kMaxCols; ++i)             // 0xc2b AI per-column ask table (-> 0xdd8)
 		readFilename(stream, _matchVoice[0][i]);
-	stream.skip(0xee0 - 0xdd8);                    // side-0 no-move / made-move lines
+	readFilename(stream, _noMoveVoice[1]);         // 0xdd8 player "go fish"
+	stream.skip(0xe7d - 0xdf9);
+	readFilename(stream, _madeMoveVoice[1]);       // 0xe7d player "here you go"
+	stream.skip(0xee0 - 0xe9e);
 	readFilename(stream, _enemyScoredVoiceName);   // 0xee0
 	stream.skip(0xf22 - 0xf01);                    // alt variant
 	readFilename(stream, _endVoiceName[0]);        // 0xf22 (AI wins)
 	stream.skip(0xf68 - 0xf43);                    // remaining side-0 lines
-	for (int i = 0; i < kMaxCols; ++i)             // 0xf68 player per-column match table (-> 0x1115)
+	for (int i = 0; i < kMaxCols; ++i)             // 0xf68 player per-column ask table (-> 0x1115)
 		readFilename(stream, _matchVoice[1][i]);
-	stream.skip(0x121d - 0x1115);                  // side-1 no-move / made-move lines
+	readFilename(stream, _noMoveVoice[0]);         // 0x1115 AI "go fish"
+	stream.skip(0x11ba - 0x1136);
+	readFilename(stream, _madeMoveVoice[0]);       // 0x11ba AI "here you go"
+	stream.skip(0x121d - 0x11db);
 	readFilename(stream, _playerScoredVoiceName);  // 0x121d (= 0xee0 + 0x33d)
 	stream.skip(0x125f - 0x123e);                  // alt variant
 	readFilename(stream, _endVoiceName[1]);        // 0x125f (player wins, = 0xf22 + 0x33d)
@@ -120,9 +143,9 @@ void CardGamePuzzle::readData(Common::SeekableReadStream &stream) {
 // Deal a single card to the given side: pick a random still-available cell from the shared deck
 // and place it in that side's column, capping the column. While more than a row's worth of cards
 // remain on the table, columns are kept below 3 so the opening deal stays spread out.
-bool CardGamePuzzle::dealOne(int player) {
+int CardGamePuzzle::dealOne(int player) {
 	if (_deckRemaining < 1) {
-		return false;
+		return -1;
 	}
 
 	bool allowFull = _deckRemaining <= _numCols;
@@ -141,11 +164,11 @@ bool CardGamePuzzle::dealOne(int player) {
 			}
 			_availMap[row][col] = 0;
 			--_deckRemaining;
-			return true;
+			return col;
 		}
 	}
 
-	return false;
+	return -1;
 }
 
 void CardGamePuzzle::drawBoard() {
@@ -194,106 +217,172 @@ void CardGamePuzzle::drawBoard() {
 			Common::Point(_turnHighlightDest[_currentTurn].left, _turnHighlightDest[_currentTurn].top));
 	}
 
+	// Automaton variant: the mover's hand-delivery sprite for the current frame.
+	if (_handAnimActive && _handFrame < _dealFrames[_handAnimSide].size()) {
+		const Common::Rect &src = _dealFrames[_handAnimSide][_handFrame];
+		const Common::Rect &dest = _deliverDest[_handAnimSide];
+		_drawSurface.blitFrom(_image, src, Common::Point(dest.left, dest.top));
+	}
+
 	_needsRedraw = true;
 }
 
-// The current side takes every card the opponent still holds in this column (each transfers at its
-// own grid cell). Owning all three cells of a column scores a set.
-bool CardGamePuzzle::playColumn(int col) {
-	int mover = _currentTurn;
-	int opponent = mover ^ 1;
+bool CardGamePuzzle::hasPlayableColumn(int side) const {
+	for (int col = 0; col < (int)_numCols; ++col) {
+		if (_board[side].colCount[col] > 0 && _board[side].colCount[col] < 3) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+// Transfer every card the opponent holds of the asked rank to the asking side.
+bool CardGamePuzzle::takeCards(int side, int col) {
+	int opponent = side ^ 1;
 	bool moved = false;
 
 	for (int row = 0; row < _numRows; ++row) {
 		if (_board[opponent].grid[row][col] == 1) {
 			_board[opponent].grid[row][col] = 0;
 			_board[opponent].colCount[col]--;
-			_board[mover].grid[row][col] = 1;
-			_board[mover].colCount[col]++;
+			_board[side].grid[row][col] = 1;
+			_board[side].colCount[col]++;
 			moved = true;
 		}
-	}
-
-	if (moved && _board[mover].colCount[col] >= 3 && !_board[mover].colComplete[col]) {
-		_board[mover].colComplete[col] = 1;
-		_board[mover].score++;
-		playVoice(mover == 1 ? _playerScoredVoiceName : _enemyScoredVoiceName);
-	} else if (moved && col < kMaxCols) {
-		// A card-specific line for the played column (silent in scenes that don't use them)
-		playVoice(_matchVoice[mover][col]);
 	}
 
 	return moved;
 }
 
-// The AI (the side to move) looks for a column where the opponent still has a card to take,
-// preferring columns it is already building (>=2, then >=1 of its own), and avoiding repeating its
-// last pick. Returns -1 if it has no productive steal available.
-int CardGamePuzzle::aiPickColumn() {
-	int mover = _currentTurn;
-	int opponent = mover ^ 1;
-
-	Common::Array<int> strong, ownSome, any;
-	for (int col = 0; col < (int)_numCols; ++col) {
-		bool opponentHas = false;
-		for (int row = 0; row < _numRows; ++row) {
-			if (_board[opponent].grid[row][col] == 1) {
-				opponentHas = true;
-				break;
-			}
-		}
-		if (!opponentHas || col == _lastAiColumn) {
-			continue;
-		}
-
-		any.push_back(col);
-		if (_board[mover].colCount[col] >= 1) {
-			ownSome.push_back(col);
-		}
-		if (_board[mover].colCount[col] >= 2) {
-			strong.push_back(col);
-		}
-	}
-
-	const Common::Array<int> &pool = !strong.empty() ? strong : (!ownSome.empty() ? ownSome : any);
-	if (pool.empty()) {
-		return -1;
-	}
-
-	return pool[g_nancy->_randomSource->getRandomNumber(pool.size() - 1)];
+// Start an ask: the mover asks the opponent for a rank. Play its "do you have any X?" line; the
+// resolution waits until that line finishes (see updateGraphics/resolveAsk).
+void CardGamePuzzle::beginAsk(int side, int col) {
+	_mover = side;
+	_currentTurn = side;
+	_askedCol = col;
+	playVoice(_matchVoice[side][col]);
+	_phase = kAskSound;
+	drawBoard();
 }
 
-// After a side plays a column it draws a card from the deck, then the turn passes. When the player
-// has moved, the AI immediately takes its turn. The game ends once the deck is exhausted.
-void CardGamePuzzle::finishMove() {
-	dealOne(_currentTurn);
-	drawBoard();
+// The ask voice has finished: hand the cards over (or go fish), play the answer, and wait for it and
+// the card-slide to finish before the turn advances.
+void CardGamePuzzle::resolveAsk() {
+	bool before[kMaxRows][kMaxCols];
+	for (int r = 0; r < kMaxRows; ++r)
+		for (int c = 0; c < kMaxCols; ++c)
+			before[r][c] = (_board[1].grid[r][c] == 1);
 
-	if (_deckRemaining < 1) {
-		endGame();
-		return;
-	}
-
-	_currentTurn ^= 1;
-
-	if (_currentTurn == 0) {
-		// AI turn
-		int col = aiPickColumn();
-		if (col != -1) {
-			_lastAiColumn = col;
-			playColumn(col);
+	if (takeCards(_mover, _askedCol)) {
+		if (_board[_mover].colCount[_askedCol] >= 3 && !_board[_mover].colComplete[_askedCol]) {
+			_board[_mover].colComplete[_askedCol] = 1;
+			_board[_mover].score++;
+			playVoice(_mover == 1 ? _playerScoredVoiceName : _enemyScoredVoiceName);
+		} else {
+			playVoice(_madeMoveVoice[_mover]); // "here you go"
 		}
 
-		dealOne(_currentTurn);
-		drawBoard();
+		_goAgain = true; // the opponent had the rank: ask again
+	} else {
+		playVoice(_noMoveVoice[_mover]); // "go fish"
+		int drawnCol = dealOne(_mover);
+		_goAgain = (drawnCol != -1 && _switchTurnRule != 0 && drawnCol == _askedCol);
+		if (drawnCol == -1) {
+			endGame();
+		}
+	}
 
-		if (_deckRemaining < 1) {
+	// Automaton variant: the mover's hand delivers the card, cycling alongside the answer and slide.
+	if (_dealFrameCount[_mover] > 0) {
+		_handAnimActive = true;
+		_handAnimSide = _mover;
+		_handFrame = 0;
+		_handNextFrame = g_nancy->getTotalPlayTime() + _dealFrameDelay[_mover];
+	}
+
+	startMoveAnimation(before);
+	_phase = kAnswerSound;
+}
+
+// The answer has finished: the mover asks again (a take, or a draw-again), or the turn passes.
+void CardGamePuzzle::advanceTurn() {
+	int next = _goAgain ? _mover : (_mover ^ 1);
+	if (next == 1) {
+		startPlayerTurn();
+	} else {
+		_aiDelayUntil = g_nancy->getTotalPlayTime() + 700;
+		_phase = kAiDelay;
+	}
+}
+
+// Begin the player's turn. If the player holds no rank they can ask for, they are forced to go fish
+// and the turn passes to the AI.
+void CardGamePuzzle::startPlayerTurn() {
+	_mover = 1;
+	_currentTurn = 1;
+
+	if (!hasPlayableColumn(1)) {
+		if (dealOne(1) == -1) {
 			endGame();
 			return;
 		}
 
-		_currentTurn = 1;
+		_aiDelayUntil = g_nancy->getTotalPlayTime() + 700;
+		_phase = kAiDelay;
+	} else {
+		_phase = kWaitInput;
 	}
+
+	drawBoard();
+}
+
+// The AI picks a rank it is building and asks for it; with nothing to ask, it goes fish and passes.
+void CardGamePuzzle::startAiAsk() {
+	int col = aiPickColumn();
+	if (col == -1) {
+		if (dealOne(0) == -1) {
+			endGame();
+		} else {
+			startPlayerTurn();
+		}
+		return;
+	}
+
+	_lastAiColumn = col;
+	beginAsk(0, col);
+}
+
+// The AI asks for a rank it already holds one or two of, preferring ranks where it holds two (so a
+// take completes the set) and avoiding immediately repeating its previous rank. Returns -1 if it
+// holds no incomplete rank to ask for.
+int CardGamePuzzle::aiPickColumn() {
+	Common::Array<int> strong, any;
+	for (int col = 0; col < (int)_numCols; ++col) {
+		int count = _board[0].colCount[col];
+		if (count <= 0 || count >= 3 || col == _lastAiColumn) {
+			continue;
+		}
+
+		any.push_back(col);
+		if (count >= 2) {
+			strong.push_back(col);
+		}
+	}
+
+	const Common::Array<int> &pool = !strong.empty() ? strong : any;
+	if (!pool.empty()) {
+		return pool[g_nancy->_randomSource->getRandomNumber(pool.size() - 1)];
+	}
+
+	// The last-asked rank is the only one left: allow repeating it.
+	for (int col = 0; col < (int)_numCols; ++col) {
+		if (_board[0].colCount[col] > 0 && _board[0].colCount[col] < 3) {
+			return col;
+		}
+	}
+
+	return -1;
 }
 
 void CardGamePuzzle::endGame() {
@@ -332,26 +421,67 @@ void CardGamePuzzle::startMoveAnimation(const bool beforeGrid[kMaxRows][kMaxCols
 }
 
 void CardGamePuzzle::updateGraphics() {
-	if (_animating) {
-		if (g_nancy->getTotalPlayTime() < _animNextStep) {
-			return;
-		}
+	// Step any in-progress animations first; the turn stays parked until they finish. The card slide
+	// and the automaton hand-delivery sprite run on their own timers, concurrently.
+	uint32 now = g_nancy->getTotalPlayTime();
+	bool changed = false;
 
+	if (_animating && now >= _animNextStep) {
 		--_animStep;
-		_animNextStep = g_nancy->getTotalPlayTime() + _moveAnimDelay;
-
+		_animNextStep = now + _moveAnimDelay;
 		if (_animStep <= 0) {
 			_animating = false;
 		}
+		changed = true;
+	}
 
+	if (_handAnimActive && now >= _handNextFrame) {
+		++_handFrame;
+		_handNextFrame = now + _dealFrameDelay[_handAnimSide];
+		if (_handFrame >= _dealFrameCount[_handAnimSide]) {
+			_handAnimActive = false;
+		}
+		changed = true;
+	}
+
+	if (changed) {
 		drawBoard();
+	}
+
+	if (_animating || _handAnimActive) {
 		return;
 	}
 
-	// Once the final move has settled and the winner's line has had its moment, transition out.
-	if (_gameOver && _awaitingEnd && g_nancy->getTotalPlayTime() >= _endWaitUntil) {
-		_awaitingEnd = false;
-		_state = kActionTrigger;
+	// Once the final move has settled and the winner's line has finished, transition out.
+	if (_gameOver) {
+		if (_awaitingEnd && g_nancy->getTotalPlayTime() >= _endWaitUntil &&
+				!g_nancy->_sound->isSoundPlaying(_voiceSound)) {
+			_awaitingEnd = false;
+			_state = kActionTrigger;
+		}
+		return;
+	}
+
+	switch (_phase) {
+	case kAskSound:
+		// The "do you have any X?" line has played; hand the cards over (or go fish).
+		if (!g_nancy->_sound->isSoundPlaying(_voiceSound)) {
+			resolveAsk();
+		}
+		break;
+	case kAnswerSound:
+		// The answer line has played (and the cards have slid); take the next turn.
+		if (!g_nancy->_sound->isSoundPlaying(_voiceSound)) {
+			advanceTurn();
+		}
+		break;
+	case kAiDelay:
+		if (g_nancy->getTotalPlayTime() >= _aiDelayUntil) {
+			startAiAsk();
+		}
+		break;
+	default:
+		break;
 	}
 }
 
@@ -367,6 +497,9 @@ void CardGamePuzzle::playVoice(const Common::String &name) {
 	_voiceSound.volume = 85;
 	g_nancy->_sound->loadSound(_voiceSound);
 	g_nancy->_sound->playSound(_voiceSound);
+
+	// The card-game lines carry no inline caption; look the subtitle up by sound name.
+	showSubtitle(resolveSubtitleText(name));
 }
 
 void CardGamePuzzle::init() {
@@ -389,12 +522,17 @@ void CardGamePuzzle::init() {
 			_availMap[row][col] = (row < _numRows && col < _numCols) ? 1 : 0;
 
 	_deckRemaining = _numCols * _numRows;
+	_mover = _startPlayer;
 	_currentTurn = _startPlayer;
+	_askedCol = -1;
+	_goAgain = false;
+	_phase = kWaitInput;
 	_lastAiColumn = -1;
 	_gameOver = false;
 	_gaveUp = false;
 	_animating = false;
 	_animStep = 0;
+	_handAnimActive = false;
 	_awaitingEnd = false;
 
 	// Opening deal: _dealRounds cards to each side, alternating
@@ -410,6 +548,17 @@ void CardGamePuzzle::execute() {
 	if (_state == kBegin) {
 		init();
 		registerGraphics();
+
+		// Kick off the first turn. When the AI is dealt the opening move, it asks first.
+		if (_startPlayer == 0) {
+			_mover = 0;
+			_currentTurn = 0;
+			_aiDelayUntil = g_nancy->getTotalPlayTime() + 700;
+			_phase = kAiDelay;
+		} else {
+			startPlayerTurn();
+		}
+
 		drawBoard();
 		_state = kRun;
 	} else if (_state == kActionTrigger) {
@@ -428,11 +577,11 @@ void CardGamePuzzle::execute() {
 			const bool tie = (playerScore == aiScore);
 
 			// The result normally uses the first outcome scene; the second is the tie/alternate
-			// path the 0xff deal mode takes. 9999 marks an absent scene.
-			if (tie && _dealMode == 0xff && _winSceneStartEnemy != 9999) {
+			// path the 0xff deal mode takes.
+			if (tie && _dealMode == 0xff && _winSceneStartEnemy != kNoScene) {
 				sceneChange.sceneID = _winSceneStartEnemy;
 			} else {
-				sceneChange.sceneID = (_winSceneStartPlayer != 9999) ? _winSceneStartPlayer : _winSceneStartEnemy;
+				sceneChange.sceneID = (_winSceneStartPlayer != kNoScene) ? _winSceneStartPlayer : _winSceneStartEnemy;
 			}
 
 			// Record the outcome: the player-win flag when ahead, else the alternate flag on a tie.
@@ -456,6 +605,39 @@ void CardGamePuzzle::execute() {
 	// The deal/match slide animations and the voiced lines come in a later stage.
 }
 
+// A column is playable while the player (side 1) owns one or two cards in it - a column they are
+// building but have not yet completed. Depending on the scene the click target is either the bottom
+// button row or the player's own cards in the tableau.
+int CardGamePuzzle::columnUnderMouse(const Common::Point &mousePos) const {
+	if (usesColumnButtons()) {
+		for (int col = 0; col < (int)_numCols; ++col) {
+			if (_board[1].colCount[col] <= 0 || _board[1].colCount[col] >= 3) {
+				continue;
+			}
+
+			Common::Rect button = NancySceneState.getViewport().convertViewportToScreen(_columnButtons[col]);
+			if (button.contains(mousePos)) {
+				return col;
+			}
+		}
+	} else {
+		for (int row = 0; row < _numRows; ++row) {
+			for (int col = 0; col < (int)_numCols; ++col) {
+				if (_board[1].grid[row][col] != 1 || _board[1].colCount[col] >= 3) {
+					continue;
+				}
+
+				Common::Rect card = NancySceneState.getViewport().convertViewportToScreen(_faceDownSrc[row * kMaxCols + col]);
+				if (card.contains(mousePos)) {
+					return col;
+				}
+			}
+		}
+	}
+
+	return -1;
+}
+
 void CardGamePuzzle::handleInput(NancyInput &input) {
 	if (_state != kRun || _awaitingEnd) {
 		return;
@@ -471,50 +653,21 @@ void CardGamePuzzle::handleInput(NancyInput &input) {
 		return;
 	}
 
-	if (_gameOver || _animating || _currentTurn != 1) {
+	// Clicks are only accepted while waiting for the player to ask (not mid-ask, mid-answer, or during
+	// the AI's turn).
+	if (_gameOver || _phase != kWaitInput) {
 		return;
 	}
 
-	int opponent = _currentTurn ^ 1;
-
-	for (int col = 0; col < (int)_numCols; ++col) {
-		Common::Rect button = NancySceneState.getViewport().convertViewportToScreen(_columnButtons[col]);
-		if (!button.contains(input.mousePos)) {
-			continue;
-		}
-
-		// A column is playable only while the opponent still holds a card in it
-		bool hasTarget = false;
-		for (int row = 0; row < _numRows; ++row) {
-			if (_board[opponent].grid[row][col] == 1) {
-				hasTarget = true;
-				break;
-			}
-		}
-
-		if (!hasTarget) {
-			return;
-		}
-
-		g_nancy->_cursor->setCursorType(CursorManager::kHotspot);
-
-		if (input.input & NancyInput::kLeftMouseButtonUp) {
-			bool before[kMaxRows][kMaxCols];
-			for (int r = 0; r < kMaxRows; ++r)
-				for (int c = 0; c < kMaxCols; ++c)
-					before[r][c] = (_board[1].grid[r][c] == 1);
-
-			playVoice(_moveVoiceName);
-			playColumn(col);
-			finishMove();
-
-			// finishMove may have ended the game (kActionTrigger); only animate if still playing
-			if (_state == kRun) {
-				startMoveAnimation(before);
-			}
-		}
-
+	int col = columnUnderMouse(input.mousePos);
+	if (col == -1) {
 		return;
+	}
+
+	g_nancy->_cursor->setCursorType(CursorManager::kHotspot);
+
+	if (input.input & NancyInput::kLeftMouseButtonUp) {
+		beginAsk(1, col);
 	}
 }
 

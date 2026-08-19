@@ -28,6 +28,9 @@ For a more comprehensive changelog of the latest experimental code, see:
      devices.
    - Switched Nuked-OPL3 AdLib emulator to Nuked-OPL3-fast fork.
 
+ Asylum:
+   - Fixed missing or incorrect walking sounds in some scenes.
+
  AWE:
    - Fix sound code crash in OpenBSD.
 
@@ -42,7 +45,7 @@ For a more comprehensive changelog of the latest experimental code, see:
    - Added support for loading ZX Spectrum games directly from TAP/TZX tape images.
 
  Hopkins:
-   - Added the missing underwater base 3D first-person shooter
+   - Added the missing underwater base 3D first-person shooter.
 
  Kyra:
    - Added support for Korean fan-translation of kyra1 (added in 2026.3.0).
@@ -57,6 +60,7 @@ For a more comprehensive changelog of the latest experimental code, see:
    - Numerous Riddle of Master Lu fixes for crashes, missing functionality, and game bugs.
    - Fixed original game bug where conversations with Wolf could freeze the game.
    - Added original game cheat codes for bypassing the maze.
+   - Added translation of message log entries
 
  MM:
    - Fix multiple M&M1 classic combat crashes.
@@ -77,10 +81,18 @@ For a more comprehensive changelog of the latest experimental code, see:
    - Improved cursor scale in early Windows HE games.
 
  Sherlock:
-   - Vertical movement delta fix for Rose Tattoo
+   - Vertical movement delta fix for Rose Tattoo.
 
  SLUDGE:
    - Added detection for Shape-Shift Escape.
+
+ TsAGE:
+   - Added General MIDI and MT-32 support to the games
+   - Improved Sound Blaster sample playback
+   - Sound is properly paused when the engine is paused
+
+ Voyeur:
+   - Match original first person movement with mouse when looking at mansion
 
  Atari port:
    - Added integration with nFM library.

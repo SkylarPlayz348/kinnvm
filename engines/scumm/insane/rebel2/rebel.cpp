@@ -147,6 +147,18 @@ bool isRebel2MenuState(InsaneRebel2::GameState state) {
 	       state == InsaneRebel2::kStateTopPilots;
 }
 
+bool InsaneRebel2::isTouchscreenActive() const {
+	return g_system->hasFeature(OSystem::kFeatureTouchscreen);
+}
+
+// Not a menu, where taps pick items, and not gameplay, where a tap fires.
+bool InsaneRebel2::isSkippableVideoState() const {
+	if (_menuInputActive || isRebel2MenuState(_gameState))
+		return false;
+
+	return _gameState != kStateGameplay || _rebelHandler == 0;
+}
+
 InsaneRebel2::InsaneRebel2(ScummEngine_v7 *scumm) {
 	_vm = scumm;
 
@@ -768,6 +780,14 @@ bool InsaneRebel2::notifyEvent(const Common::Event &event) {
 	if (_vm->isPaused())
 		return false;
 
+	if (isTouchscreenActive() && event.type == Common::EVENT_LBUTTONDOWN &&
+			isSkippableVideoState() &&
+			_touchTapDetector.addTap(event.mouse.x, event.mouse.y, _vm->_system->getMillis())) {
+		debugC(DEBUG_INSANE, "Double tap - skipping video");
+		_vm->_smushVideoShouldFinish = true;
+		return true;
+	}
+
 	if (_rebelYodaMode && event.type == Common::EVENT_KEYDOWN && !event.kbdRepeat && event.kbd.hasFlags(Common::KBD_ALT)) {
 		switch (event.kbd.keycode) {
 		case Common::KEYCODE_m:
@@ -808,7 +828,7 @@ bool InsaneRebel2::notifyEvent(const Common::Event &event) {
 					event.mouse.y >= kRA2GameplayMouseMaxY * mouseScale - kRA2Handler7MouseSettleEdgeMargin * mouseScale;
 
 				if (largeAbsoluteJump && smallRelativeMove && nearWindowEdge) {
-					const Common::Point recenter = getGameplayAimPoint();
+					const Common::Point recenter = getGameplayPointerPos();
 					_gameplayMouseSettleUntil = now + kRA2Handler7MouseSettleExtendMs;
 					warpGameplayMouseNow(recenter.x, recenter.y);
 
@@ -1319,9 +1339,9 @@ bool InsaneRebel2::applyPlayerDamage(int damage) {
 	if (_noDamage || _rebelAutoPlay || damage <= 0)
 		return false;
 
+	// Uncapped like the original: a cap here would let the every-16th-frame
+	// recovery tick undo a fatal blow landing on such a frame.
 	_playerDamage += damage;
-	if (_playerDamage > 255)
-		_playerDamage = 255;
 
 	return true;
 }
@@ -1627,6 +1647,40 @@ Common::Error InsaneRebel2::loadGameState(int slot, bool startupLoad) {
 	return Common::kNoError;
 }
 
+Common::Point InsaneRebel2::getTargetHitHalfExtents(const enemy &target) const {
+	// snapDistance is the aim assist; turret levels clamp the half-size to
+	// specialDamage/2 first.
+	const LevelDifficultyParams params = getDifficultyParams();
+
+	int halfW = target.rect.width() / 2;
+	int halfH = target.rect.height() / 2;
+
+	if (_rebelHandler == 0x26 && params.specialDamage > 0) {
+		halfW = MIN<int>(halfW, params.specialDamage / 2);
+		halfH = MIN<int>(halfH, params.specialDamage / 2);
+	}
+
+	halfW += params.snapDistance;
+	halfH += params.snapDistance;
+
+	if (_rebelHandler == 25 && target.type == 100) {
+		halfW *= 2;
+		halfH *= 2;
+	}
+
+	return Common::Point(halfW, halfH);
+}
+
+bool InsaneRebel2::isTargetUnderAim(const enemy &target, const Common::Point &aim) const {
+	const Common::Point half = getTargetHitHalfExtents(target);
+	const int centerX = target.rect.left + target.rect.width() / 2;
+	const int centerY = target.rect.top + target.rect.height() / 2;
+
+	// Half-open, as in the original: c - h <= p < c + h.
+	return aim.x >= centerX - half.x && aim.x < centerX + half.x &&
+	       aim.y >= centerY - half.y && aim.y < centerY + half.y;
+}
+
 int32 InsaneRebel2::processMouse() {
 	int32 buttons = 0;
 
@@ -1703,25 +1757,22 @@ int32 InsaneRebel2::processMouse() {
 
 		Common::List<enemy>::iterator it;
 		for (it = _enemies.begin(); it != _enemies.end(); ++it) {
-			debugC(DEBUG_INSANE, "  Enemy ID=%d active=%d destroyed=%d rect=(%d,%d)-(%d,%d) contains=%d",
+			debugC(DEBUG_INSANE, "  Enemy ID=%d active=%d destroyed=%d rect=(%d,%d)-(%d,%d) hit=%d",
 				it->id, it->active, it->destroyed,
 				it->rect.left, it->rect.top, it->rect.right, it->rect.bottom,
-				it->rect.contains(worldMousePos));
+				isTargetUnderAim(*it, worldMousePos));
 
-			if (it->active && it->rect.contains(worldMousePos)) {
+			if (it->active && isTargetUnderAim(*it, worldMousePos)) {
 				it->active = false;
 				it->destroyed = true;
 				debugC(DEBUG_INSANE, "HIT enemy ID=%d type=%d at (%d,%d) - Rect: (%d,%d)-(%d,%d)",
 					it->id, it->type, mousePos.x, mousePos.y,
 					it->rect.left, it->rect.top, it->rect.right, it->rect.bottom);
 
-				int explosionHalfWidth = it->rect.width() / 2;
-				if (_rebelHandler == 25) {
-					LevelDifficultyParams dparams = getDifficultyParams();
-					explosionHalfWidth += dparams.snapDistance;
-					if (it->type == 100)
-						explosionHalfWidth *= 2;
-				}
+				// Only handler 25 reuses its padded hit box as the blast size.
+				int explosionHalfWidth = (_rebelHandler == 25)
+					? getTargetHitHalfExtents(*it).x
+					: it->rect.width() / 2;
 
 				if (_rebelHandler != 8 && _rebelHandler != 25) {
 					spawnExplosion((it->rect.left + it->rect.right) / 2,
@@ -1836,6 +1887,18 @@ Common::Point InsaneRebel2::getRebelAutoPlayAimPoint() {
 	return target;
 }
 
+// Raw pointer space, what _vm->_mouse stores and warpGameplayMouseNow() expects.
+// getGameplayAimPoint() mirrors Y on top of this when the controls are flipped.
+Common::Point InsaneRebel2::getGameplayPointerPos() {
+	int x = _vm->_mouse.x;
+	int y = _vm->_mouse.y;
+	if (isHiRes()) {
+		x /= 2;
+		y /= 2;
+	}
+	return Common::Point(CLIP<int>(x, 0, 319), CLIP<int>(y, 0, 199));
+}
+
 Common::Point InsaneRebel2::getGameplayAimPoint() {
 	if (_rebelAutoPlay && _gameState == kStateGameplay && !_menuInputActive)
 		return getRebelAutoPlayAimPoint();
@@ -1894,7 +1957,7 @@ void InsaneRebel2::updateGameplayAimFromGamepad() {
 			return;
 
 		if (axisX || axisY || _gamepadAimActive) {
-			const Common::Point aimPos = getGameplayAimPoint();
+			const Common::Point aimPos = getGameplayPointerPos();
 			const int centerX = 160;
 			const int centerY = 100;
 			int targetX;
@@ -1954,10 +2017,11 @@ void InsaneRebel2::updateGameplayAimFromGamepad() {
 
 	_gamepadAimActive = true;
 
-	Common::Point aimPos = getGameplayAimPoint();
+	// Must read the space it writes, or a flipped Y oscillates every frame.
+	Common::Point pointerPos = getGameplayPointerPos();
 	const int scale = isHiRes() ? 2 : 1;
-	_vm->_mouse.x = (int16)(CLIP<int>(aimPos.x + deltaX, 0, 319) * scale);
-	_vm->_mouse.y = (int16)(CLIP<int>(aimPos.y + deltaY, 0, 199) * scale);
+	_vm->_mouse.x = (int16)(CLIP<int>(pointerPos.x + deltaX, 0, 319) * scale);
+	_vm->_mouse.y = (int16)(CLIP<int>(pointerPos.y + deltaY, 0, 199) * scale);
 }
 
 bool InsaneRebel2::isBitSet(int n) {

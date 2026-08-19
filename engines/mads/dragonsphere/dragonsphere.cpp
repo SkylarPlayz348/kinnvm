@@ -20,6 +20,7 @@
  */
 
 #include "engines/util.h"
+#include "common/config-manager.h"
 #include "mads/console.h"
 #include "mads/core/attr.h"
 #include "mads/core/conv.h"
@@ -50,7 +51,6 @@
 #include "mads/dragonsphere/mads/inventory.h"
 #include "mads/dragonsphere/mads/sounds.h"
 #include "mads/dragonsphere/mads/words.h"
-#include "mads/core/mps_installer.h"
 
 namespace MADS {
 namespace Dragonsphere {
@@ -71,7 +71,8 @@ Common::Error DragonsphereEngine::run() {
 	}
 
 	// Set up sound manager
-	_soundManager = new Sound::DragonSoundManager(_mixer, _soundFlag, isDemo());
+	_soundManager = new Sound::DragonSoundManager(_mixer, _soundFlag,
+			ConfMan.getBool("use_pas"), isDemo());
 	_soundManager->validate();
 
 	// Run the game
@@ -296,6 +297,7 @@ void DragonsphereEngine::global_daemon_code() {
 						switch (player.facing) {
 						case FACING_SOUTHEAST:
 						case FACING_SOUTHWEST:
+						case FACING_SOUTH:
 							how_many = imath_random(0, 3);
 							if (how_many <= 2) {
 								for (count = 0; count < imath_random(5, 7); count++) {
@@ -315,22 +317,6 @@ void DragonsphereEngine::global_daemon_code() {
 							how_many = imath_random(0, 1);
 							for (count = 0; count < imath_random(5, 7); count++) {
 								player_add_stop_walker(how_many, 0);
-							}
-							break;
-
-						case FACING_SOUTH:
-							how_many = imath_random(0, 3);
-							if (how_many <= 2) {
-								for (count = 0; count < imath_random(5, 7); count++) {
-									player_add_stop_walker(how_many, 0);
-								}
-
-							} else {
-								player_add_stop_walker(-3, 0);
-								for (count = 0; count < imath_random(5, 7); count++) {
-									player_add_stop_walker(4, 0);
-								}
-								player_add_stop_walker(3, 0);
 							}
 							break;
 
@@ -382,6 +368,7 @@ void DragonsphereEngine::global_daemon_code() {
 
 						case FACING_NORTHEAST:
 						case FACING_NORTHWEST:
+						case FACING_NORTH:
 							how_many = imath_random(0, 2);
 							for (count = 0; count < imath_random(5, 7); count++) {
 								player_add_stop_walker(how_many, 0);
@@ -397,13 +384,6 @@ void DragonsphereEngine::global_daemon_code() {
 							} else {
 								player_add_stop_walker(-3, 0);
 								player_add_stop_walker(3, 0);
-							}
-							break;
-
-						case FACING_NORTH:
-							how_many = imath_random(0, 2);
-							for (count = 0; count < imath_random(5, 7); count++) {
-								player_add_stop_walker(how_many, 0);
 							}
 							break;
 

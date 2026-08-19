@@ -22,9 +22,9 @@
 #include "audio/audiostream.h"
 #include "common/file.h"
 #include "mads/core/env.h"
-#include "mads/core/himem.h"
 #include "mads/core/kernel.h"
 #include "mads/core/matte.h"
+#include "mads/core/mem.h"
 #include "mads/core/mcga.h"
 #include "mads/core/mouse.h"
 #include "mads/core/pack.h"
@@ -91,6 +91,9 @@ static bool hasAnimInited;
 static int runVal1, runVal2, runVal3;
 static int runVal12;
 static int error_code;
+static int presentationBufferHeight;
+static bool presentationDrawBoundaryLines;
+static bool presentationServiceFramesInline;
 
 /**
  * Initializes animview global variables
@@ -188,10 +191,11 @@ static void run_animation(int animIndex) {
 	}
 
 	auto &screen = *g_engine->getScreen();
-	if (viewing_at_y && anim_list[animIndex].show_bars) {
+	if (presentationDrawBoundaryLines && viewing_at_y &&
+			anim_list[animIndex].show_bars) {
 		screen.hLine(0, viewing_at_y - 2, 319, 253);
 		screen.hLine(0, viewing_at_y + scr_work.y + 1, 319, 253);
-	} else if (viewing_at_y) {
+	} else if (presentationDrawBoundaryLines && viewing_at_y) {
 		screen.hLine(0, viewing_at_y - 2, 319, 0);
 		screen.hLine(0, viewing_at_y + scr_work.y + 1, 319, 0);
 	}
@@ -242,11 +246,16 @@ static void run_animation(int animIndex) {
 		runCtr1 = 0;
 		peelFlag = current_anim->misc_peel_x || current_anim->misc_peel_y;
 		timer2 = timer1;
-		timer_activate_low_priority(anim_timer);
+		timer_activate_low_priority(presentationServiceFramesInline ?
+			nullptr : anim_timer);
 	}
 
 	// Main animation loop
 	while (currentFrame < maxFrame && !current_error_code) {
+		if (presentationServiceFramesInline &&
+				current_anim->background_type != AA_INTERFACE)
+			anim_timer();
+
 		if (speechResourceId != -1) {
 			if (current_anim->load_flags & AA_LOAD_SPEECH) {
 				char buf[80];
@@ -281,10 +290,8 @@ static void run_animation(int animIndex) {
 			if (seriesFlag2 && currentFrame <= seriesMinFrame && !picture_map.one_to_one)
 				flag1 = false;
 
-			if (flag1)
-				seriesFlag2 = false;
-
 			if (flag1) {
+				seriesFlag2 = false;
 				(void)sprite_data_load(animSeries, frameIndex, largeBuffer2);
 				largeBuffer2 += pageMemNeeded;
 				++seriesMinFrame;
@@ -417,13 +424,12 @@ static void run_animation(int animIndex) {
 static void animate() {
 	char buf[80];
 	AnimFile anim_in;
-	int count, series_ctr, ctr;
+	int count, ctr;
 	int soundLoadFlag = 0;
 	int imageIndex;
 	static int packIndex = 0;
 	bool found_sound = false;
 
-	himem_startup();
 	(void)tile_setup();
 
 	mcga_compute_retrace_parameters();
@@ -441,32 +447,9 @@ static void animate() {
 		AnimEntry &entry = anim_list[count];
 
 		MADS_FORMAT(buf, entry.name);
-		himem_preload_series(buf, 0);
 
 		if (anim_get_header_info(buf, &anim_in))
 			continue;
-
-		// Preload resources used by the animation
-		if (anim_in.load_flags & AA_LOAD_FONT) {
-			*buf = '\0';
-			if (in_mads_mode)
-				Common::strcpy_s(buf, "*");
-			Common::strcat_s(buf, anim_in.font_file);
-			himem_preload_series(buf, 0);
-		}
-
-		for (series_ctr = 0; series_ctr < anim_in.num_series; ++series_ctr) {
-			MADS_FORMAT(buf, anim_in.series_name[series_ctr]);
-			himem_preload_series(buf, 0);
-		}
-
-		if (anim_in.background_type == AA_ROOM) {
-			static const char *EXT[5] = { ".dat", ".tt", ".mm", ".tt0", ".mm0" };
-			for (int i = 0; i < 5; ++i) {
-				env_get_level_path(buf, anim_in.background_room, EXT[i], 3, 0);
-				himem_preload_series(buf, 0);
-			}
-		}
 
 		if (g_engine->shouldQuit())
 			error_code = 1;
@@ -493,7 +476,7 @@ static void animate() {
 
 		if ((!stop_music_at_end || found_sound) && !g_engine->_soundManager->isLoaded()) {
 			// Initialize the sound driver
-			char ext = sound_file_name[strlen(sound_file_name) - 1];
+			char ext = strlen(sound_file_name) > 0 ? sound_file_name[strlen(sound_file_name) - 1] : '0';
 			int section = (g_engine->isDemo() && !Common::isDigit(ext)) ? 1 : ext - '0';
 			g_engine->_soundManager->init(section);
 		}
@@ -538,7 +521,8 @@ static void animate() {
 		has_cycles = anim_cycle_list.num_cycles > 0;
 		current_anim_inter = (AnimInterPtr)current_anim;
 
-		int height = (scr_orig.y == 200) ? 200 : 156;
+		int height = presentationBufferHeight ? presentationBufferHeight :
+			((scr_orig.y == 200) ? 200 : 156);
 		buffer_init(&scr_work, 320, height);
 		scr_inter = scr_work;
 		assert(scr_work.data);
@@ -649,11 +633,21 @@ done:
 		g_engine->_soundManager->removeDriver();
 
 	timer_remove();
-	himem_shutdown();
 }
 
 void animview_main(const char *resName) {
+	Presentation presentation;
+	presentation.bufferHeight = 0;
+	presentation.drawBoundaryLines = true;
+	presentation.serviceFramesInline = false;
+	animview_main(resName, presentation);
+}
+
+void animview_main(const char *resName, const Presentation &presentation) {
 	char name[16];
+	presentationBufferHeight = presentation.bufferHeight;
+	presentationDrawBoundaryLines = presentation.drawBoundaryLines;
+	presentationServiceFramesInline = presentation.serviceFramesInline;
 
 	init_globals();
 

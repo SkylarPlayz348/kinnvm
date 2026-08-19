@@ -28,6 +28,30 @@ namespace MADS {
 namespace RexNebular {
 namespace Sound {
 
+/** Shared mechanics of the two distinct Rex demo Roland overlays. */
+class RSoundDemo : public RSound {
+private:
+	int _firstEffectChannel;
+
+protected:
+	RSoundDemo(Audio::Mixer *mixer, MidiDriver_MT32GM *midiDriver, const Common::Path &filename,
+			int dataOffset, int dataSize, int sysExOffset,
+			int firstEffectChannel);
+
+	void startVoice(int channelIndex, int sequenceOffset);
+	int startVoiceInRange(int sequenceOffset, int firstChannel,
+			int lastChannel);
+	int startAnyVoice(int sequenceOffset);
+	int startEffectVoice(int sequenceOffset);
+	void requestStopRange(int firstChannel, int channelCount);
+	void requestStopAll();
+	void stopAndResetRange(int firstChannel, int channelCount);
+	void setVoiceVolume(int channelIndex, byte volume);
+	bool isSequenceActive(int sequenceOffset);
+	byte *sequenceData(int sequenceOffset) { return loadData(sequenceOffset); }
+	Channel &voice(int channelIndex) { return _channels[channelIndex]; }
+};
+
 class RSound1 : public RSound {
 private:
 	typedef int (RSound1:: *CommandPtr)();
@@ -35,7 +59,7 @@ private:
 
 	/**
 	 * Shared loader for command11/12/13 - matches method1 in the
-	 * disassembly (isSoundActive-gated command1() + 4-channel load).
+	 * disassembly (isSoundPlaying-gated command1() + 4-channel load).
 	 */
 	void method1();
 
@@ -80,8 +104,22 @@ private:
 	int command40();
 	int command41();
 public:
-	RSound1(Audio::Mixer *mixer);
+	RSound1(Audio::Mixer *mixer, MidiDriver_MT32GM *midiDriver);
 
+	int command(int commandId, int param) override;
+};
+
+/** Demo RSOUND.001: `RLND AGAdemo 6-11-92`; 41 commands. */
+class RSoundDemo1 : public RSoundDemo {
+private:
+	bool _command23Toggle;
+
+	byte adjustedCommandParam() const;
+	void startCommand111213();
+	int executeDemoCommonCommand(int commandId);
+
+public:
+	explicit RSoundDemo1(Audio::Mixer *mixer, MidiDriver_MT32GM *midiDriver);
 	int command(int commandId, int param) override;
 };
 
@@ -148,7 +186,7 @@ private:
 	int command42();
 	int command43();
 public:
-	RSound2(Audio::Mixer *mixer);
+	RSound2(Audio::Mixer *mixer, MidiDriver_MT32GM *midiDriver);
 
 	int command(int commandId, int param) override;
 };
@@ -175,19 +213,8 @@ private:
 	byte _command3940Toggle = 0;
 
 	/**
-	 * Written unconditionally to 1 by
-	 * sub1074E() (called from the shared command1/command5 tail and from
-	 * command3), and separately written to the raw command parameter by
-	 * command9. No consumer of this byte showed up in the batches given
-	 * so far, so its real purpose is still unclear - kept as a plain
-	 * mirror of the original rather than guessing a meaning for it.
-	 */
-	byte _byte10742 = 0;
-
-	/**
-	 * Shared helper: pData[5] = value, then plays pData. Called once
-	 * from command25, with a truncated second call not yet
-	 * confirmed.
+	 * Shared helper: pData[5] = value, then plays pData. Command 25
+	 * calls it for both native sequence offsets.
 	 */
 	Channel *method1(int offset, byte value);
 
@@ -214,33 +241,16 @@ private:
 	void sendDualVolume(byte volume);
 
 	/**
-	 * Just sets _byte10742 = 1. Reached
-	 * both as a genuine call (from command3, not yet given) and via the
-	 * shared command1/command5 tail below.
-	 */
-	void sub1074E();
-
-	/**
-	 * Placeholder for command slots confirmed by the dispatch table
-	 * to be real, driver-specific functions, but whose
-	 * disassembly wasn't included in this batch. Warns at runtime if
-	 * actually invoked, so a real call shows up during testing instead
-	 * of silently vanishing. Distinct from nullCommand(), which is for
-	 * slots the table confirms are genuinely no-op stubs in the original
-	 * (12, 52-56, 58).
-	 */
-	int notImplemented();
-
-	/**
 	 * Shared tail used by both command1
 	 * (falls through into it after calling command3()) and command5
-	 * (jumps straight into it after its isSoundActive gate). Enables
+	 * (jumps straight into it after its isSoundPlaying gate). Enables
 	 * channels 5-8 (1-based; indices 4-7) - notably never reaches
 	 * channel 9.
 	 */
 	void resetUpperChannelsTail();
 
 	int command1();
+	int command3();
 	int command5();
 	int command9();
 	int command10();
@@ -286,7 +296,7 @@ private:
 	int command59();
 	int command60();
 public:
-	RSound3(Audio::Mixer *mixer);
+	RSound3(Audio::Mixer *mixer, MidiDriver_MT32GM *midiDriver);
 
 	int command(int commandId, int param) override;
 };
@@ -305,14 +315,6 @@ private:
 	CallbackFunction _callbackFnPtr = nullptr;
 	int _callbackCounter = 0;
 	int _callbackPeriod = 0;
-
-	/**
-	 * Set from the raw command parameter
-	 * by command9. No consumer showed up in this batch, so its real
-	 * purpose is unconfirmed (mirrors RSound3's equally-unconfirmed
-	 * _byte10742, set the same way by RSound3::command9).
-	 */
-	byte _byte10745 = 0;
 
 	typedef int (RSound4:: *CommandPtr)();
 	static const CommandPtr _commandList[60];
@@ -364,7 +366,7 @@ private:
 	int command58();
 	int command59();
 public:
-	RSound4(Audio::Mixer *mixer);
+	RSound4(Audio::Mixer *mixer, MidiDriver_MT32GM *midiDriver);
 
 	int command(int commandId, int param) override;
 };
@@ -412,7 +414,7 @@ private:
 	int command40();
 	int command41();
 public:
-	RSound5(Audio::Mixer *mixer);
+	RSound5(Audio::Mixer *mixer, MidiDriver_MT32GM *midiDriver);
 
 	int command(int commandId, int param) override;
 };
@@ -465,7 +467,7 @@ private:
 	int command25();
 	int command28();
 public:
-	RSound6(Audio::Mixer *mixer);
+	RSound6(Audio::Mixer *mixer, MidiDriver_MT32GM *midiDriver);
 
 	int command(int commandId, int param) override;
 };
@@ -496,7 +498,7 @@ private:
 	int command36();
 	int command37();
 public:
-	RSound7(Audio::Mixer *mixer);
+	RSound7(Audio::Mixer *mixer, MidiDriver_MT32GM *midiDriver);
 
 	int command(int commandId, int param) override;
 };
@@ -542,7 +544,7 @@ private:
 	int command36();
 	int command37();
 public:
-	RSound8(Audio::Mixer *mixer);
+	RSound8(Audio::Mixer *mixer, MidiDriver_MT32GM *midiDriver);
 
 	int command(int commandId, int param) override;
 };
@@ -622,8 +624,18 @@ private:
 	void loadCommand47();
 	void loadCommand50();
 public:
-	RSound9(Audio::Mixer *mixer);
+	RSound9(Audio::Mixer *mixer, MidiDriver_MT32GM *midiDriver);
 
+	int command(int commandId, int param) override;
+};
+
+/** Demo RSOUND.009: `RLND AGAdemo 6-25-92`; 40 commands. */
+class RSoundDemo9 : public RSoundDemo {
+private:
+	int executeDemoCommonCommand(int commandId);
+
+public:
+	explicit RSoundDemo9(Audio::Mixer *mixer, MidiDriver_MT32GM *midiDriver);
 	int command(int commandId, int param) override;
 };
 

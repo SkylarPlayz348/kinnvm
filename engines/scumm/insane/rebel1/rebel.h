@@ -28,6 +28,7 @@
 #include "scumm/insane/insane.h"
 #include "scumm/insane/rebel/rebel_audio.h"
 #include "scumm/insane/rebel/rebel_gamepad.h"
+#include "scumm/insane/rebel/rebel_touch.h"
 #include "scumm/smush/rebel/smush_player_ra1.h"
 
 namespace Scumm {
@@ -148,12 +149,16 @@ public:
 	void handleGameChunk(int32 subSize, Common::SeekableReadStream &b,
 		byte *renderBitmap = nullptr, int width = 0, int height = 0);
 	bool isInteractiveVideoActive() const { return _interactiveVideoActive; }
+	bool shouldPreserveWalkerRouteVideoState() const {
+		return _interactiveVideoActive && _currentLevel == 7 && _health >= 0 &&
+			_walkerHealth > 0 && !_interactiveVideoCheatSkipped;
+	}
+	bool shouldPreserveWalkerRouteOnStop() const;
 	// Touch devices use absolute aiming instead of cursor locking.
 	bool isTouchscreenActive() const;
 	void setFrameHasGameChunk(bool hasGameChunk) { _frameHasGameChunk = hasGameChunk; }
 	void setCurrentSmushFrame(int32 frame);
 	int getCurrentLevel() const { return _currentLevel; }
-	int getLevelGameplayPhase() const { return _levelGameplayPhase; }
 	uint16 getActiveGameOpcode() const { return _activeGameOpcode; }
 	uint16 getEffectiveGameOpcode() const;
 	uint16 getTargetHitGameOpcode() const;
@@ -239,7 +244,6 @@ private:
 	void playInteractiveVideo(const char *filename, int32 startFrame = 0);
 	void resetInteractiveVideoAudio();
 	void preserveInteractiveVideoAudioState();
-	void restoreInteractiveVideoAudioState();
 	void setupInteractiveVideoState(int32 startFrame);
 	void resolveSeek(const char *filename, int32 startFrame, int32 &videoOffset, int32 &videoStartFrame);
 	void captureInteractiveVideoInput();
@@ -529,10 +533,6 @@ private:
 
 	// Streamed SMUSH audio.
 	RebelAudio _audio;
-	bool _restoreInteractiveVideoAudioState;
-	int16 _savedInteractiveVideoTrackState[SMUSH_MAX_TRACKS];
-	int _savedInteractiveVideoTrackGroupId[SMUSH_MAX_TRACKS];
-	int _savedInteractiveVideoTrackCount;
 	static const int kNumSfx = 8;
 	enum SfxSlot {
 		kSfxLaserShot = 0,
@@ -552,6 +552,7 @@ private:
 	bool _preserveInteractiveRuntimeState;
 	bool _interactiveVideoCheatSkipped;
 	RebelIOSGamepadControllerState _iosGamepadControllerState;
+	RebelTouchTapDetector _touchTapDetector;
 
 	// Path branching for levels with left/right alternative videos.
 	static const int32 kPathBranchCounter = 394;

@@ -26,6 +26,7 @@
 
 #include "engines/nancy/nancy.h"
 #include "engines/nancy/video.h"
+#include "engines/nancy/graphics.h"
 #include "engines/nancy/util.h"
 #include "engines/nancy/commontypes.h"
 
@@ -48,22 +49,38 @@ MoviePlayer::MoviePlayer() {}
 
 MoviePlayer::~MoviePlayer() {}
 
-bool MoviePlayer::loadFile(const Common::Path &name, bool bidirectionalCache) {
+byte MoviePlayer::resolvePlaytype(byte videoPlaytype) {
+	if (videoPlaytype != kVideoPlaytypeAuto) {
+		return videoPlaytype;
+	}
+
+	// Scene backgrounds only look for .bik from Nancy10 on.
+	return g_nancy->getGameType() >= kGameTypeNancy10 ? kVideoPlaytypeBink : kVideoPlaytypeAVF;
+}
+
+bool MoviePlayer::loadFile(const Common::Path &name, byte videoPlaytype, bool bidirectionalCache) {
 	freeFrameCache();
 
 	const Common::Path avfPath = name.append(".avf");
 	const Common::Path bikPath = name.append(".bik");
 
-	// Detect the format from which file exists. Bink wins if both do.
-	if (Common::File::exists(bikPath)) {
-		_videoType = kVideoPlaytypeBink;
-		_decoder.reset(new Video::BinkDecoder());
-	} else if (Common::File::exists(avfPath)) {
-		_videoType = kVideoPlaytypeAVF;
-		_decoder.reset(new AVFDecoder(bidirectionalCache ? AVFDecoder::kLoadBidirectional : AVFDecoder::kLoadForward));
+	// Use the requested container, the other one only if its file is missing.
+	const byte preferred = resolvePlaytype(videoPlaytype);
+	const byte fallback = preferred == kVideoPlaytypeBink ? kVideoPlaytypeAVF : kVideoPlaytypeBink;
+
+	if (Common::File::exists(preferred == kVideoPlaytypeBink ? bikPath : avfPath)) {
+		_videoType = preferred;
+	} else if (Common::File::exists(fallback == kVideoPlaytypeBink ? bikPath : avfPath)) {
+		_videoType = fallback;
 	} else {
 		_decoder.reset();
 		return false;
+	}
+
+	if (_videoType == kVideoPlaytypeBink) {
+		_decoder.reset(new Video::BinkDecoder());
+	} else {
+		_decoder.reset(new AVFDecoder(bidirectionalCache ? AVFDecoder::kLoadBidirectional : AVFDecoder::kLoadForward));
 	}
 
 	_currentSurface = nullptr;
@@ -71,6 +88,21 @@ bool MoviePlayer::loadFile(const Common::Path &name, bool bidirectionalCache) {
 	if (!_decoder->loadFile(_videoType == kVideoPlaytypeAVF ? avfPath : bikPath)) {
 		_decoder.reset();
 		return false;
+	}
+
+	// Bink decodes YUV into Codec::getDefaultYUVFormat(), i.e. the *screen* format, but
+	// our surfaces - and the transparent colour derived from the BSUM chunk - use the
+	// *input* format. Those differ before Nancy13 (screen RGB565, input RGB555), so a
+	// chroma-keyed video such as Nancy11's Nigel_Fidget.bik ends up storing its key
+	// colour as 0x07E0 while the engine keys on 0x03E0, and the green background is
+	// never keyed out. From Nancy13 both formats are BGRA32 and this is a no-op.
+	// Has to come after loadFile(): setOutputPixelFormat() walks the decoder's tracks,
+	// and those only exist once the file is loaded.
+	if (_videoType == kVideoPlaytypeBink) {
+		const Graphics::PixelFormat &inputFormat = g_nancy->_graphics->getInputPixelFormat();
+		if (inputFormat.bytesPerPixel == 2 || inputFormat.bytesPerPixel == 4) {
+			_decoder->setOutputPixelFormat(inputFormat);
+		}
 	}
 
 	// The AVF decoder caches frames itself, so only the Bink path needs ours.

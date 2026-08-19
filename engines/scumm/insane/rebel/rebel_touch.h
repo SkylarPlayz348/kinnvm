@@ -19,16 +19,27 @@
  *
  */
 
-#include "mads/core/xms.h"
+#ifndef SCUMM_INSANE_REBEL_TOUCH_H
+#define SCUMM_INSANE_REBEL_TOUCH_H
 
-namespace MADS {
+#include "common/scummsys.h"
 
-bool xms_exists = false;
-bool xms_disabled = false;
-word xms_version = 0;
-dword xms_controller = 0;
-word xms_chain_seg = 0;
-word xms_umb_list[XMS_MAX_UMB] = {};
-word xms_umb_mark = 0;
+namespace Scumm {
 
-} // namespace MADS
+// Double rather than single, because a single tap is the gameplay fire button.
+class RebelTouchTapDetector {
+public:
+	RebelTouchTapDetector();
+
+	bool addTap(int16 x, int16 y, uint32 now);
+	void reset();
+
+private:
+	uint32 _lastTapTime;
+	int16 _lastTapX;
+	int16 _lastTapY;
+};
+
+} // End of namespace Scumm
+
+#endif

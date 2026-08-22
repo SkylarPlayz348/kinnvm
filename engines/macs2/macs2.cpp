@@ -20,11 +20,13 @@
  */
 
 #include "macs2/macs2.h"
+#include "audio/audiostream.h"
 #include "audio/fmopl.h"
 #include "audio/mixer.h"
 #include "common/archive.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
+#include "common/file.h"
 #include "common/ptr.h"
 #include "common/savefile.h"
 #include "common/scummsys.h"
@@ -128,21 +130,38 @@ Macs2Engine::McsFileVersion Macs2Engine::detectMcsFileVersion(Common::SeekableRe
 
 	if (memcmp(magic, kMcsMagicV1, kMcsMagicSize) == 0)
 		return McsFileVersion::V1;
+	if (memcmp(magic, kMcsMagicV2, kMcsMagicSize) == 0)
+		return McsFileVersion::V2;
 	return McsFileVersion::Unknown;
 }
 
+const char *Macs2Engine::getResourceMcsFilename() const {
+	return "RESOURCE.MCS";
+}
+
 void Macs2Engine::readResourceFile() {
+	const char *mcsName = getResourceMcsFilename();
 	{
-		// Extra scope in order to make sure no code tries to read from the file directly.
-		Common::File file;
-		if (!file.open("RESOURCE.MCS"))
-			error("readResourceFile(): Error reading MCS file");
+		Common::File *file = new Common::File();
+		if (!file->open(mcsName)) {
+			delete file;
+			error("readResourceFile(): Error reading MCS file %s", mcsName);
+		}
 
-		int64 size = file.size();
-		byte *fileData = (byte *)malloc(size);
-		file.read(fileData, size);
-
-		_fileStream = new Common::MemoryReadStream(fileData, size, DisposeAfterUse::YES);
+		_mcsFileVersion = detectMcsFileVersion(*file);
+		if (_mcsFileVersion == McsFileVersion::V1) {
+			_mcsDirectoryOffset = kMcsV1DirectoryOffset;
+			debugC(1, kDebugFilePath, "MCS %s: AHFFMACS0100, directory @ 0x%x", mcsName, _mcsDirectoryOffset);
+			const int64 size = file->size();
+			byte *fileData = (byte *)malloc((size_t)size);
+			file->seek(0, SEEK_SET);
+			file->read(fileData, size);
+			delete file;
+			_fileStream = new Common::MemoryReadStream(fileData, (uint32)size, DisposeAfterUse::YES);
+		} else {
+			delete file;
+			error("readResourceFile(): unrecognized MCS magic in %s", mcsName);
+		}
 	}
 
 	_mcsFileVersion = detectMcsFileVersion(*_fileStream);
@@ -204,10 +223,11 @@ void Macs2Engine::loadResourceFileV1() {
 
 	// Load object data (512 entries max, matching original loadResourceFile)
 	// Original allocates all 512 slots, then frees unused ones. We pre-fill with nullptr.
+	const uint32 dir = getMcsDirectoryOffset();
 	GameObjects::instance()._objects.resize(0x200, nullptr);
 	for (int i = 1; i <= 0x200; i++) {
 		// Directory object DATA dword: file+kMcsV1DirectoryOffset+kMcsV1ObjectDataPtrRel+i*12
-		const uint32 addressOffset = kMcsV1DirectoryOffset + kMcsV1ObjectDataPtrRel + (uint32)i * 0xC;
+		const uint32 addressOffset = dir + kMcsV1ObjectDataPtrRel + (uint32)i * 0xC;
 		_fileStream->seek(addressOffset, SEEK_SET);
 		uint32 objectOffset = _fileStream->readUint32LE();
 		if (objectOffset == 0) {
@@ -292,11 +312,13 @@ void Macs2Engine::loadResourceFileV1() {
 	// is loaded before the game loop processes any input.
 	// The original allocates the 0x75E0-byte scene data buffer (which includes space for
 	// all RLE-decoded maps) before calling changeScene. Create the surfaces here.
-	_sceneBackground.create(kScreenWidth, kGameHeight, Graphics::PixelFormat::createFormatCLUT8());
-	_depthMap.create(kScreenWidth, kGameHeight, Graphics::PixelFormat::createFormatCLUT8());
-	_pathfindingMap.create(kScreenWidth, kGameHeight, Graphics::PixelFormat::createFormatCLUT8());
-	_shadowMap.create(kScreenWidth, kGameHeight, Graphics::PixelFormat::createFormatCLUT8());
-	_hotspotMap.create(kScreenWidth, kGameHeight, Graphics::PixelFormat::createFormatCLUT8());
+	const int sw = screenWidth();
+	const int gh = gameHeight();
+	_sceneBackground.create(sw, gh, Graphics::PixelFormat::createFormatCLUT8());
+	_depthMap.create(sw, gh, Graphics::PixelFormat::createFormatCLUT8());
+	_pathfindingMap.create(sw, gh, Graphics::PixelFormat::createFormatCLUT8());
+	_shadowMap.create(sw, gh, Graphics::PixelFormat::createFormatCLUT8());
+	_hotspotMap.create(sw, gh, Graphics::PixelFormat::createFormatCLUT8());
 	changeScene(Scenes::instance()._currentSceneIndex);
 }
 
@@ -424,8 +446,7 @@ void Macs2Engine::readImageResources(Common::MemoryReadStream *stream) {
 Macs2Engine::Macs2Engine(OSystem *syst, const ADGameDescription *gameDesc) : Engine(syst),
 																			 _gameDescription(gameDesc) {
 	g_engine = this;
-	_scriptExecutor = new Script::ScriptExecutor();
-	_scriptExecutor->_engine = this;
+	_scriptExecutor = new Script::ScriptExecutor(this);
 	_music = new Music();
 
 	_hotspotOverrides.resize(0x21);
@@ -479,6 +500,14 @@ void Macs2Engine::syncSoundSettings() {
 		_mixer->muteSoundType(Audio::Mixer::kPlainSoundType,
 							  (musicVolume == 0) || (ConfMan.hasKey("mute") && ConfMan.getBool("mute")));
 		_music->setVolume(scaledMusicVolume(_scriptExecutor->_musicControlVolume));
+		_music->setSmfVolumeFromAttenuation(_scriptExecutor->_musicControlVolume);
+	}
+
+	// TalkVol (setWaveVolume): percent of speech loudness when set.
+	if (_talkVol > 0 && _talkVol <= 100) {
+		const int speechVolume = ConfMan.getInt("speech_volume");
+		const int combined = MIN(255, (speechVolume * (int)_talkVol) / 100);
+		_mixer->setVolumeForSoundType(Audio::Mixer::kSpeechSoundType, combined);
 	}
 }
 
@@ -917,41 +946,371 @@ void Macs2Engine::changeScene(uint32 newSceneIndex, bool executeScript) {
 	}
 }
 
-bool Macs2Engine::loadOverlayFont(uint8 resourceIndex, uint16 executingObjectID) {
-	if (isAmiga())
-		return loadAmigaOverlayFont(resourceIndex);
+bool Macs2Engine::resolveResourceFileOffset(uint8 resourceIndex, uint16 executingObjectId, uint32 &outOffset) const {
+	outOffset = 0;
+	if (resourceIndex == 0 || _fileStream == nullptr)
+		return false;
 
-	// Original (1008:d749): looks up file offset from scene/object resource table
-	// at scene+0x5209+index*4 (same table as loadIndexedResource/_sceneResourceOffsets),
-	// seeks to offset+0x10, then calls loadFontData.
-	if (resourceIndex == 0)
+	if (executingObjectId == 0) {
+		if (resourceIndex > _sceneResourceOffsets.size())
+			return false;
+		outOffset = _sceneResourceOffsets[resourceIndex - 1];
+	} else {
+		GameObject *object = GameObjects::getObjectByIndex(executingObjectId);
+		if (object == nullptr || object->_dataOffset == 0)
+			return false;
+		if ((uint)(resourceIndex - 1) >= maxObjectResources())
+			return false;
+		outOffset = object->_resourceOffsets[resourceIndex - 1];
+	}
+	return outOffset != 0 && outOffset < (uint32)_fileStream->size();
+}
+
+bool Macs2Engine::loadSizedResourcePayload(uint8 resourceIndex, uint16 executingObjectId,
+										   Common::Array<uint8> &outPayload) {
+	outPayload.clear();
+	uint32 address = 0;
+	if (!resolveResourceFileOffset(resourceIndex, executingObjectId, address))
 		return false;
 
 	const int64 oldPos = _fileStream->pos();
-	uint32 address = 0;
-
-	if (executingObjectID == 0) {
-		if (resourceIndex > _sceneResourceOffsets.size()) {
-			_fileStream->seek(oldPos, SEEK_SET);
-			return false;
-		}
-		address = _sceneResourceOffsets[resourceIndex - 1];
-	} else {
-		GameObject *object = GameObjects::getObjectByIndex(executingObjectID);
-		if (object == nullptr || object->_dataOffset == 0) {
-			_fileStream->seek(oldPos, SEEK_SET);
-			return false;
-		}
-		_fileStream->seek(object->_dataOffset + 0x189 + (resourceIndex - 1) * 4, SEEK_SET);
-		address = _fileStream->readUint32LE();
+	_fileStream->seek(address, SEEK_SET);
+	const uint32 size = _fileStream->readUint32LE();
+	if (size == 0 || size > 0x1000000) {
+		_fileStream->seek(oldPos, SEEK_SET);
+		return false;
 	}
+	outPayload.resize(size);
+	if (_fileStream->read(outPayload.data(), size) != size) {
+		outPayload.clear();
+		_fileStream->seek(oldPos, SEEK_SET);
+		return false;
+	}
+	_fileStream->seek(oldPos, SEEK_SET);
+	return !outPayload.empty();
+}
 
-	if (address == 0) {
+bool Macs2Engine::loadAhffAnimResource(uint8 resourceIndex, uint16 executingObjectId,
+									   Common::Array<uint8> &outBlob) {
+	Common::Array<uint8> payload;
+	if (!loadSizedResourcePayload(resourceIndex, executingObjectId, payload))
+		return false;
+	if (payload.size() < 12 || memcmp(payload.data(), "AHFFANIM0100", 12) != 0)
+		return false;
+	outBlob.clear();
+	outBlob.resize(payload.size() - 12);
+	if (!outBlob.empty())
+		memcpy(outBlob.data(), payload.data() + 12, outBlob.size());
+	return !outBlob.empty();
+}
+
+bool Macs2Engine::readMegaPicImage(Common::SeekableReadStream *stream, int width, int height,
+								   Graphics::ManagedSurface &out) {
+	if (stream == nullptr || width <= 0 || height <= 0)
+		return false;
+
+	out.create(width, height, Graphics::PixelFormat::createFormatCLUT8());
+	Common::Array<byte> rowBuf;
+	rowBuf.resize(3000);
+
+	for (int y = 0; y < height; y++) {
+		uint16 packedLen = stream->readUint16LE();
+		if (packedLen == 0 || packedLen > 2999)
+			return false;
+		if (stream->read(rowBuf.data(), packedLen) != packedLen)
+			return false;
+
+		int x = 0;
+		uint i = 0;
+		while (x < width && i < packedLen) {
+			const byte code = rowBuf[i++];
+			if (code < 0x80) {
+				const uint run = code;
+				for (uint n = 0; n < run && x < width; n++) {
+					if (i >= packedLen)
+						return false;
+					out.setPixel(x++, y, rowBuf[i++]);
+				}
+			} else {
+				if (i >= packedLen)
+					return false;
+				const byte value = rowBuf[i++];
+				const uint run = code & 0x7F;
+				for (uint n = 0; n < run && x < width; n++)
+					out.setPixel(x++, y, value);
+			}
+		}
+	}
+	return true;
+}
+
+bool Macs2Engine::loadMaskFromResource(uint8 resourceIndex, uint16 executingObjectId,
+									   Graphics::ManagedSurface &dest, int megapicW, int megapicH,
+									   bool upscaleHalfRes) {
+	uint32 address = 0;
+	if (!resolveResourceFileOffset(resourceIndex, executingObjectId, address))
+		return false;
+
+	const int64 oldPos = _fileStream->pos();
+	_fileStream->seek(address, SEEK_SET);
+	(void)_fileStream->readUint32LE(); // size header skipped by Load*Mask
+	Graphics::ManagedSurface half;
+	Graphics::ManagedSurface &target = upscaleHalfRes ? half : dest;
+	if (!readMegaPicImage(_fileStream, megapicW, megapicH, target)) {
+		_fileStream->seek(oldPos, SEEK_SET);
+		return false;
+	}
+	if (upscaleHalfRes) {
+		dest.create(megapicW * 2, megapicH * 2, Graphics::PixelFormat::createFormatCLUT8());
+		for (int y = 0; y < half.h; y++) {
+			for (int x = 0; x < half.w; x++) {
+				const byte p = half.getPixel(x, y);
+				const int dx = x * 2;
+				const int dy = y * 2;
+				dest.setPixel(dx, dy, p);
+				dest.setPixel(dx + 1, dy, p);
+				dest.setPixel(dx, dy + 1, p);
+				dest.setPixel(dx + 1, dy + 1, p);
+			}
+		}
+	}
+	_fileStream->seek(oldPos, SEEK_SET);
+	return true;
+}
+
+void Macs2Engine::clearDeltaAnim() {
+	_deltaAnim.clear(screenWidth(), gameHeight());
+}
+
+bool Macs2Engine::loadDeltaAnimResource(uint8 resourceIndex, uint16 executingObjectId, bool forceSkipSpeed1) {
+	uint32 address = 0;
+	if (!resolveResourceFileOffset(resourceIndex, executingObjectId, address))
+		return false;
+
+	const int64 oldPos = _fileStream->pos();
+	_fileStream->seek(address, SEEK_SET);
+	const uint32 size = _fileStream->readUint32LE();
+	char magic[8];
+	if (_fileStream->read(magic, 8) != 8 || memcmp(magic, "AHFFDLTA", 8) != 0) {
+		_fileStream->seek(oldPos, SEEK_SET);
+		return false;
+	}
+	_fileStream->skip(4); // remainder of 16-byte header after size
+
+	// LoadDeltaAnim SkipSpeed layouts:
+	//   1: frameCount, 0x1000 offset table, skip 0x2000, palette, frames
+	//   2: frameCount, skip 0x1000, 0x1000 table, skip 0x1000; frame counts halved
+	//   else: frameCount, skip 0x2000, 0x1000 table; frame counts / 3
+	// CheckDeltaSpeed always uses layout 1 regardless of SkipSpeed.
+	uint16 frameCount = _fileStream->readUint16LE();
+	if (frameCount == 0 || frameCount > 512) {
 		_fileStream->seek(oldPos, SEEK_SET);
 		return false;
 	}
 
-	// Seek to address + 0x10 (original skips 16-byte resource header)
+	uint16 skipSpeed = (_skipSpeed >= 1 && _skipSpeed <= 4) ? _skipSpeed : 1;
+	if (forceSkipSpeed1)
+		skipSpeed = 1;
+	Common::Array<uint32> relOffsets;
+	relOffsets.resize(512);
+	// FBlockRead(0x1000): 512 uint32 offsets (0x800) plus 0x800 trailing bytes.
+	auto readOffsetTable1000 = [&]() {
+		for (uint i = 0; i < 512; i++)
+			relOffsets[i] = _fileStream->readUint32LE();
+		_fileStream->skip(0x800);
+	};
+	if (skipSpeed == 1) {
+		readOffsetTable1000();
+		_fileStream->skip(0x2000);
+	} else if (skipSpeed == 2) {
+		_fileStream->skip(0x1000);
+		readOffsetTable1000();
+		_fileStream->skip(0x1000);
+		frameCount = (uint16)(((uint32)frameCount + 1) >> 1);
+		if (frameCount > 0)
+			frameCount--;
+	} else {
+		_fileStream->skip(0x2000);
+		readOffsetTable1000();
+		frameCount = (uint16)(((uint32)frameCount + 1) / 3);
+		if (frameCount > 0)
+			frameCount--;
+	}
+	if (frameCount == 0 || frameCount > 512) {
+		_fileStream->seek(oldPos, SEEK_SET);
+		return false;
+	}
+
+	// Scripts call addDeltaSfx before playDiskDelta; keep the pending SFX list.
+	Common::Array<DeltaSfxEvent> savedSfx = Common::move(_deltaAnim.sfxEvents);
+	clearDeltaAnim();
+	_deltaAnim.sfxEvents = Common::move(savedSfx);
+	_fileStream->read(_deltaAnim.palette, 0x300);
+	_deltaAnim.frames.resize(frameCount);
+	_deltaAnim.frameCount = frameCount;
+	_deltaAnim.loaded = true;
+
+	const uint32 base = address + 4;
+	for (uint16 fi = 0; fi < frameCount; fi++) {
+		const uint32 absOff = relOffsets[fi] + base;
+		if (absOff >= (uint32)_fileStream->size())
+			continue;
+		_fileStream->seek(absOff, SEEK_SET);
+		const uint16 stripCount = _fileStream->readUint16LE();
+		DeltaFrame &frame = _deltaAnim.frames[fi];
+		frame.strips.clear();
+		if (stripCount == 0 || stripCount > 400)
+			continue;
+		frame.strips.resize(stripCount);
+		for (uint16 si = 0; si < stripCount; si++) {
+			frame.strips[si].y = _fileStream->readUint16LE();
+			const uint16 rleSize = _fileStream->readUint16LE();
+			if (rleSize == 0 || rleSize > 0x8000)
+				break;
+			frame.strips[si].rle.resize(rleSize);
+			if (_fileStream->read(frame.strips[si].rle.data(), rleSize) != rleSize) {
+				frame.strips[si].rle.clear();
+				break;
+			}
+		}
+	}
+
+	(void)size;
+	_fileStream->seek(oldPos, SEEK_SET);
+	return _deltaAnim.loaded;
+}
+
+void Macs2Engine::applyDeltaFrameToBackground(const DeltaFrame &frame) {
+	if (_sceneBackground.w <= 0 || _sceneBackground.h <= 0)
+		return;
+
+	for (const DeltaStrip &strip : frame.strips) {
+		const int y = (int)strip.y;
+		if (y < (int)_deltaAnim.clipMiY || y > (int)_deltaAnim.clipMaY)
+			continue;
+		if (y < 0 || y >= _sceneBackground.h)
+			continue;
+		if (strip.rle.empty())
+			continue;
+
+		const uint8 *p = strip.rle.data();
+		const uint8 *end = p + strip.rle.size();
+		int x = 0;
+		while (p + 4 <= end) {
+			const int16 skip = (int16)READ_LE_UINT16(p);
+			p += 2;
+			uint16 runLen = READ_LE_UINT16(p);
+			p += 2;
+			x += skip;
+			if (runLen == 0)
+				break;
+			while (runLen != 0 && p < end) {
+				uint8 code = *p++;
+				if (code < 0x80) {
+					uint16 n = code;
+					if (n > runLen)
+						n = runLen;
+					for (uint16 i = 0; i < n && p < end; i++, x++) {
+						if (x >= (int)_deltaAnim.clipMiX && x <= (int)_deltaAnim.clipMaX &&
+							x >= 0 && x < _sceneBackground.w)
+							_sceneBackground.setPixel(x, y, *p);
+						p++;
+					}
+					runLen = (uint16)(runLen - n);
+				} else {
+					uint16 n = (uint16)(code - 0x80);
+					if (n > runLen)
+						n = runLen;
+					if (p >= end)
+						break;
+					const uint8 val = *p++;
+					for (uint16 i = 0; i < n; i++, x++) {
+						if (x >= (int)_deltaAnim.clipMiX && x <= (int)_deltaAnim.clipMaX &&
+							x >= 0 && x < _sceneBackground.w)
+							_sceneBackground.setPixel(x, y, val);
+					}
+					runLen = (uint16)(runLen - n);
+				}
+			}
+		}
+	}
+}
+
+void Macs2Engine::playDeltaFrameSfx(uint16 displayFrame) {
+	for (const DeltaSfxEvent &ev : _deltaAnim.sfxEvents) {
+		if (ev.frameIndex != displayFrame || ev.fileName.empty())
+			continue;
+		if (ev.duckMusic)
+			getMusic()->setSmfDucked(true, _talkVol);
+		const Common::String base = Script::ScriptExecutor::stripAudioExtension(ev.fileName);
+		playDigitalAudioFile(Common::Path("SOUNDFX").join(base), false);
+	}
+}
+
+bool Macs2Engine::startDeltaPlayback(uint16 startFrame, uint16 endFrame, uint16 speedTicks, bool applyPalette) {
+	if (!_deltaAnim.loaded || _deltaAnim.frameCount == 0)
+		return false;
+	uint16 start = startFrame ? startFrame : 1;
+	uint16 end = endFrame;
+	if (end == 0 || end > _deltaAnim.frameCount)
+		end = _deltaAnim.frameCount;
+	if (start > end)
+		start = end;
+	_deltaAnim.startFrame = (uint16)(start - 1);
+	_deltaAnim.endFrame = (uint16)(end - 1);
+	_deltaAnim.currentFrame = _deltaAnim.startFrame;
+	_deltaAnim.speedTicks = speedTicks ? speedTicks : 1;
+	_deltaAnim.tickCounter = 0;
+	_deltaAnim.playing = true;
+	_deltaAnim.applyPaletteOnStart = applyPalette;
+	if (applyPalette || _deltaAnim.currentFrame == 0) {
+		memcpy(_palVanilla, _deltaAnim.palette, 0x300);
+		memcpy(_pal, _deltaAnim.palette, 0x300);
+		for (int i = 0; i < 256 * 3; i++)
+			_pal[i] = (_pal[i] * 259 + 33) >> 6;
+		g_system->getPaletteManager()->setPalette(_pal, 0, 256);
+	}
+	const uint16 displayFrame = _deltaAnim.currentFrame;
+	playDeltaFrameSfx(displayFrame);
+	if (displayFrame < _deltaAnim.frames.size())
+		applyDeltaFrameToBackground(_deltaAnim.frames[displayFrame]);
+	_deltaAnim.currentFrame++;
+	if (_deltaAnim.currentFrame > _deltaAnim.endFrame)
+		_deltaAnim.playing = false;
+	return true;
+}
+
+bool Macs2Engine::tickDeltaPlayback() {
+	if (!_deltaAnim.playing)
+		return false;
+	_deltaAnim.tickCounter++;
+	if (_deltaAnim.tickCounter < _deltaAnim.speedTicks)
+		return true;
+	_deltaAnim.tickCounter = 0;
+
+	const uint16 displayFrame = _deltaAnim.currentFrame;
+	playDeltaFrameSfx(displayFrame);
+	if (displayFrame < _deltaAnim.frames.size())
+		applyDeltaFrameToBackground(_deltaAnim.frames[displayFrame]);
+	_deltaAnim.currentFrame++;
+	if (_deltaAnim.currentFrame > _deltaAnim.endFrame) {
+		_deltaAnim.playing = false;
+		getMusic()->setSmfDucked(false);
+		return false;
+	}
+	return true;
+}
+
+bool Macs2Engine::loadOverlayFont(uint8 resourceIndex, uint16 executingObjectID) {
+	if (isAmiga())
+		return loadAmigaOverlayFont(resourceIndex);
+
+	// Original (1008:d749): resource table offset, then seek address+0x10 and loadFontData.
+	uint32 address = 0;
+	if (!resolveResourceFileOffset(resourceIndex, executingObjectID, address))
+		return false;
+
+	const int64 oldPos = _fileStream->pos();
 	_fileStream->seek(address + 0x10, SEEK_SET);
 	const uint16 glyphCount = _fileStream->readUint16LE();
 	if (glyphCount == 0 || glyphCount > 256) {
@@ -981,13 +1340,13 @@ bool Macs2Engine::findGlyph(char c, GlyphData &out) const {
 
 // getWalkabilityAt (1008:0e8c)
 // Params: (param_1=y, param_2=x)
-// Bounds: x<0 || x>=kScreenWidth || y<0 || y>=kGameHeight -> return 0
+// Bounds: x<0 || x>=screenWidth || y<0 || y>=gameHeight -> return 0
 // Lookup: scene[y*4 + 0x2017] -> row pointer, then byte at [rowPtr + x]
 // Values 0xC8..0xEF: override range - checks scene[value*5 + 0x4EA5]:
 //   If override disabled (flag==0): returns 0xFF
 //   If override enabled (flag!=0): returns scene[value*5 + 0x4EA6]
 uint16 Macs2Engine::getWalkabilityAt(int16 y, int16 x) {
-	if (x < 0 || x >= kScreenWidth || y < 0 || y >= kGameHeight || _pathfindingMap.w == 0) {
+	if (x < 0 || x >= screenWidth() || y < 0 || y >= gameHeight() || _pathfindingMap.w == 0) {
 		return 0;
 	}
 	uint16 value = _pathfindingMap.getPixel(x, y);
@@ -1007,6 +1366,8 @@ uint16 Macs2Engine::getWalkabilityAt(int16 y, int16 x) {
 void Macs2Engine::snapToWalkablePosition(int16 *pTargetY, int16 *pTargetX, int16 charY, int16 charX) {
 	int16 savedX = *pTargetX;
 	int16 savedY = *pTargetY;
+	const int16 maxY = (int16)gameHeightLast();
+	const int16 maxX = (int16)screenWidthLast();
 
 	// Phase 1: Scan downward with depth constraint
 	// Condition: walkability >= 200 OR (targetY - walkability) < savedY
@@ -1015,7 +1376,7 @@ void Macs2Engine::snapToWalkablePosition(int16 *pTargetY, int16 *pTargetX, int16
 		if (isWalkabilityWalkable(w) && (*pTargetY - (int16)w >= savedY)) {
 			break;
 		}
-		if (*pTargetY >= kGameHeightLast) {
+		if (*pTargetY >= maxY) {
 			break;
 		}
 		*pTargetY = *pTargetY + 1;
@@ -1023,19 +1384,19 @@ void Macs2Engine::snapToWalkablePosition(int16 *pTargetY, int16 *pTargetX, int16
 
 	// Phase 2: Continue scanning to bottom for best depth match
 	int16 scanY = *pTargetY;
-	while (scanY <= kGameHeightLast) {
+	while (scanY <= maxY) {
 		uint16 w = getWalkabilityAt(scanY, *pTargetX);
 		if (scanY - (int16)w == savedY) {
 			*pTargetY = scanY;
 		}
-		if (scanY == kGameHeightLast) {
+		if (scanY == maxY) {
 			break;
 		}
 		scanY++;
 	}
 
 	// Phase 3: If at screen bottom and still non-walkable, scan upward
-	if (*pTargetY == kGameHeightLast) {
+	if (*pTargetY == maxY) {
 		uint16 w = getWalkabilityAt(*pTargetY, *pTargetX);
 		if (isWalkabilityBlocking(w)) {
 			while (isWalkabilityBlocking(w) && *pTargetY > 0) {
@@ -1063,7 +1424,7 @@ void Macs2Engine::snapToWalkablePosition(int16 *pTargetY, int16 *pTargetX, int16
 				uint16 w2 = getWalkabilityAt(*pTargetY, *pTargetX);
 				if (isWalkabilityWalkable(w2))
 					break;
-				if (*pTargetX >= kScreenWidthLast)
+				if (*pTargetX >= maxX)
 					break;
 				*pTargetX = *pTargetX + 1;
 			}
@@ -1340,6 +1701,18 @@ void Macs2Engine::nextCursorMode() {
 	}
 }
 
+void Macs2Engine::setBottomHudVisible(bool visible) {
+	_bottomHudVisible = visible;
+	if (hasNativeHudAssets()) {
+		if (visible) {
+			if (_menuMode == 0)
+				_menuMode = 1;
+		} else {
+			_menuMode = 0;
+		}
+	}
+}
+
 void Macs2Engine::setCursorMode(Script::MouseMode newMode) {
 	// setCursorMode (1008:3ea5): when the cursor image changes, keep the hotspot
 	// fixed on screen by compensating for the old/new image half-extents, clamp,
@@ -1362,19 +1735,20 @@ void Macs2Engine::setCursorMode(Script::MouseMode newMode) {
 	};
 
 	View1 *view = (View1 *)findView("View1");
-	const bool scummVerbUI = view && view->hasScummVerbUI();
+	const bool persistentBar = view && view->hasPersistentActionBar();
+	const int barTopY = view ? view->actionBarTopY() : gameHeight();
 
 	uint16 oldHalfW = 0, oldHalfH = 0, newHalfW = 0, newHalfH = 0;
 	cursorHalfSize(oldMode, oldHalfW, oldHalfH);
 
 	Common::Point mouse = g_system->getEventManager()->getMousePos();
-	const bool mouseInUiPanel = scummVerbUI && mouse.y >= gameHeight();
+	const bool mouseInUiPanel = persistentBar && mouse.y >= barTopY;
 
 	_scriptExecutor->_cursorMode = newMode;
 
 	// Keep the pointer on the verb/inventory panel when selecting verbs there, and
 	// skip hotspot compensation when the SCUMM UI shows the same walk cursor for all verbs.
-	if (!mouseInUiPanel && !(scummVerbUI && isGameplayVerb(oldMode) && isGameplayVerb(newMode))) {
+	if (!mouseInUiPanel && !(persistentBar && isGameplayVerb(oldMode) && isGameplayVerb(newMode))) {
 		mouse.x += oldHalfW;
 		mouse.y += oldHalfH;
 
@@ -1382,7 +1756,7 @@ void Macs2Engine::setCursorMode(Script::MouseMode newMode) {
 		mouse.x -= newHalfW;
 		mouse.y -= newHalfH;
 
-		const int maxY = scummVerbUI ? (kScreenHeightLast - (int)newHalfH)
+		const int maxY = persistentBar ? (kScreenHeightLast - (int)newHalfH)
 									: (gameHeightLast() - (int)newHalfH);
 		mouse.x = CLIP<int>(mouse.x, (int)newHalfW, screenWidthLast() - (int)newHalfW);
 		mouse.y = CLIP<int>(mouse.y, (int)newHalfH, maxY);
@@ -1595,7 +1969,7 @@ void Macs2Engine::getHotspotPositions(Common::Array<Graphics::HotspotInfo> &hots
 			continue;
 
 		const Common::Point &center = entry.center;
-		if (center.x < 0 || center.x >= kScreenWidth || center.y < 0 || center.y >= kGameHeight)
+		if (center.x < 0 || center.x >= screenWidth() || center.y < 0 || center.y >= gameHeight())
 			continue;
 
 		const uint16 sceneIndex = (uint16)Scenes::instance()._currentSceneIndex;
@@ -1611,7 +1985,7 @@ void Macs2Engine::getHotspotPositions(Common::Array<Graphics::HotspotInfo> &hots
 			continue;
 
 		const Common::Point &screenPos = entry.position;
-		if (screenPos.x < 0 || screenPos.x >= kScreenWidth || screenPos.y < 0 || screenPos.y >= kGameHeight)
+		if (screenPos.x < 0 || screenPos.x >= screenWidth() || screenPos.y < 0 || screenPos.y >= gameHeight())
 			continue;
 
 		Character *character = view ? view->getCharacterByIndex(entry.index) : nullptr;
@@ -2074,6 +2448,8 @@ bool Macs2Engine::loadObjectData(GameObject *obj) {
 	};
 
 	const uint16 animSlotCount = maxAnimSlots();
+	if (isV2())
+		_fileStream->readUint16LE(); // ReadyObject lead word before anim slots
 	for (int j = 0; j < (int)animSlotCount; j++) {
 		_fileStream->readUint16LE(); // animID (editor metadata, unused at runtime)
 		uint16 blobSourceKey = _fileStream->readUint16LE();
@@ -2158,7 +2534,7 @@ bool Macs2Engine::loadObjectData(GameObject *obj) {
 	// Binary loadObjectData (1008:08ec): runtime+0x21D = object vertical offset.
 	obj->_storedWalkRuntime.motionTargetVerticalOffset = obj->_verticalOffsetScale;
 
-	const uint32 scriptTableOffset = 0x17F8 + (0xC + 0x04) + obj->_index * 0xC;
+	const uint32 scriptTableOffset = getMcsDirectoryOffset() + kMcsV1ObjectScriptPtrRel + obj->_index * 0xC;
 	_fileStream->seek(scriptTableOffset, SEEK_SET);
 	const uint32 scriptOffset = _fileStream->readUint32LE();
 	if (scriptOffset != 0) {
@@ -2166,6 +2542,11 @@ bool Macs2Engine::loadObjectData(GameObject *obj) {
 		const uint maxObjRes = maxObjectResources();
 		for (uint r = 0; r < maxObjRes; r++) {
 			obj->_resourceOffsets[r] = _fileStream->readUint32LE();
+		}
+		if (isV2()) {
+			_fileStream->skip(0x200 - maxObjRes * 4);
+			_fileStream->readUint16LE();
+			_fileStream->readUint16LE();
 		}
 		const uint16 scriptLength = _fileStream->readUint16LE();
 		obj->_script.resize(scriptLength);
@@ -2215,13 +2596,55 @@ bool Macs2Engine::isSamplePlaying() const {
 	return g_system->getMixer()->isSoundHandleActive(_currentSoundHandle);
 }
 
+void Macs2Engine::stopSpeech() {
+	Audio::Mixer *mixer = g_system->getMixer();
+	if (mixer->isSoundHandleActive(_speechSoundHandle))
+		mixer->stopHandle(_speechSoundHandle);
+}
+
+bool Macs2Engine::isSpeechPlaying() const {
+	return g_system->getMixer()->isSoundHandleActive(_speechSoundHandle);
+}
+
+void Macs2Engine::playDigitalAudioFile(const Common::Path &basename, bool speechBus) {
+	Audio::SeekableAudioStream *stream = Audio::SeekableAudioStream::openStreamFile(basename);
+	if (stream == nullptr) {
+		debugC(kDebugScript, "playDigitalAudioFile: no audio for %s",
+			   basename.toString().c_str());
+		return;
+	}
+
+	if (speechBus) {
+		stopSpeech();
+		g_system->getMixer()->playStream(Audio::Mixer::kSpeechSoundType, &_speechSoundHandle, stream);
+	} else {
+		stopSample();
+		g_system->getMixer()->playStream(Audio::Mixer::kSFXSoundType, &_currentSoundHandle, stream);
+	}
+}
+
 Common::String Macs2Engine::getGameId() const {
 	return _gameDescription->gameId;
+}
+
+uint16 Macs2Engine::specialAnimSlotToAnimSlot(uint16 specialSlot) {
+	static const uint16 kMap[5] = {0x15, 0x11, 0x16, 0x17, 0x18};
+	if (specialSlot < 1 || specialSlot > 5)
+		return 0;
+	return kMap[specialSlot - 1];
 }
 
 uint16 Macs2Engine::resolveAnimSlotIndex(const GameObject *obj) const {
 	if (obj == nullptr)
 		return 0;
+	if (isV2()) {
+		for (uint i = 0; i < 5; i++) {
+			const uint16 trig = obj->_specialAnimTriggers[i];
+			if ((int16)trig >= 0 && trig == obj->_orientation)
+				return specialAnimSlotToAnimSlot(i + 1);
+		}
+		return obj->_orientation;
+	}
 	if ((int16)obj->_overloadAnimTriggerDirection < 0 ||
 		obj->_overloadAnimTriggerDirection != obj->_orientation) {
 		return obj->_orientation;
@@ -2245,8 +2668,9 @@ Common::Error Macs2Engine::run() {
 		loadTranslation();
 	}
 
-	// Initialize graphics mode (taller framebuffer when SCUMM verb UI is enabled)
-	initGraphics(kScreenWidth, enhancementEnabled(kEnhUIUX) ? kScreenHeight : kGameHeight);
+	// Initialize graphics mode (taller framebuffer when action bar verb UI is enabled)
+	int gfxH = screenHeight();
+	initGraphics(screenWidth(), gfxH);
 
 	CursorMan.showMouse(false);
 
@@ -2366,14 +2790,15 @@ Common::Point AnimFrame::getBottomMiddleOffset(uint16 scale) const {
 
 AnimFrame BackgroundAnimationBlob::getCurrentFrame() {
 	// Mode 0: read current frame without advancing (draw path uses mode 2 in drawBackgroundAnimations)
-	uint16 offset = advanceAnimFrame(_blob, false, 0x0);
+	Common::Array<uint8> &blob = activeBlob();
+	uint16 offset = advanceAnimFrame(blob, false, 0x0);
 	// offset points to per-frame header: offsetX(2), offsetY(2), unknown(2), width(2), height(2), pixels
 	offset += 6; // skip offsetX, offsetY, unknown
 	AnimFrame result;
-	result._width = READ_LE_UINT16(&_blob[offset]);
-	result._height = READ_LE_UINT16(&_blob[offset + 2]);
+	result._width = READ_LE_UINT16(&blob[offset]);
+	result._height = READ_LE_UINT16(&blob[offset + 2]);
 	result._data.resize(result._width * result._height);
-	memcpy(result._data.data(), &_blob[offset + 4], result._width * result._height);
+	memcpy(result._data.data(), &blob[offset + 4], result._width * result._height);
 	return result;
 }
 

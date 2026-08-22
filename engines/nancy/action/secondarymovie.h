@@ -91,11 +91,16 @@ public:
 
 	bool getIsFinished() const { return _isFinished; }
 
+	// Enhancement: jump a cinematic straight to its end, as if it had finished
+	// playing on its own. Only movies that hide the player cursor are skipped;
+	// the rest are background animations the player isn't waiting on.
+	void skip();
+
 	Common::Path _videoName;
 	Common::Path _paletteName;
 	Common::Path _bitmapOverlayName;
 
-	// Container the record asks for; only present from Nancy7 to Nancy13.
+	// Container the record asks for; only meaningful from Nancy7 to Nancy12.
 	byte _videoPlaytype = kVideoPlaytypeAuto;
 
 	uint16 _videoFormat = kLargeVideoFormat;
@@ -139,9 +144,8 @@ public:
 	uint16 _randomPlayerCursorAllowed = kPlayerCursorAllowed;
 	Common::Array<RandomSequence> _sequences;
 
-	// Nancy13+ carries one extra "secondary" movie (a recognition animation)
-	// after the sequence list. Stored for future playback; reading it is
-	// required so the trailing hotspot list stays aligned.
+	// Nancy13+ carries one extra "secondary" movie after the sequence list: the
+	// character's recognition animation, played while the mouse hovers it.
 	RandomSequence _secondaryMovie;
 
 	// Nancy13 talkable characters: the scene to open when the character is

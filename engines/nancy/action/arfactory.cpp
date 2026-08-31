@@ -26,6 +26,7 @@
 #include "engines/nancy/action/miscrecords.h"
 
 #include "engines/nancy/action/autotext.h"
+#include "engines/nancy/action/cameraaction.h"
 #include "engines/nancy/action/conversation.h"
 #include "engines/nancy/action/interactivevideo.h"
 #include "engines/nancy/action/overlay.h"
@@ -389,10 +390,8 @@ ActionRecord *ActionManager::createActionRecord(uint16 type, Common::SeekableRea
 		return new AddSearchLink();
 	case 132:	// Nancy12
 		return new ResourceUse();
-	case 133:	// Nancy14 - CameraAction
-		// Cell-phone camera action (introduced alongside the UICM camera UI).
-		// TODO: not yet implemented
-		return nullptr;
+	case 133:	// Nancy14
+		return new CameraAction();
 	case 134:	// Nancy15 - PlayCharAR
 		// Switches the active player character (Nancy / Frank / Joe), the
 		// dual-protagonist mechanic new to The Creature of Kapu Cave.
@@ -403,16 +402,12 @@ ActionRecord *ActionManager::createActionRecord(uint16 type, Common::SeekableRea
 			return new SetPlayerClock();	// Moved from 170 in Nancy12
 		else
 			return new SetVolume();			// Legacy SetVolume slot (used up to Nancy8)
-	case 141:
-		// MakeScreenFile, moved here from 148 in Nancy12.
-		// Saves a cropped image of the screen to a bitmap/TGA file.
-		// TODO: debug-only feature, not implemented
-		return nullptr;
-	case 143:	// Nancy14 - ConcatSound
-	case 144:	// Nancy14 - MultiSound (dropped from the Nancy15 dispatch)
-		// Sibling sound ARs. ConcatSound plays a list of named sounds back-to-back;
-		// TODO: not yet implemented
-		return nullptr;
+	case 141:	// Nancy12
+		return new MakeScreenFile();	// Moved from 148 in Nancy12
+	case 143:	// Nancy14
+		return new ConcatSound();
+	case 144:	// Nancy14
+		return new MultiSound();
 	case 145:	// Nancy13
 		return new PlaySound(); // Moved from 150 in Nancy13
 	case 146:	// Nancy13
@@ -426,8 +421,8 @@ ActionRecord *ActionManager::createActionRecord(uint16 type, Common::SeekableRea
 			return new StopSound();	// Nancy13: StopSound moved here (was 154)
 		if (g_nancy->getGameType() >= kGameTypeNancy12)
 			return new SetVolume();	// Moved from 149 in Nancy12
-		// MakeScreenFile - seems to save a cropped image of the screen in a bitmap file?
-		// TODO: Used in Nancy 9, sand castle puzzle. Moved to 141 in Nancy12.
+		if (g_nancy->getGameType() >= kGameTypeNancy9)
+			return new MakeScreenFile();	// Moved to 141 in Nancy12
 		return nullptr;
 	case 149:
 		if (g_nancy->getGameType() >= kGameTypeNancy13)
@@ -440,7 +435,7 @@ ActionRecord *ActionManager::createActionRecord(uint16 type, Common::SeekableRea
 			return nullptr;
 	case 150:
 		if (g_nancy->getGameType() >= kGameTypeNancy14)
-			return nullptr;	// Nancy14: SetMovieVolume, TODO. PlaySound moved to 145 in Nancy13.
+			return new SetMovieVolume();	// PlaySound moved to 145 in Nancy13
 		return new PlaySound();
 	case 151:
 		if (g_nancy->getGameType() <= kGameTypeNancy6)
@@ -452,9 +447,8 @@ ActionRecord *ActionManager::createActionRecord(uint16 type, Common::SeekableRea
 	case 153:
 		return new PlaySoundMultiHS();
 	case 154:
+	case 155: // StopAndUnloadSound, but we always unload
 		return new StopSound();
-	case 155:
-		return new StopSound(); // StopAndUnloadSound, but we always unload
 	case 156:	// Nancy11
 		return new Update3DSound();
 	case 157:

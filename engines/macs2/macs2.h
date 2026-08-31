@@ -38,6 +38,7 @@
 #include "common/text-to-speech.h"
 #include "common/util.h"
 #include "engines/engine.h"
+#include "graphics/palette.h"
 #include "macs2/amiga_archive.h"
 #include "macs2/events.h"
 #include "macs2/macs2_constants.h"
@@ -109,7 +110,7 @@ struct GlyphData : public Sprite {
 	char _ascii = 0;
 
 	void readFromeFile(Common::File &file);
-	void readFromMemory(Common::MemoryReadStream *stream);
+	void readFromMemory(Common::SeekableReadStream *stream);
 };
 
 struct AnimFrame : public Sprite {
@@ -117,9 +118,22 @@ struct AnimFrame : public Sprite {
 	int16 _offsetY = 0;
 
 	void readFromeFile(Common::File &file);
-	void readFromStream(Common::MemoryReadStream *stream);
+	void readFromStream(Common::SeekableReadStream *stream);
 	bool pixelHit(const Common::Point &point) const;
 	Common::Point getBottomMiddleOffset(uint16 scale = 100) const;
+};
+
+enum class MenuMode : uint16 {
+	Hidden = 0,
+	Main = 1,
+	Options = 2,
+	DialogueList = 4
+};
+
+enum class OptionsSubMode : uint16 {
+	None = 0,
+	Save = 1,
+	Load = 2
 };
 
 /** Persistent native HUD button (megapic panel skin). */
@@ -130,7 +144,7 @@ struct HudButton {
 	uint16 activeStep = 0;
 	uint16 hoverStep = 0;
 	uint16 buttonId = 0; // 1=Walk, 2=Look, 3=Talk, 4=Use, 0x33=Options, ...
-	uint16 menuId = 0;   // 1=main bar, 2=options, ...
+	uint16 menuId = 0;
 	AnimFrame frame;
 	AnimFrame activeFrame;
 	AnimFrame hoverFrame;
@@ -166,6 +180,8 @@ struct BackgroundAnimationBlob {
 	}
 	AnimFrame getCurrentFrame();
 	static uint16 advanceAnimFrame(Common::Array<uint8> &blob, bool bpp6, uint16 bpp8);
+	/** 1-based pixel frame index from the current sequence position (advanceAnimFrame cx). */
+	static uint16 getCurrentPixelFrameNumber(const Common::Array<uint8> &blob);
 	static uint16 getAnimFrameCount(Common::Array<uint8> &blob);
 	// Mirrors (horizontally flips) all frames in an animation blob in-place.
 	// Matches binary decodeAnimBlob (1010:184d) which calls the row-flip at 1010:1319.
@@ -281,7 +297,7 @@ protected:
 	}
 
 public:
-	Graphics::ManagedSurface readRLEImage(int64 offs, Common::MemoryReadStream *stream);
+	Graphics::ManagedSurface readRLEImage(int64 offs, Common::SeekableReadStream *stream);
 
 	/** Open primary MCS archive, check magic, load v1 or v2 layout. */
 	void readResourceFile();
@@ -294,6 +310,12 @@ public:
 	McsFileVersion detectMcsFileVersion(Common::SeekableReadStream &stream) const;
 	/** Load AHFFMACS0100 layout (loadResourceFile @ 1008:2e8d). */
 	void loadResourceFileV1();
+	/** Load AHFFMACS0200 layout */
+	void loadResourceFileV2();
+	/** Shared actor/scene/object directory load after dialect-specific globals */
+	void bootstrapMcsActorsObjectsAndScene();
+	/** Soft restart (options button 0x20 / Macs2PretReInit). */
+	void softRestart();
 	const char *getResourceMcsFilename() const;
 	/** Amiga: open DataA/Mdir, load OO objects as GameObjects, cursors, and scene stubs. */
 	void readAmigaResources();
@@ -330,10 +352,10 @@ public:
 	void readExecutable();
 
 	// Assumes that the stream is at the location of the number of background animations
-	void readBackgroundAnimations(Common::MemoryReadStream *stream);
+	void readBackgroundAnimations(Common::SeekableReadStream *stream);
 
 	// Assumes that the stream is at the start of the right section
-	void readImageResources(Common::MemoryReadStream *stream);
+	void readImageResources(Common::SeekableReadStream *stream);
 
 public:
 	Macs2Engine(OSystem *osystem, const ADGameDescription *gameDesc);
@@ -355,15 +377,17 @@ public:
 
 	// This is the depth map
 	Graphics::ManagedSurface _depthMap;
+	// Scene-load snapshot used to restore depth under background animation frame 0.
+	Graphics::ManagedSurface _sceneDepthMap;
 
 	// Shadow/shading intensity map (scene+0x301B). Per-pixel values 0-32
 	// control character sprite darkening via the shading table.
 	// Only scenes with shadow regions have non-zero data.
 	Graphics::ManagedSurface _shadowMap;
 
-	// TODO: use Graphics::Palette for this
-	byte _pal[256 * 3] = {0};
-	byte _palVanilla[256 * 3] = {0};
+	// _palVanilla: raw 6-bit VGA source. _pal: 8-bit display (darkened + expanded).
+	Graphics::Palette _pal{Graphics::PALETTE_COUNT};
+	Graphics::Palette _palVanilla{Graphics::PALETTE_COUNT};
 
 	Common::Array<Common::String> _debugOutput;
 	Common::Array<Common::String> _textLog;
@@ -374,8 +398,7 @@ public:
 	Common::Array<PathfindingAreaOverride> _pathfindingOverrides;
 	// Area override table at scene+value*5+0x4EA8 (for getAreaAtPoint)
 	uint16 _areaOverrides[AREA_OVERRIDE_COUNT] = {0};
-	uint16 _pathfindingPoints[32];
-	Common::Array<PathfindingPoint> pathfindingPoints;
+	Common::Array<PathfindingPoint> _pathfindingPoints;
 	Common::Array<Common::Point> _path;
 
 	bool getPathfindingOverride(uint16 index, uint16 &result);
@@ -395,6 +418,9 @@ public:
 	void removePathfindingOverride(uint16 index);
 
 	uint16 getWalkabilityAt(int16 y, int16 x);
+	/** Sync depth map with the current background animation frame (v1 gate fix). */
+	void updateBackgroundAnimationDepthMap(size_t animIndex);
+	void updateAllBackgroundAnimationDepthMaps();
 	bool isPathWalkable(int16 y1, int16 x1, int16 y2, int16 x2);
 	void snapToWalkablePosition(int16 *pTargetY, int16 *pTargetX, int16 charY, int16 charX);
 	int getPathfindingNodeCount() const { return (int)_numPathfindingPoints; }
@@ -408,6 +434,8 @@ public:
 	Common::Array<uint16> _hotspotOverrides;
 
 	Common::Array<Macs2::AnimFrame> _imageResources;
+	/** Per-cursor hotspot from native HUD button metadata (v2); (0,0) = use center. */
+	Common::Point _cursorHotspots[33];
 
 	GlyphData _glyphs[256];
 	GlyphData _panelGlyphs[256]; // Font 2: clean sans-serif font used by save/load panel
@@ -462,7 +490,7 @@ public:
 		uint16 clipMiY = 0;
 		uint16 clipMaX = 0;
 		uint16 clipMaY = 0;
-		byte palette[0x300] = {};
+		Graphics::Palette palette{Graphics::PALETTE_COUNT};
 		bool applyPaletteOnStart = false;
 		Common::Array<DeltaFrame> frames;
 		Common::Array<DeltaSfxEvent> sfxEvents;
@@ -479,7 +507,7 @@ public:
 			clipMiX = clipMiY = 0;
 			clipMaX = (uint16)MAX(0, screenW - 1);
 			clipMaY = (uint16)MAX(0, screenH - 1);
-			memset(palette, 0, sizeof(palette));
+			palette = Graphics::Palette(Graphics::PALETTE_COUNT);
 		}
 	};
 	DeltaAnimState _deltaAnim;
@@ -490,8 +518,8 @@ public:
 	void applyDeltaFrameToBackground(const DeltaFrame &frame);
 	void playDeltaFrameSfx(uint16 displayFrame);
 	// Font glyph count (79 glyphs in the resource file's font data)
-	uint16 numGlyphs = 79;
-	uint16 maxGlyphHeight;
+	uint16 _numGlyphs = 79;
+	uint16 _maxGlyphHeight;
 
 	AnimFrame _animFrames[6];
 	// 6 flag/decoration animation frames at fixed file offset 0x6A5941, each followed by 6 padding bytes
@@ -511,7 +539,7 @@ public:
 	Common::Array<BackgroundAnimation> _backgroundAnimations;
 	Common::Array<BackgroundAnimationBlob> _backgroundAnimationsBlobs;
 
-	Common::MemoryReadStream *_fileStream = nullptr;
+	Common::SeekableReadStream *_fileStream = nullptr;
 	McsFileVersion _mcsFileVersion = McsFileVersion::Unknown;
 	/** Absolute file offset of the 0x3000-byte scene/object directory. */
 	uint32 _mcsDirectoryOffset = kMcsV1DirectoryOffset;
@@ -520,6 +548,7 @@ public:
 	uint16 amigaTextLinePitch = 0;
 	/** True after loadAmigaSceneBackground installed copper colors in 0..31. */
 	bool _amigaNativePlayfieldPalette = false;
+	Common::Array<byte> _amigaLineCopperPal;
 	/** Amiga DataA/Mdir archive (owned). Null on DOS. */
 	Macs2AmigaArchive *_amigaArchive = nullptr;
 	/** Filled by loadAmigaSceneBackground; consumed by Amiga changeScene. */
@@ -539,10 +568,8 @@ public:
 	/** Y where the bottom HUD starts; scene above this is interactive. */
 	uint16 _panelTopY = 0;
 	uint16 _panelHeight = 0;
-	/** 0=hidden, 1=main verbs/invent, 2=options, 4=dialogue list. */
-	uint16 _menuMode = 1;
-	/** 0=none, 1=save, 2=load (options submenu). */
-	uint16 _optionsSubMode = 0;
+	MenuMode _menuMode = MenuMode::Main;
+	OptionsSubMode _optionsSubMode = OptionsSubMode::None;
 	Script::MouseMode _savedMenuCursorMode = Script::MouseMode::Walk;
 	uint16 _inventScroll = 1;
 	uint16 _inventOriginX = 0;
@@ -584,6 +611,8 @@ public:
 	uint16 _paletteDarkenPercent;
 
 	void applyPaletteDarkening();
+	void readPalette(Common::SeekableReadStream *stream, Graphics::Palette &dest);
+	void expandPalette6To8(Graphics::Palette &pal);
 	// Palette quantization for g_wHelpButtonDisabled path (1000:103e).
 	// Histograms scene pixels, keeps 16 rarest colors (0..0xBF) plus UI range
 	// 0xC0..0xFF, remaps background + bg-anim blobs + palette via Manhattan RGB.
@@ -716,8 +745,11 @@ public:
 	Common::HashMap<uint32, TranslationEntry> _sceneTranslations;
 	Common::HashMap<uint32, TranslationEntry> _objectTranslations;
 	Common::HashMap<Common::String, Common::String> _hotspotLabelTranslations;
+	Common::HashMap<Common::String, Common::String> _uiLabelTranslations;
 	void loadTranslation();
 	Common::String translateHotspotLabel(const Common::String &cp850Name) const;
+	/** Action-bar / HUD chrome; German source key, same lookup rules as hotspot labels. */
+	Common::String translateUiLabel(const Common::String &source) const;
 	// Compute the sequential string index at the given byte offset in a string blob
 	int computeStringIndex(Common::MemoryReadStream *stream, int targetOffset);
 
@@ -756,8 +788,9 @@ public:
 
 	/**
 	 * Bottom HUD / action-bar visibility (dialect-neutral).
-	 * Driven by showActionBar / hideActionBar; Scumm verb strip and native
-	 * HUDs both respect this flag. Native skin also maps visible <-> menuMode.
+	 * hide/show opcodes toggle MenuMode Hidden vs Main and restore the cursor saved
+	 * on hide. The Scumm kEnhUIUX strip uses the same flag; cursor mode alone
+	 * never hides the bar.
 	 */
 	bool isBottomHudVisible() const { return _bottomHudVisible; }
 	void setBottomHudVisible(bool visible);
@@ -782,7 +815,8 @@ public:
 	uint16 overloadAnimSlot() const { return maxAnimSlots(); }
 	static uint16 specialAnimSlotToAnimSlot(uint16 specialSlot);
 	/** Scene hotspot override table entries (1-based inclusive max). */
-	uint16 maxHotspots() const { return 0x10; }
+	/** Hotspot remap table indices (1-based). DOS scene+0x5BD1: 16; V2 ActModule+0x6161: 32. */
+	uint16 maxHotspots() const { return isV2() ? 0x20 : 0x10; }
 	/** Per-object resource offset table entries. */
 	uint maxObjectResources() const { return 32; }
 	/** Anim slot used for the current orientation (overload-direction rule). */
@@ -810,8 +844,8 @@ public:
 	 */
 	int dialogLineHeight() const {
 		if (isAmiga())
-			return amigaTextLinePitch ? (int)amigaTextLinePitch : (int)maxGlyphHeight;
-		return (int)maxGlyphHeight + dialogLineGap();
+			return amigaTextLinePitch ? (int)amigaTextLinePitch : (int)_maxGlyphHeight;
+		return (int)_maxGlyphHeight + dialogLineGap();
 	}
 
 	/** Depth-map compare Y for sprite occlusion (halved on v2 full-res depth). */
@@ -826,6 +860,10 @@ public:
 	 * Called from changeScene; Amiga uses native MXMM from DataA.
 	 */
 	bool loadSceneGraphics(uint32 sceneIndex);
+	/** AHFFMACS0100 scene package (RLE maps). */
+	bool loadSceneGraphicsV1(uint32 sceneIndex);
+	/** AHFFMACS0200 ReadyModule scene package (MegaPic + half-res masks). */
+	bool loadSceneGraphicsV2(uint32 sceneIndex);
 
 	/**
 	 * Returns the game Id
@@ -904,6 +942,9 @@ public:
 
 extern Macs2Engine *g_engine;
 #define SHOULD_QUIT ::Macs2::g_engine->shouldQuit()
+Common::String getObjectHotspotName(uint16 objectIndex);
+/** Display name for a hit id: 0x400+object or 0x800+scene hotspot. */
+Common::String lookupInteractionDisplayName(uint16 interactionId);
 
 } // End of namespace Macs2
 

@@ -98,8 +98,9 @@ protected:
 	// slots, FUN_004b6660 case 0).
 	void blitCentered(const Common::Rect &src, const Common::Rect &slot);
 	void redraw();
-	void setDataCursor(uint16 cursorType) const;
-	SoundDescription playSoundBlock(const RandomSoundBlock &block);
+	// Zone cursors take the idle sprite of their type, hover/drag cursors the hotspot one.
+	void setDataCursor(uint16 cursorType, bool hotspotVariant = true) const;
+	void playSoundBlock(const RandomSoundBlock &block);
 
 	// -- File data --
 	Common::Path _imageName;				// 0x00
@@ -107,7 +108,7 @@ protected:
 	uint16 _dragCursorType = 0;				// 0x23 - raw Nancy13 cursor type while carrying
 	SceneChangeDescription _solveScene;		// 0x25 - applied when solved (9999 => none)
 	FlagDescription _solveFlag;				// 0x27 - set when solved
-	RandomSoundBlock _latchSound;			// the first sound block; played on give-up
+	RandomSoundBlock _solveSound;			// the first sound block; played once solved
 
 	Common::Array<Target> _targets;			// the figures to match in this scene
 	Common::Array<Coin> _coins;				// the coin definitions
@@ -143,8 +144,8 @@ protected:
 	Common::Point _dragPos;					// cursor position (viewport space) while carrying
 
 	bool _solved = false;
+	bool _solveTriggered = false;			// the solve flag/scene are applied only once
 	bool _exitRequested = false;
-	SoundDescription _endSound;				// the cue we wait on before changing scene
 
 	Graphics::ManagedSurface _image;
 };

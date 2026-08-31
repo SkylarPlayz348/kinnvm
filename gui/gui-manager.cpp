@@ -612,7 +612,7 @@ void GuiManager::runLoop() {
 	Common::EventManager *eventMan = _system->getEventManager();
 	const uint32 targetFrameDuration = 1000 / 60;
 
-	while (!_dialogStack.empty() && activeDialog == getTopDialog() && !eventMan->shouldQuit() && (!g_engine || !eventMan->shouldReturnToLauncher())) {
+	while (activeDialog == getTopDialog() && !eventMan->shouldQuit() && (!g_engine || !eventMan->shouldReturnToLauncher())) {
 		uint32 frameStartTime = _system->getMillis(true);
 
 		// Don't "tickle" the dialog until the theme has had a chance
@@ -701,12 +701,12 @@ void GuiManager::runLoop() {
 						wdg->handleTooltipUpdate(_lastMousePosition.x + activeDialog->_x - wdg->getAbsX(), _lastMousePosition.y + activeDialog->_y - wdg->getAbsY());
 
 					if (wdg->hasTooltip()) {
-						_tooltip = new Tooltip();
-						_tooltip->setup(activeDialog, wdg, _lastMousePosition.x, _lastMousePosition.y);
+						Tooltip *tooltip = new Tooltip();
+						tooltip->setup(activeDialog, wdg, _lastMousePosition.x, _lastMousePosition.y);
+						_tooltip = tooltip;
 						_tooltip->runModal();
 						// _tooltip is reset in closeTopDialog
-						delete _tooltip;
-						_tooltip = nullptr;
+						delete tooltip;
 					}
 				}
 			}
